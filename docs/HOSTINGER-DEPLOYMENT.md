@@ -234,3 +234,20 @@ backup copy before each deployment).
 - Cron without SSH or an env file: `curl -s -o /dev/null https://TEMPDOMAIN/healthz` every minute keeps the app awake,
   so the in-app timers (push sending, auto-reopen, payment expiry, cleanup, backups) keep running. A first backup is
   taken one minute after each start when the last one is older than 24 h.
+
+## 11. Staging deployment record (13 Nov 2026)
+
+- **App:** one new Node.js Web App (1 of 5 slots) on the free temporary domain
+  `https://mediumpurple-barracuda-979163.hostingersite.com` (Express preset, Node 22.x, entry `server.js`, ZIP upload;
+  hPanel's GitHub/URL import is disabled for the collaborator account). Build `209cd38` (`pakka-local-hostinger-staging-2.zip`).
+- **Separate storage:** `~/pakka-local-data/{db,uploads,backups,secrets}`; nothing inside any other site's folder.
+- **Settings (12, no secrets):** NODE_ENV=production, APP_ENV=staging, SERVE_FRONTEND=true, DB_PATH, UPLOAD_DIR,
+  BACKUP_DIR, SECRETS_DIR, BACKUP_KEEP=14, PAYMENT_PROVIDER=disabled, OTP_PROVIDER=whatsapp (not configured, so customer
+  login is off), MAP_TILE_URL=none, TRUST_PROXY=1. The one-time BOOTSTRAP_ADMIN_* settings were removed after first start.
+- **Cron:** `* * * * *  wget -q -O /dev/null https://mediumpurple-barracuda-979163.hostingersite.com/healthz` (keeps the app awake).
+- **Verified on the host:** Node v22.23.5; database created 2026-11-13T14:11:51Z and unchanged after two redeploys
+  (same files, then new files); secrets created on the server (push key served); all four portals and the API 200 over
+  HTTPS; HTTP→HTTPS redirect; API replies `no-store`; customer OTP refused (WhatsApp not configured); wrong admin
+  password refused; the four existing websites still answer 200.
+- **Found on the host and fixed:** Hostinger can start two app processes for one app (seen after a redeploy). Push
+  deliveries are now claimed with a lease so a notification is never sent twice (test: 48 sends before, 12 after).
