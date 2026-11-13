@@ -9,16 +9,41 @@
     ${o.instructions ? `<div class="banner info mt2" style="margin-bottom:0"><b>Instructions:</b> ${e(o.instructions)}</div>` : ''}<div class="row wrap mt2">${PL.mapsBtn(o.destination.maps_link, 'Map')}<a class="btn ghost sm" href="tel:${e(o.customer.phone)}">${PL.icon('phone', 'width="18" height="18"')} Call customer</a></div>`;
 
   // ---------- offers: alert layer, 1s poll ----------
+  // One offer card at a time, docked above the bottom navigation (same queue layout as the restaurant portal).
+  // Every open offer stays in the queue and in "Available offers" on the Deliveries tab; the queue only changes which one is shown.
+  let curId = null, collapsed = false;
+  const setAlertSpace = (box) => document.documentElement.style.setProperty('--alert-h', box.classList.contains('hide') ? '0px' : box.offsetHeight + 'px');
+  const brief = (o) => `<div class="row between mt2 wrap">${PL.code(o.order_code)}<b class="price" style="color:var(--ok)">${rs(o.fee_paise)}</b></div>
+    <div class="small mute">${o.distance_km ? o.distance_km + ' km · ' : ''}${o.eta_at ? 'Customer expects ~' + PL.time(o.eta_at) : ''}</div>
+    <div class="rq-items"><div class="kv"><span class="mute small">Pickup</span><span class="right"><b>${e(o.restaurant.name)}</b><br><span class="small">${e(o.restaurant.address || '')}</span></span></div>
+    <div class="kv"><span class="mute small">Drop-off</span><span class="right small">${e(o.destination.text || '')}</span></div>
+    <div class="kv"><span class="mute small">Items</span><span class="right small">${o.items.map((i) => `${i.qty} × ${e(i.name)}`).join(', ')}</span></div></div>
+    <div class="small mute">Maps, phone numbers and instructions are on the Deliveries tab.</div>`;
   async function tick() {
     let d; try { d = await PL.api('/api/rider/offers'); } catch { return; }
     S.last = d; PL.track.sync(d.active.length);      // share location only while a delivery is assigned
     const offers = d.offers.filter((o) => !S.dismissed.has(o.id)); PL.badge('/jobs', d.active.length + offers.length);
     const box = PL.$('#alerts'); if (!box) return;
-    const html = offers.map((o) => `<div class="card"><div class="row between"><b>New delivery offer</b><span class="chip brand">Earn ${rs(o.fee_paise)}</span></div>${detail(o)}
-      ${PL.sound.unlocked ? '' : '<button class="btn ghost block mt2" data-act="sound-on">Tap to enable alert sound</button>'}<div class="row mt2"><button class="btn ghost grow" data-act="dismiss" data-id="${o.id}">Not now</button><button class="btn grow" data-act="claim" data-id="${o.id}">Accept</button></div></div>`).join('');
+    box.classList.add('rq');
+    let i = offers.findIndex((o) => o.id === curId); if (i < 0) i = 0;
+    const o = offers[i], n = offers.length; curId = o ? o.id : null; if (!o) collapsed = false;
+    const html = !o ? '' : collapsed
+      ? `<div class="card rq-bar" role="status"><span class="dot"></span><b class="grow">${n} delivery offer${n > 1 ? 's' : ''} waiting</b><button class="btn sm" data-act="rq-expand">Show</button></div>`
+      : `<div class="card" role="alertdialog" aria-label="Delivery offer ${i + 1} of ${n}">
+      <div class="row between"><b>${n > 1 ? `New offer <span class="mute">· ${i + 1} of ${n}</span>` : 'New delivery offer'}</b><div class="row" style="gap:4px">${n > 1 ? `<button class="iconbtn" data-act="rq-prev" aria-label="Previous offer" ${i === 0 ? 'disabled' : ''}>‹</button><button class="iconbtn" data-act="rq-next" aria-label="Next offer" ${i === n - 1 ? 'disabled' : ''}>›</button>` : ''}<button class="iconbtn" data-act="rq-collapse" aria-label="Minimise alert" title="Minimise">${PL.icon('x')}</button></div></div>
+      ${n > 1 ? `<div class="rq-list" role="tablist">${offers.map((p, k) => `<button role="tab" aria-selected="${k === i}" class="${k === i ? 'on' : ''}" data-act="rq-pick" data-id="${p.id}">${e(String(p.order_code).slice(-6))} · ${rs(p.fee_paise)}</button>`).join('')}</div>` : ''}
+      ${brief(o)}
+      ${PL.sound.unlocked ? '' : '<button class="btn ghost sm block mt2" data-act="sound-on">Tap to enable alert sound</button>'}<div class="row mt2"><button class="btn ghost grow" data-act="dismiss" data-id="${o.id}">Not now</button><button class="btn grow" data-act="claim" data-id="${o.id}">Accept</button></div></div>`;
     if (box.dataset.h !== html) { box.dataset.h = html; box.innerHTML = html; }
-    box.classList.toggle('hide', !offers.length); PL.sound.sync(offers.length > 0);
+    box.classList.toggle('hide', !n); setAlertSpace(box); PL.sound.sync(n > 0);
   }
+  const move = (dlt) => { const offers = (S.last?.offers || []).filter((o) => !S.dismissed.has(o.id)); const i = offers.findIndex((o) => o.id === curId); const nx = offers[Math.min(offers.length - 1, Math.max(0, i + dlt))]; if (nx) curId = nx.id; tick(); };
+  PL.actions['rq-prev'] = () => move(-1);
+  PL.actions['rq-next'] = () => move(1);
+  PL.actions['rq-pick'] = (el) => { curId = Number(el.dataset.id); tick(); };
+  PL.actions['rq-collapse'] = () => { collapsed = true; tick(); };
+  PL.actions['rq-expand'] = () => { collapsed = false; tick(); };
+  addEventListener('resize', () => { const b = PL.$('#alerts'); if (b) setAlertSpace(b); });
   PL.actions['sound-on'] = async () => { await PL.sound.enable(); tick(); };
   PL.actions.claim = async (el) => { const r = await PL.run(() => PL.post(`/api/rider/orders/${el.dataset.id}/accept`), 'Order accepted'); await tick(); if (r) PL.go('/jobs'); else PL.rerender(); };
   PL.actions.dismiss = async (el) => { S.dismissed.add(Number(el.dataset.id)); await PL.run(() => PL.post(`/api/rider/orders/${el.dataset.id}/dismiss`)); tick(); };
@@ -73,6 +98,6 @@
   PL.start({ portal: 'rider', name: 'Rider', home: '/jobs', loginView: (root) => PL.staffLogin(root, { title: 'Delivery partner', blurb: 'Sign in with the account Pakka Local created for you.' }),
     right: () => '',
     tabs: [{ path: '/jobs', label: 'Deliveries', icon: 'bike' }, { path: '/earnings', label: 'Earnings', icon: 'wallet' }, { path: '/profile', label: 'Profile', icon: 'user' }],
-    onReady: () => { refreshMe(); tick(); const a = setInterval(tick, 1000), b = setInterval(refreshMe, 15000); PL.hooks.stop = [() => { PL.track.stop(); clearInterval(a); clearInterval(b); const x = PL.$('#alerts'); if (x) { x.innerHTML = ''; x.dataset.h = ''; x.classList.add('hide'); } }]; },
+    onReady: () => { refreshMe(); tick(); const a = setInterval(tick, 1000), b = setInterval(refreshMe, 15000); PL.hooks.stop = [() => { PL.track.stop(); clearInterval(a); clearInterval(b); const x = PL.$('#alerts'); if (x) { x.innerHTML = ''; x.dataset.h = ''; x.classList.add('hide'); setAlertSpace(x); } }]; },
     routes: { '/jobs': { title: 'Deliveries', render: jobs, poll: 2000 }, '/job/:id': { title: 'Delivery', render: oneJob, poll: 2000 }, '/earnings': { title: 'Earnings', render: earnings, poll: 6000 }, '/profile': { title: 'Profile', render: profile } } });
 })();

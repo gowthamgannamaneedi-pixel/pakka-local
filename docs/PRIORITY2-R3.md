@@ -8,16 +8,17 @@ with Phase 1. No business rule, price, commission or payment behaviour was chang
 | Task | Change |
 | --- | --- |
 | Restaurant order alerts | One alert card at a time instead of a stack. With several pending orders it shows "1 of 3", previous/next buttons and a scrollable row of order chips (oldest first). Each card shows order ID, order time (and how long ago), items, order amount and payout, plus Reject and Accept. A minimise button shrinks it to a "3 new orders waiting · Show" bar; the sound and the "New" tab keep every pending order. Mobile: the card sits above the bottom navigation and the page gets matching bottom padding, so every control can be scrolled clear. Desktop (900 px+): it is a side panel on the right and the page keeps a right-hand gutter, so no order card or button is underneath it. |
+| Rider offer alerts | Same queue layout as the restaurant: one offer card at a time ("New offer · 1 of 4"), previous/next, offer chips (order ID · fee), minimise to "4 delivery offers waiting · Show". The card is compact (order ID, fee, distance, customer ETA, pickup, drop-off, items); maps, phone numbers and instructions stay on the Deliveries tab, where every offer is still listed in full. "Not now" and "Accept" behave exactly as before (same API calls). Docked above the bottom navigation on phones; right-hand side panel on desktop. |
 | Admin Daily trend | Cause of the "₹1" chart: with no revenue the axis fell back to a hard-coded ₹1 maximum, and the default "Today" range has a single day. The server aggregation was checked and is correct (IST day buckets, DELIVERED orders only, platform ledger rows only, totals equal the sum of the days); new tests prove it. The chart now shows a clear empty state ("No delivered orders in this range"), rounded axis labels (₹0 / ₹1k / ₹2k), range totals, per-bar tooltips, zero days as gaps, and a hint to choose 7 or 30 days when one day is shown. Nothing is estimated or filled in. |
 | Leaflet | Leaflet 1.9.4 (BSD-2-Clause) is now inside the project: `frontend/public/vendor/leaflet/` holds `leaflet.js`, `leaflet.js.map`, `leaflet.css`, `images/` (marker and layer icons) and `LICENSE`. Nothing is downloaded at runtime. The refresh script is now Node (`scripts/vendor-leaflet.mjs`, also `npm run vendor:leaflet`), so it runs on Windows too. |
 | Map tiles | `MAP_TILE_URL` / `MAP_TILE_ATTRIBUTION` unchanged. New value `MAP_TILE_URL=none` switches the map off on any environment (useful to check the fallback locally). Production still has no map unless a provider is set; development still falls back to the public OSM tile server for light local use only. No paid provider or key is hard-coded. |
-| Service worker | Cache name `pl-static-v4` so browsers pick up the new CSS/JS. |
+| Service worker | Cache name `pl-static-v5` so browsers pick up the new CSS/JS. |
 | Test isolation | `test/p2-payments.test.js` no longer reads a developer's `backend/.env` (it made 2 tests fail on a machine with a local `.env`). |
 
 ## 2. Exact changed files (against `pakka-local-priority2-r2.zip`)
 
-Modified (12): `.env.example`, `docs/PRIORITY2.md` (pointer to this file), `backend/package.json` (vendor script only), `backend/src/config.js` (`MAP_TILE_URL=none`),
-`backend/test/p2-payments.test.js`, `frontend/public/admin/app.js`, `frontend/public/restaurant/app.js`,
+Modified (13): `.env.example`, `docs/PRIORITY2.md` (pointer to this file), `backend/package.json` (vendor script only), `backend/src/config.js` (`MAP_TILE_URL=none`),
+`backend/test/p2-payments.test.js`, `frontend/public/admin/app.js`, `frontend/public/restaurant/app.js`, `frontend/public/rider/app.js`,
 `frontend/public/shared/pl.css`, `frontend/public/shared/track.js` (fallback message text), `frontend/public/sw.js`,
 `frontend/public/vendor/leaflet/README.md`, `scripts/vendor-leaflet.sh`
 
@@ -56,6 +57,7 @@ Optional test orders (local only, refuses non-localhost and production): `node s
 | `node --test test/*.test.js`, Node 22.23.5, real `npm ci` | **75 tests, 75 passed, 0 failed** (71 existing + 4 new dashboard tests), with and without a local `.env` |
 | Same, Node 24.21.0 | Process crashes on exit inside `better-sqlite3` 11.10 (`Assertion failed: (env) != nullptr`); runner reports 1 passed, 9 failed at file level. Not a code failure; see section 5. |
 | Browser sweep, real Google Chrome (headless, Playwright) at 390 px and 1280 px | 36 page checks (4 portals): service worker active everywhere, 0 page errors, 0 failed requests, 0 broken images, 0 horizontal overflow. Restaurant re-check with 3 pending orders: 8 page checks, exactly 1 alert card, never over the bottom navigation, 0 controls covered on desktop. |
+| Rider re-check (real Chrome, 390 px and 1280 px) | 6 page checks with 4 open offers: exactly 1 alert card, never over the bottom navigation, 0 controls covered on desktop, 0 console errors, 0 failed requests. Manual in the pane: next, chip pick, minimise, expand, Not now (4 → 3 offers), Accept (offer became the active delivery, 2 left); all 21 controls on the phone layout can be scrolled clear of the open alert. |
 | Desktop app browser pane (manual) | Restaurant queue (next, chip pick, minimise, expand, Reject with reason, Accept), admin chart empty and 7-day, admin and customer maps with markers, no-tile fallback on both maps. |
 
 Expected console noise in the sweep: one 404 for the rider photo when a test rider has no photo (existing behaviour),
@@ -65,8 +67,9 @@ and 429 "too frequent" on rider location because the test GPS simulator and the 
 
 - **Node 24**: `better-sqlite3` 11.x crashes on process exit under Node 24. Use Node 20/22 (Render's default is fine),
   or upgrade `better-sqlite3` to 12.x in a separate, tested change. `engines` still says `>=20`.
-- **Rider portal alerts still stack** (several delivery offers overlap each other and the bottom navigation). This
-  revision fixed the restaurant portal only, as asked.
+- The rider page cannot share location inside the Claude desktop browser pane (it denies geolocation); in real Chrome
+  location sharing ran with a simulated position. No real phone GPS was used.
+- Every portal requests `/favicon.ico`, which does not exist (one harmless 404 in the console; unchanged behaviour).
 - Notifications and service worker cannot be tested inside the Claude desktop browser pane (it denies notification
   permission and refuses service-worker registration). In real Chrome the service worker registers. Real push delivery
   was **not** tested; real Android GPS was **not** tested (positions came from a local simulator).
