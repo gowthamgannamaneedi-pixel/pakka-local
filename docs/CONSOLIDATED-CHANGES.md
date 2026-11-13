@@ -30,6 +30,8 @@ checks pass. Rollback: restore the backup; the old code cannot read the new ride
 **Operational impact to decide before deploying:** every currently approved agent becomes `reverification_required`
 at the first start and cannot receive new orders until they complete the new application and an admin approves it.
 If no agent is approved, customers see the existing "no delivery partners available" message and cannot order.
+**Owner decision (13 Nov 2026): keep this strict. No grace period.** Ask existing agents to complete the application
+and approve them in Admin → Agents before customers rely on the upgraded system.
 
 ## 3. Features completed
 
