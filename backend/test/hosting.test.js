@@ -136,3 +136,17 @@ test('server start with bootstrap prints facts but never the password', async ()
     assert.equal((await fetch(`http://127.0.0.1:${port}/admin/`)).status, 200);
   } finally { p.kill(); }
 });
+
+test('two app processes sharing one database never send the same push twice (Hostinger runs one per hostname)', async () => {
+  const { setPushSender, dispatchPush } = await import('../src/services/push.js');
+  const file = path.join(tmp(), 'shared.sqlite'), a = openDb(file), b = openDb(file);
+  const uid = a.prepare("INSERT INTO users (role, phone, name) VALUES ('admin', '+919700000097', 'T')").run().lastInsertRowid;
+  for (let i = 0; i < 3; i++) a.prepare("INSERT INTO push_subscriptions (user_id, endpoint, keys_json) VALUES (?, ?, '{}')").run(uid, `https://push.example/${i}`);
+  for (let i = 0; i < 4; i++) a.prepare("INSERT INTO notifications (event_id, user_id, category, title, body) VALUES (?, ?, 'transactional', 't', 'b')").run(`e${i}`, uid);
+  const sent = []; setPushSender(async (r) => { sent.push(`${r.did}`); await new Promise((res) => setTimeout(res, 15)); });
+  try {
+    await Promise.all([dispatchPush(a), dispatchPush(b), dispatchPush(a), dispatchPush(b)]);
+    assert.equal(sent.length, 12, '4 notifications x 3 devices'); assert.equal(new Set(sent).size, 12, 'no delivery sent twice');
+    assert.equal(a.prepare("SELECT COUNT(*) FROM push_deliveries WHERE status='sent'").pluck().get(), 12);
+  } finally { setPushSender(null); a.close(); b.close(); }
+});

@@ -45,7 +45,12 @@ export async function dispatchPush(db) {
   const due = db.prepare(`SELECT d.id AS did, d.attempts, d.subscription_id, s.endpoint, s.keys_json, n.* FROM push_deliveries d JOIN notifications n ON n.id=d.notification_id
     LEFT JOIN push_subscriptions s ON s.id=d.subscription_id WHERE d.status='pending' AND (d.next_attempt_at IS NULL OR d.next_attempt_at<=?) ORDER BY d.id LIMIT 100`).all(iso());
   let sent = 0;
+  // Several app processes may share this database (Hostinger runs one per hostname, e.g. with and without www).
+  // Each delivery is claimed with a short lease first, so exactly one process sends it; a crash mid-send only delays it.
+  const claim = db.prepare('UPDATE push_deliveries SET next_attempt_at=? WHERE id=? AND status=\'pending\' AND (next_attempt_at IS NULL OR next_attempt_at<=?)');
   for (const r of due) {
+    const now = iso();
+    if (claim.run(new Date(Date.now() + 60_000).toISOString(), r.did, now).changes !== 1) continue;      // another process has it
     const set = (status, extra = {}) => db.prepare('UPDATE push_deliveries SET status=?, attempts=attempts+?, last_error=?, next_attempt_at=?, sent_at=? WHERE id=?')
       .run(status, extra.attempt ? 1 : 0, extra.err ?? null, extra.next ?? null, status === 'sent' ? iso() : null, r.did);
     if (!r.endpoint) { set('gone'); continue; }
