@@ -15,7 +15,7 @@ import { fileRoutes } from './routes/files.js';
 import { pushRoutes } from './routes/push.js';
 import { trackingRoutes } from './routes/tracking.js';
 
-const BIG = /^\/api\/(restaurant\/(menu|me)|rider\/documents|admin\/cashouts\/\d+\/pay|admin\/campaigns)/;
+const BIG = /^\/api\/(restaurant\/(menu|me)|rider\/(documents|application\/documents)|admin\/cashouts\/\d+\/pay|admin\/campaigns)/;
 const small = express.json({ limit: '100kb' }), big = express.json({ limit: '8mb' });
 
 // CSP source for the configured tile host, e.g. https://{s}.example.com/... -> https://*.example.com

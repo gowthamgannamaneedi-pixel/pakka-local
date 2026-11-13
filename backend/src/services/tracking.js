@@ -19,7 +19,9 @@ export function stopSharing(db, riderId) {
 
 export function recordLocation(db, riderId, b = {}, now = Date.now()) {
   const r = db.prepare('SELECT r.verification_status, u.active FROM riders r JOIN users u ON u.id=r.user_id WHERE r.user_id=?').get(riderId);
-  if (!r || !r.active || r.verification_status !== 'approved') return fail('Your account cannot share location.', 403, 'NOT_ALLOWED');
+  // Any verification state may share location for a delivery it already holds (e.g. an agent placed under re-verification
+  // mid-delivery must still be trackable); the assignment check below is the real gate. Suspended/rejected cannot.
+  if (!r || !r.active || ['suspended', 'rejected'].includes(r.verification_status)) return fail('Your account cannot share location.', 403, 'NOT_ALLOWED');
   const mine = db.prepare(`SELECT id, status FROM orders WHERE rider_id=? AND status IN ${ACTIVE} ORDER BY (status='PICKED_UP') DESC, id`).all(riderId);
   if (!mine.length) { db.prepare('DELETE FROM rider_locations WHERE rider_id=?').run(riderId);            // delivery finished or reassigned: stop and forget
     return fail('No active delivery. Location sharing is off.', 409, 'NOT_TRACKING'); }

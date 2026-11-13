@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { config } from '../config.js';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
-import { authenticate, requireRole, audit } from '../auth.js';
+import { authenticate, requireRole, audit, requireFreshAuth } from '../auth.js';
+import { adminView, decide, revealPayout, missing, DOC_LABEL, ID_TYPES } from '../services/riderApplication.js';
 import { allSettings, setSetting, SETTING_KEYS, adminCashout, balances, settleRefund, eligibleRiderCount, getSetting, iso, adminCancel, adminUnassign } from '../services/core.js';
 import { send, parse, wrap, money } from './util.js';
 import { newSecret, encrypt, decrypt, verifyTotp, otpauthUri } from '../totp.js';
@@ -25,18 +26,19 @@ function range(q) {
 export function adminRoutes(db) {
   const r = Router();
   r.use(authenticate(db), requireRole('admin'));
+  const fresh = requireFreshAuth(db);
   r.get('/ping', (req, res) => res.json({ ok: true }));
   const one = (sql, ...a) => db.prepare(sql).pluck().get(...a) || 0;
 
   r.post('/users', wrap((req, res) => {
     const d = parse(z.object({ role: z.enum(['restaurant', 'rider', 'admin']), name: z.string().trim().min(1).max(80), phone: z.string().trim().regex(/^\+[1-9]\d{9,14}$/, 'Use international format, e.g. +919876543210'),
-      password: z.string().min(10).max(128), restaurant_id: z.number().int().positive().optional(), approve_now: z.boolean().optional() }), req, res); if (!d) return;
+      password: z.string().min(10).max(128), restaurant_id: z.number().int().positive().optional(), approve_now: z.any().optional() }), req, res); if (!d) return;
     if (d.role === 'restaurant' && !db.prepare('SELECT 1 FROM restaurants WHERE id = ?').get(d.restaurant_id)) return res.status(400).json({ error: 'A valid restaurant_id is required for restaurant accounts.' });
     if (db.prepare('SELECT 1 FROM users WHERE phone = ?').get(d.phone)) return res.status(409).json({ error: 'That mobile number is already registered.' });
     const id = db.transaction(() => {
       const uid = db.prepare('INSERT INTO users (role, phone, name, password_hash) VALUES (?,?,?,?)').run(d.role, d.phone, d.name, bcrypt.hashSync(d.password, 12)).lastInsertRowid;
       if (d.role === 'restaurant') db.prepare('INSERT INTO restaurant_users VALUES (?,?)').run(uid, d.restaurant_id);
-      if (d.role === 'rider') db.prepare('INSERT INTO riders (user_id, verification_status) VALUES (?, ?)').run(uid, d.approve_now ? 'approved' : 'pending');
+      if (d.role === 'rider') db.prepare("INSERT INTO riders (user_id, verification_status) VALUES (?, 'draft')").run(uid);   // every agent completes and submits the application; there is no shortcut to approved
       audit(db, req, 'user.create', 'user', uid, { role: d.role }); return uid;
     })();
     res.status(201).json({ id });
@@ -94,8 +96,8 @@ export function adminRoutes(db) {
   r.delete('/expenses/:id', (req, res) => { const c = db.prepare('DELETE FROM operating_expenses WHERE id=?').run(req.params.id).changes; if (c) audit(db, req, 'expense.delete', 'expense', req.params.id); c ? res.json({ ok: true }) : res.status(404).json({ error: 'Expense not found.' }); });
 
   // admin intervention on orders
-  r.post('/orders/:id/cancel', wrap((req, res) => { const out = adminCancel(db, req.user, Number(req.params.id), req.body?.reason); if (!out.error) audit(db, req, 'order.cancel', 'order', req.params.id, { reason: req.body?.reason }); send(res, out); }));
-  r.post('/orders/:id/unassign-rider', wrap((req, res) => { const out = adminUnassign(db, req.user, Number(req.params.id), req.body?.note); if (!out.error) audit(db, req, 'order.unassign_rider', 'order', req.params.id); send(res, out); }));
+  r.post('/orders/:id/cancel', fresh, wrap((req, res) => { const out = adminCancel(db, req.user, Number(req.params.id), req.body?.reason); if (!out.error) audit(db, req, 'order.cancel', 'order', req.params.id, { reason: req.body?.reason }); send(res, out); }));
+  r.post('/orders/:id/unassign-rider', fresh, wrap((req, res) => { const out = adminUnassign(db, req.user, Number(req.params.id), req.body?.note); if (!out.error) audit(db, req, 'order.unassign_rider', 'order', req.params.id); send(res, out); }));
   r.get('/restaurants/:id/orders', (req, res) => res.json({ orders: db.prepare('SELECT order_code,status,total_paise,items_base_paise,commission_paise,restaurant_payout_paise,created_at FROM orders WHERE restaurant_id=? AND status NOT IN (\'PAYMENT_PENDING\') ORDER BY id DESC LIMIT 100').all(req.params.id) }));
   r.get('/restaurants/:id/users', (req, res) => res.json({ users: db.prepare('SELECT u.id,u.name,u.phone,u.active FROM restaurant_users ru JOIN users u ON u.id=ru.user_id WHERE ru.restaurant_id=?').all(req.params.id) }));
   r.get('/cashouts/:id/records', (req, res) => { const c = db.prepare('SELECT * FROM cashout_requests WHERE id=?').get(req.params.id); if (!c) return res.status(404).json({ error: 'Request not found.' });
@@ -129,19 +131,27 @@ export function adminRoutes(db) {
     const c = db.prepare('UPDATE delivery_locations SET name=?,kind=?,address=?,area=?,contact=?,delivery_fee_paise=?,distance_km=?,maps_link=?,lat=?,lng=?,active=? WHERE id=?').run(d.name, d.kind ?? null, d.address, d.area ?? null, d.contact ?? null, d.delivery_fee_paise, d.distance_km ?? null, d.maps_link || null, d.lat ?? null, d.lng ?? null, d.active === false ? 0 : 1, req.params.id).changes;
     c ? res.json({ ok: true }) : res.status(404).json({ error: 'Location not found.' }); }));
 
-  // riders verification
-  r.get('/riders', (req, res) => res.json({ riders: db.prepare(`SELECT u.id,u.name,u.phone,u.email,u.active,r.verification_status,r.is_online,r.vehicle_category,r.vehicle_make,r.vehicle_model,r.vehicle_reg_no,r.licence_no,r.insurance_no,r.address,r.emergency_phone,
-    r.photo_path IS NOT NULL AS d_photo, r.vehicle_photo_path IS NOT NULL AS d_vehicle_photo, r.rc_path IS NOT NULL AS d_rc, r.licence_path IS NOT NULL AS d_licence, r.insurance_path IS NOT NULL AS d_insurance
-    FROM riders r JOIN users u ON u.id=r.user_id ORDER BY (r.verification_status='pending') DESC, u.id DESC`).all() }));
-  r.get('/riders/:id/history', (req, res) => res.json({ history: db.prepare('SELECT status,note,created_at FROM rider_verification_history WHERE rider_id=? ORDER BY id DESC').all(req.params.id) }));
-  r.post('/riders/:id/verify', wrap((req, res) => { const d = parse(z.object({ action: z.enum(['approve', 'reject', 'corrections', 'suspend']), note: z.string().max(300).optional() }), req, res); if (!d) return;
-    if (d.action !== 'approve' && !d.note) return res.status(400).json({ error: 'Please add a reason or note.' });
-    const st = { approve: 'approved', reject: 'rejected', corrections: 'corrections_requested', suspend: 'suspended' }[d.action];
-    db.transaction(() => {
-      if (!db.prepare('UPDATE riders SET verification_status=?, is_online=CASE WHEN ?=\'approved\' THEN is_online ELSE 0 END WHERE user_id=?').run(st, st, req.params.id).changes) throw Object.assign(new Error('Rider not found.'), { status: 404 });
-      db.prepare('INSERT INTO rider_verification_history (rider_id,status,note,admin_id) VALUES (?,?,?,?)').run(req.params.id, st, d.note ?? null, req.user.id);
-      audit(db, req, `rider.${d.action}`, 'rider', req.params.id, { note: d.note });
-    })(); res.json({ ok: true }); }));
+  // ---------- delivery-agent verification queue ----------
+  r.get('/riders', (req, res) => {
+    const st = typeof req.query.status === 'string' && req.query.status !== 'all' ? req.query.status : null;
+    const rows = db.prepare(`SELECT u.id,u.name,u.phone,u.active,u.created_at,r.* FROM riders r JOIN users u ON u.id=r.user_id ${st ? 'WHERE r.verification_status=?' : ''}
+      ORDER BY CASE r.verification_status WHEN 'pending' THEN 0 WHEN 'reverification_required' THEN 1 WHEN 'corrections_requested' THEN 2 WHEN 'draft' THEN 3 ELSE 4 END, COALESCE(r.submitted_at, u.created_at) ASC`).all(...(st ? [st] : []));
+    res.json({ counts: Object.fromEntries(db.prepare('SELECT verification_status s, COUNT(*) n FROM riders GROUP BY s').all().map((x) => [x.s, x.n])),
+      riders: rows.map((x) => ({ id: x.id, name: x.name, legal_name: x.legal_name, phone: x.phone, active: x.active, verification_status: x.verification_status, is_online: x.is_online,
+        vehicle_category: x.vehicle_category, vehicle_reg_no: x.vehicle_reg_no, submitted_at: x.submitted_at, decided_at: x.decided_at, missing_count: missing(x).length })) });
+  });
+  r.get('/riders/:id', (req, res) => { const a = adminView(db, Number(req.params.id)); a ? res.json({ application: a, doc_labels: DOC_LABEL, id_types: ID_TYPES }) : res.status(404).json({ error: 'Delivery agent not found.' }); });
+  r.get('/riders/:id/history', (req, res) => res.json({ history: db.prepare('SELECT status,action,note,created_at FROM rider_verification_history WHERE rider_id=? ORDER BY id DESC').all(req.params.id) }));
+  // reject / request corrections: reason required. Approve / suspend change who may receive orders: also need fresh authentication.
+  const needsFresh = (req, res, next) => (['approve', 'suspend'].includes(req.body?.action) ? fresh(req, res, next) : next());
+  r.post('/riders/:id/verify', needsFresh, wrap((req, res) => {
+    const out = decide(db, req.user.id, Number(req.params.id), req.body || {});
+    if (!out.error) audit(db, req, `rider.${req.body.action}`, 'rider', req.params.id, { note: req.body.note, fields: req.body.fields });
+    send(res, out);
+  }));
+  // full bank account / UPI ID: fresh authentication and an audit entry every time
+  r.post('/riders/:id/payout-details', fresh, wrap((req, res) => { const p = revealPayout(db, Number(req.params.id)); if (!p) return res.status(404).json({ error: 'Delivery agent not found.' });
+    audit(db, req, 'rider.payout_details_viewed', 'rider', req.params.id); res.json({ payout: p }); }));
   r.post('/users/:id/active', wrap((req, res) => { const a = req.body?.active ? 1 : 0; if (Number(req.params.id) === req.user.id) return res.status(400).json({ error: 'You cannot deactivate your own account.' });
     db.prepare('UPDATE users SET active=?, token_version=token_version+1 WHERE id=?').run(a, req.params.id); audit(db, req, 'user.active', 'user', req.params.id, { active: a }); res.json({ ok: true }); }));
 

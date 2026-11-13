@@ -116,7 +116,7 @@ test('tracking stops at delivery: updates refused, position forgotten, customer 
 test('an admin-cancelled delivery also ends tracking', async () => {
   const o = await place(); await toPickedUp(o, S.restA, S.rd1);
   assert.equal(recordLocation(db, S.rdId1, HYD, Date.now() + 120_000).ok, true);
-  assert.equal((await call('POST', `/api/admin/orders/${o.id}/cancel`, { reason: 'Customer unreachable' }, S.admin)).status, 200);
+  assert.equal((await call('POST', `/api/admin/orders/${o.id}/cancel`, { reauth_password: PW, reason: 'Customer unreachable' }, S.admin)).status, 200);
   assert.equal(recordLocation(db, S.rdId1, HYD, Date.now() + 130_000).code, 'NOT_TRACKING');
   assert.equal(adminActive(db).length, 0); assert.equal(db.prepare('SELECT COUNT(*) FROM rider_locations').pluck().get(), 0);
 });
@@ -134,21 +134,21 @@ test('cleanup is immediate and server-side for every way a delivery can end (no 
   assert.equal(locCount(), 0, 'deleted at delivery, before anyone calls a tracking endpoint');
 
   o = await claimed(S.rd1); share(S.rdId1, 210_000);                                              // cancelled before pickup
-  assert.equal((await call('POST', `/api/admin/orders/${o.id}/cancel`, { reason: 'Restaurant closed' }, S.admin)).status, 200); assert.equal(locCount(), 0, 'deleted at admin cancel');
+  assert.equal((await call('POST', `/api/admin/orders/${o.id}/cancel`, { reauth_password: PW, reason: 'Restaurant closed' }, S.admin)).status, 200); assert.equal(locCount(), 0, 'deleted at admin cancel');
 
   o = await claimed(S.rd1); share(S.rdId1, 220_000);                                              // rider removed by admin, order re-offered
-  assert.equal((await call('POST', `/api/admin/orders/${o.id}/unassign-rider`, { note: 'Rider unreachable' }, S.admin)).status, 200); assert.equal(locCount(S.rdId1), 0, 'deleted when the rider is unassigned');
+  assert.equal((await call('POST', `/api/admin/orders/${o.id}/unassign-rider`, { reauth_password: PW, note: 'Rider unreachable' }, S.admin)).status, 200); assert.equal(locCount(S.rdId1), 0, 'deleted when the rider is unassigned');
   assert.equal((await call('POST', `/api/rider/orders/${o.id}/accept`, {}, S.rd2)).status, 200); share(S.rdId2, 230_000);      // reassigned to rider 2
   assert.equal(locCount(S.rdId1), 0); assert.equal(locCount(S.rdId2), 1);
   await call('POST', `/api/restaurant/orders/${o.id}/ready`, {}, S.restA); await call('POST', `/api/rider/orders/${o.id}/pickup`, { otp: derivedOtp('pickup', o.code) }, S.rd2);
   const v = (await call('GET', `/api/tracking/orders/${o.code}`, null, S.cust)).body; assert.equal(v.tracking, true); assert.ok(v.rider, 'customer sees the NEW rider only');
-  assert.equal((await call('POST', `/api/admin/orders/${o.id}/cancel`, { reason: 'Customer unreachable' }, S.admin)).status, 200); assert.equal(locCount(), 0, 'deleted at cancel after pickup');
+  assert.equal((await call('POST', `/api/admin/orders/${o.id}/cancel`, { reauth_password: PW, reason: 'Customer unreachable' }, S.admin)).status, 200); assert.equal(locCount(), 0, 'deleted at cancel after pickup');
 });
 
 test('a rider with two deliveries keeps sharing until the last one ends', async () => {
   const a = await claimed(S.rd1), b = await claimed(S.rd1); share(S.rdId1, 240_000);
-  assert.equal((await call('POST', `/api/admin/orders/${a.id}/cancel`, { reason: 'Out of stock' }, S.admin)).status, 200); assert.equal(locCount(S.rdId1), 1, 'still has an active delivery');
-  assert.equal((await call('POST', `/api/admin/orders/${b.id}/cancel`, { reason: 'Out of stock' }, S.admin)).status, 200); assert.equal(locCount(S.rdId1), 0);
+  assert.equal((await call('POST', `/api/admin/orders/${a.id}/cancel`, { reauth_password: PW, reason: 'Out of stock' }, S.admin)).status, 200); assert.equal(locCount(S.rdId1), 1, 'still has an active delivery');
+  assert.equal((await call('POST', `/api/admin/orders/${b.id}/cancel`, { reauth_password: PW, reason: 'Out of stock' }, S.admin)).status, 200); assert.equal(locCount(S.rdId1), 0);
 });
 
 test('stop-sharing endpoint: own position only, riders only; background purge covers suspended riders', async () => {
@@ -161,7 +161,7 @@ test('stop-sharing endpoint: own position only, riders only; background purge co
   db.prepare("UPDATE riders SET verification_status='suspended' WHERE user_id=?").run(S.rdId1);
   assert.equal(purgeLocations(db), 1); assert.equal(locCount(), 0);                                // job backstop
   db.prepare("UPDATE riders SET verification_status='approved' WHERE user_id=?").run(S.rdId1);
-  for (const o of [a, b]) await call('POST', `/api/admin/orders/${o.id}/cancel`, { reason: 'Test cleanup' }, S.admin);
+  for (const o of [a, b]) await call('POST', `/api/admin/orders/${o.id}/cancel`, { reauth_password: PW, reason: 'Test cleanup' }, S.admin);
 });
 
 test('tracking responses are never cacheable, and coordinates need the right login', async () => {
@@ -176,7 +176,7 @@ test('tracking responses are never cacheable, and coordinates need the right log
     if (want !== 200) assert.equal(/"lat"|17\.385/.test(text), false, 'no coordinates in a refused response'); }
   const post = await fetch(base + '/api/tracking/rider/location', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${S.rd1}` }, body: JSON.stringify({ lat: 91, lng: 0 }) });
   assert.equal(post.headers.get('cache-control'), 'no-store, private');
-  await call('POST', `/api/admin/orders/${o.id}/cancel`, { reason: 'Test cleanup' }, S.admin); assert.equal(locCount(), 0);
+  await call('POST', `/api/admin/orders/${o.id}/cancel`, { reauth_password: PW, reason: 'Test cleanup' }, S.admin); assert.equal(locCount(), 0);
 });
 
 // ---------------- Task B: restaurant background push ----------------

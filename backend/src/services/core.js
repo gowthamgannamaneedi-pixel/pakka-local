@@ -354,6 +354,8 @@ export function adminCancel(db, admin, orderId, reason) {
   })();
 }
 export function adminUnassign(db, admin, orderId, note) {
+  note = String(note || '').trim().slice(0, 300);
+  if (note.length < 3) return { error: 'Enter a reason for taking this delivery off the rider.', status: 400 };
   return db.transaction(() => {
     const o = db.prepare('SELECT * FROM orders WHERE id=?').get(orderId);
     if (!o || !o.rider_id) return { error: 'No rider is assigned to this order.', status: 409 };

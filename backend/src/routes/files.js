@@ -2,7 +2,8 @@ import { Router } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config.js';
-import { authenticate } from '../auth.js';
+import { authenticate, audit } from '../auth.js';
+import { DOCS } from '../services/riderApplication.js';
 
 const MIME = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp', pdf: 'application/pdf' };
 const NAME = /^[0-9a-f-]{36}\.(png|jpg|webp|pdf)$/;
@@ -26,10 +27,11 @@ export function fileRoutes(db) {
   });
   // Rider identity documents -> admin or the rider themself
   r.get('/rider-doc/:riderId/:kind', auth, (req, res) => {
-    const col = { photo: 'photo_path', vehicle_photo: 'vehicle_photo_path', rc: 'rc_path', licence: 'licence_path', insurance: 'insurance_path' }[req.params.kind];
+    const col = DOCS[req.params.kind];
     const id = Number(req.params.riderId);
     if (!col || !(req.user.role === 'admin' || (req.user.role === 'rider' && req.user.id === id))) return res.status(404).json({ error: 'File not found.' });
     const name = db.prepare(`SELECT ${col} FROM riders WHERE user_id=?`).pluck().get(id);
+    if (name && req.user.role === 'admin' && req.params.kind !== 'photo') audit(db, req, 'rider.document_viewed', 'rider', id, { kind: req.params.kind });   // identity documents: every admin view is logged
     name ? sendFile(res, 'private', name) : res.status(404).json({ error: 'File not found.' });
   });
   // The customer of an order may see ONLY the rider's profile photo, and only after pickup

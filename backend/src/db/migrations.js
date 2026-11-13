@@ -375,5 +375,72 @@ BEGIN
    WHERE rider_id IN (OLD.rider_id, NEW.rider_id)
      AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.rider_id = rider_locations.rider_id AND o.status IN ('ACCEPTED','PREPARING','READY','PICKED_UP'));
 END;`
+  },
+  {
+    // Delivery-agent application and verification. The riders table is rebuilt only to widen the status CHECK
+    // (SQLite cannot alter a CHECK); every existing column and row is copied unchanged.
+    //   draft                    application started, not submitted (never eligible)
+    //   pending                  = PENDING_VERIFICATION: submitted and complete, waiting for an admin (never eligible)
+    //   approved                 admin approved: the only state that can go online and receive orders
+    //   corrections_requested    admin asked for changes; the agent edits and resubmits
+    //   rejected / suspended     not eligible
+    //   reverification_required  previously approved, but the record lacks information now mandatory; may finish
+    //                            deliveries already assigned, cannot go online or receive new ones until re-approved
+    id: 'p3_001_rider_verification',
+    sql: `
+CREATE TABLE riders_new (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id),
+  verification_status TEXT NOT NULL DEFAULT 'draft'
+    CHECK (verification_status IN ('draft','pending','approved','rejected','corrections_requested','suspended','reverification_required')),
+  is_online INTEGER NOT NULL DEFAULT 0,
+  last_seen_at TEXT,
+  photo_path TEXT, address TEXT, emergency_phone TEXT,
+  vehicle_category TEXT, vehicle_make TEXT, vehicle_model TEXT, vehicle_reg_no TEXT,
+  vehicle_photo_path TEXT, rc_path TEXT, licence_no TEXT, licence_path TEXT,
+  insurance_no TEXT, insurance_path TEXT,
+  legal_name TEXT, date_of_birth TEXT, phone_verified_at TEXT,
+  id_type TEXT CHECK (id_type IS NULL OR id_type IN ('aadhaar','voter_id','passport','pan')),
+  id_last4 TEXT, id_front_path TEXT, id_back_path TEXT,
+  licence_expiry TEXT,
+  payout_method TEXT CHECK (payout_method IS NULL OR payout_method IN ('upi','bank')),
+  payout_upi_enc TEXT, payout_upi_hint TEXT,
+  bank_holder TEXT, bank_account_enc TEXT, bank_account_last4 TEXT, bank_ifsc TEXT,
+  consent_at TEXT, submitted_at TEXT, decided_at TEXT, decided_by INTEGER REFERENCES users(id), decision_note TEXT,
+  correction_fields TEXT, application_updated_at TEXT
+);
+INSERT INTO riders_new (user_id, verification_status, is_online, last_seen_at, photo_path, address, emergency_phone, vehicle_category, vehicle_make,
+  vehicle_model, vehicle_reg_no, vehicle_photo_path, rc_path, licence_no, licence_path, insurance_no, insurance_path)
+SELECT user_id, verification_status, is_online, last_seen_at, photo_path, address, emergency_phone, vehicle_category, vehicle_make,
+  vehicle_model, vehicle_reg_no, vehicle_photo_path, rc_path, licence_no, licence_path, insurance_no, insurance_path FROM riders;
+DROP TABLE riders;
+ALTER TABLE riders_new RENAME TO riders;
+CREATE INDEX idx_riders_avail ON riders(verification_status, is_online);
+
+-- Existing records lack the identity, phone-verification and payout details that are now mandatory, so:
+-- approved -> reverification_required (active deliveries continue; no new ones), pending (never reviewed) -> draft.
+-- Rejected, suspended and corrections_requested keep their status. Nothing is deleted.
+INSERT INTO rider_verification_history (rider_id, status, note)
+  SELECT user_id, 'reverification_required', 'System upgrade: identity, phone and payout details are now required. Please complete your application.' FROM riders WHERE verification_status = 'approved';
+INSERT INTO rider_verification_history (rider_id, status, note)
+  SELECT user_id, 'draft', 'System upgrade: please complete and submit your application.' FROM riders WHERE verification_status = 'pending';
+UPDATE riders SET verification_status = 'reverification_required', is_online = 0 WHERE verification_status = 'approved';
+UPDATE riders SET verification_status = 'draft' WHERE verification_status = 'pending';
+
+ALTER TABLE rider_verification_history ADD COLUMN action TEXT;
+ALTER TABLE rider_verification_history ADD COLUMN fields TEXT;
+
+-- Verification decisions and the admin audit log are append-only.
+CREATE TRIGGER trg_rvh_no_update BEFORE UPDATE ON rider_verification_history BEGIN SELECT RAISE(ABORT, 'verification history is append-only'); END;
+CREATE TRIGGER trg_rvh_no_delete BEFORE DELETE ON rider_verification_history BEGIN SELECT RAISE(ABORT, 'verification history is append-only'); END;
+CREATE TRIGGER trg_audit_no_update BEFORE UPDATE ON audit_logs BEGIN SELECT RAISE(ABORT, 'audit log is append-only'); END;
+CREATE TRIGGER trg_audit_no_delete BEFORE DELETE ON audit_logs BEGIN SELECT RAISE(ABORT, 'audit log is append-only'); END;
+
+-- Phone verification codes for delivery agents (separate from customer login codes so one can never be used as the other).
+CREATE TABLE rider_phone_otps (
+  id INTEGER PRIMARY KEY, rider_id INTEGER NOT NULL REFERENCES users(id), phone TEXT NOT NULL, otp_hash TEXT NOT NULL,
+  expires_at TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, used INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX idx_rpo_rider ON rider_phone_otps(rider_id, created_at);`
   }
 ];

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import bcrypt from 'bcryptjs';
 import { openDb } from '../src/db/index.js';
 import { createApp } from '../src/app.js';
+import { completeApplication } from './helpers/rider-application.js';
 import { testOutbox } from '../src/otpProviders.js';
 import { NO_RIDER_MSG, balances, expireStalePayments } from '../src/services/core.js';
 
@@ -37,12 +38,17 @@ test('setup: admin creates restaurants, owners, locations and riders (riders can
   assert.ok(S.item);
   S.loc = (await call('POST', '/api/admin/locations', { name: 'Sunrise Hostel', address: 'Uppal Road', delivery_fee_paise: 4000, distance_km: 2 }, S.admin)).body.id;
   assert.equal((await call('POST', '/api/admin/users', { role: 'rider', name: 'Rahul', phone: '+919100000201', password: PW }, S.admin)).status, 201);
-  assert.equal((await call('POST', '/api/admin/users', { role: 'rider', name: 'Ravi', phone: '+919100000202', password: PW, approve_now: true }, S.admin)).status, 201);
+  assert.equal((await call('POST', '/api/admin/users', { role: 'rider', name: 'Ravi', phone: '+919100000202', password: PW, approve_now: true }, S.admin)).status, 201);   // approve_now is ignored
   S.r1 = await staff('rider', '+919100000201'); S.r2 = await staff('rider', '+919100000202');
-  assert.equal((await call('POST', '/api/rider/online', { online: true }, S.r1)).status, 403);       // pending -> cannot go online
-  const rid1 = db.prepare("SELECT id FROM users WHERE phone='+919100000201'").pluck().get();
+  assert.equal((await call('GET', '/api/rider/me', null, S.r2)).body.rider.verification_status, 'draft');
+  assert.equal((await call('POST', '/api/rider/online', { online: true }, S.r1)).status, 403);       // draft -> cannot go online
+  const rid1 = db.prepare("SELECT id FROM users WHERE phone='+919100000201'").pluck().get(), rid2 = db.prepare("SELECT id FROM users WHERE phone='+919100000202'").pluck().get();
+  assert.equal((await call('POST', `/api/admin/riders/${rid1}/verify`, { action: 'approve', reauth_password: PW }, S.admin)).status, 409);   // nothing submitted yet
+  await completeApplication(call, S.r1, 1); await completeApplication(call, S.r2, 2);
+  assert.equal((await call('POST', '/api/rider/online', { online: true }, S.r1)).status, 403);       // submitted (pending) -> still cannot go online
   assert.equal((await call('POST', `/api/admin/riders/${rid1}/verify`, { action: 'reject' }, S.admin)).status, 400);   // reason needed
-  assert.equal((await call('POST', `/api/admin/riders/${rid1}/verify`, { action: 'approve' }, S.admin)).status, 200);
+  assert.equal((await call('POST', `/api/admin/riders/${rid1}/verify`, { action: 'approve' }, S.admin)).status, 401);  // fresh authentication needed
+  for (const id of [rid1, rid2]) assert.equal((await call('POST', `/api/admin/riders/${id}/verify`, { action: 'approve', reauth_password: PW }, S.admin)).status, 200);
   S.cust = await customer('+919300000001');
 });
 
@@ -74,12 +80,16 @@ test('Tests 3,5: restaurant accepts; two riders race; exactly one wins', async (
   assert.equal((await call('POST', `/api/restaurant/orders/${S.oid}/accept`, {}, S.rt0)).status, 200);
   assert.equal((await call('POST', `/api/restaurant/orders/${S.oid}/accept`, {}, S.rt0)).status, 409);
   const offer = (await call('GET', '/api/rider/offers', null, S.r1)).body.offers[0];
-  assert.equal(offer.order_code, S.code); assert.equal(offer.instructions, 'Gate 2, call first'); assert.ok(offer.customer.phone && offer.destination.maps_link && offer.restaurant.maps_link && offer.items[0].qty === 1);
+  assert.equal(offer.order_code, S.code); assert.ok(offer.restaurant.maps_link && offer.items[0].qty === 1);
+  // before acceptance: no customer phone, exact address, GPS pin, maps link or instructions (only the area)
+  assert.equal(offer.customer.phone, null); assert.equal(offer.instructions, null); assert.equal(offer.destination.maps_link, null); assert.equal(offer.destination.lat, null);
+  assert.equal(offer.destination.area_only, true); assert.ok(!JSON.stringify(offer).includes('Uppal Road'));
   const res = await Promise.all([call('POST', `/api/rider/orders/${S.oid}/accept`, {}, S.r1), call('POST', `/api/rider/orders/${S.oid}/accept`, {}, S.r2)]);
   assert.deepEqual(res.map(r => r.status).sort(), [200, 409]);
   S.winner = res[0].status === 200 ? S.r1 : S.r2; S.loser = res[0].status === 200 ? S.r2 : S.r1;
   assert.equal((await call('GET', '/api/rider/offers', null, S.loser)).body.offers.length, 0);
-  assert.equal((await call('GET', '/api/rider/active', null, S.winner)).body.active.length, 1);
+  const mine = (await call('GET', '/api/rider/active', null, S.winner)).body.active; assert.equal(mine.length, 1);
+  assert.equal(mine[0].instructions, 'Gate 2, call first'); assert.ok(mine[0].customer.phone && mine[0].destination.maps_link);   // after acceptance: full details
 });
 
 test('Test 6, 7: pickup OTP (wrong fails, right works); rider hidden from customer until pickup', async () => {

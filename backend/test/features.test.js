@@ -54,31 +54,31 @@ test('per-restaurant delivery rules: minimum order and free-delivery threshold',
 
 test('admin cancel: reason required, refund started, everyone notified, audited, nothing credited', async () => {
   const o = await place(); await call('POST', `/api/restaurant/orders/${o.id}/accept`, {}, S.rt0); await call('POST', `/api/rider/orders/${o.id}/accept`, {}, S.rd1);
-  assert.equal((await call('POST', `/api/admin/orders/${o.id}/cancel`, {}, S.admin)).status, 400);
-  assert.equal((await call('POST', `/api/admin/orders/${o.id}/cancel`, { reason: 'Kitchen fire' }, S.rt0)).status, 403);
-  assert.equal((await call('POST', `/api/admin/orders/${o.id}/cancel`, { reason: 'Kitchen fire' }, S.admin)).status, 200);
+  assert.equal((await call('POST', `/api/admin/orders/${o.id}/cancel`, { reauth_password: PW, }, S.admin)).status, 400);
+  assert.equal((await call('POST', `/api/admin/orders/${o.id}/cancel`, { reauth_password: PW, reason: 'Kitchen fire' }, S.rt0)).status, 403);
+  assert.equal((await call('POST', `/api/admin/orders/${o.id}/cancel`, { reauth_password: PW, reason: 'Kitchen fire' }, S.admin)).status, 200);
   const d = (await call('GET', `/api/customer/orders/${o.code}`, null, S.cust)).body; assert.equal(d.status, 'CANCELLED'); assert.equal(d.refund, 'REFUND_INITIATED');
   const ev = db.prepare('SELECT event_type, actor_role FROM order_events WHERE order_id=?').all(o.id).map((e) => e.event_type); assert.ok(ev.includes('ADMIN_CANCELLED') && ev.includes('ADMIN_INTERVENTION') && ev.includes('REFUND_REQUESTED'));
   for (const uid of [S.cust ? db.prepare("SELECT id FROM users WHERE phone='+919500000001'").pluck().get() : 0, S.ru0, S.rid1]) assert.ok(db.prepare('SELECT COUNT(*) FROM notifications WHERE user_id=? AND order_id=? AND title LIKE ?').pluck().get(uid, o.id, '%ancel%') >= 1);
   assert.equal((await call('GET', '/api/rider/active', null, S.rd1)).body.active.length, 0);
-  assert.equal((await call('POST', `/api/admin/orders/${o.id}/cancel`, { reason: 'again' }, S.admin)).status, 409);
+  assert.equal((await call('POST', `/api/admin/orders/${o.id}/cancel`, { reauth_password: PW, reason: 'again' }, S.admin)).status, 409);
   assert.equal(db.prepare("SELECT COUNT(*) FROM platform_transactions WHERE order_id=?").pluck().get(o.id), 0);
   assert.ok(db.prepare("SELECT COUNT(*) FROM audit_logs WHERE action='order.cancel'").pluck().get() >= 1);
-  const dl = await place(); assert.equal((await deliver(dl, S.rd2)).status, 200); assert.equal((await call('POST', `/api/admin/orders/${dl.id}/cancel`, { reason: 'too late' }, S.admin)).status, 409);   // delivered orders can't be cancelled
+  const dl = await place(); assert.equal((await deliver(dl, S.rd2)).status, 200); assert.equal((await call('POST', `/api/admin/orders/${dl.id}/cancel`, { reauth_password: PW, reason: 'too late' }, S.admin)).status, 409);   // delivered orders can't be cancelled
   S.delivered = dl;
 });
 
 test('admin can take a rider off an order that is not yet picked up; other riders are re-offered', async () => {
   const o = await place(); await call('POST', `/api/restaurant/orders/${o.id}/accept`, {}, S.rt0); await call('POST', `/api/rider/orders/${o.id}/accept`, {}, S.rd1);
   assert.equal((await call('GET', `/api/rider/orders/${o.id}`, null, S.rd2)).status, 404);                              // not available to rd2 while rd1 holds it
-  assert.equal((await call('POST', `/api/admin/orders/${o.id}/unassign-rider`, { note: 'rider unreachable' }, S.admin)).status, 200);
+  assert.equal((await call('POST', `/api/admin/orders/${o.id}/unassign-rider`, { reauth_password: PW, note: 'rider unreachable' }, S.admin)).status, 200);
   assert.equal(db.prepare('SELECT rider_id FROM orders WHERE id=?').pluck().get(o.id), null);
   const offer = db.prepare("SELECT user_id, deep_link FROM notifications WHERE order_id=? AND kind='rider_offer' ORDER BY id DESC").all(o.id);
   assert.ok(offer.some((x) => x.user_id === S.rid2 && x.deep_link === `/rider/#/job/${o.id}`)); assert.ok(!offer.some((x, i) => x.user_id === S.rid1 && i === 0));
   assert.equal((await call('GET', `/api/rider/orders/${o.id}`, null, S.rd2)).status, 200);                              // deep link now resolves for rd2
   assert.equal((await call('POST', `/api/rider/orders/${o.id}/accept`, {}, S.rd2)).status, 200);
   await call('POST', `/api/restaurant/orders/${o.id}/ready`, {}, S.rt0); const otp = (await call('GET', '/api/restaurant/orders', null, S.rt0)).body.orders.find((x) => x.id === o.id).pickup_otp; await call('POST', `/api/rider/orders/${o.id}/pickup`, { otp }, S.rd2);
-  assert.equal((await call('POST', `/api/admin/orders/${o.id}/unassign-rider`, {}, S.admin)).status, 409);               // already picked up -> cancel instead
+  assert.equal((await call('POST', `/api/admin/orders/${o.id}/unassign-rider`, { reauth_password: PW, note: 'rider unreachable' }, S.admin)).status, 409);               // already picked up -> cancel instead
 });
 
 test('admin restaurant tools: per-restaurant orders, owner logins can be deactivated', async () => {
@@ -135,8 +135,7 @@ test('campaign drafts and restaurant deep links; rider email; stale offers expir
   assert.equal(db.prepare('SELECT COUNT(*) FROM notifications WHERE campaign_id=?').pluck().get(dr.body.id), 2);
   assert.equal((await call('DELETE', `/api/admin/campaigns/${dr.body.id}`, null, S.admin)).status, 409);                // only drafts are deletable
   const d2 = await call('POST', '/api/admin/campaigns', { ...body, draft: true }, S.admin); assert.equal((await call('DELETE', `/api/admin/campaigns/${d2.body.id}`, null, S.admin)).status, 200);
-  assert.equal((await call('PUT', '/api/rider/profile', { email: 'rahul@example.com', address: '12 Lake View', emergency_phone: '+919999999999', vehicle_category: 'Scooter', vehicle_make: 'Honda', vehicle_model: 'Activa', vehicle_reg_no: 'TS09AB1234', licence_no: 'DL1234567' }, S.rd1)).status, 200);
-  assert.equal((await call('GET', '/api/rider/profile', null, S.rd1)).body.profile.email, 'rahul@example.com');
+  const ed = await call('PUT', '/api/rider/application', { email: 'rahul@example.com' }, S.rd1); assert.equal(ed.status, 409); assert.equal(ed.body.code, 'LOCKED');   // approved details are locked
   const o = await place(); await call('POST', `/api/restaurant/orders/${o.id}/accept`, {}, S.rt0);                           // offers queued
   db.prepare("UPDATE notifications SET created_at='2020-01-01T00:00:00.000Z' WHERE order_id=? AND kind='rider_offer'").run(o.id);
   const b = sent.length; await dispatchPush(db); assert.ok(!sent.slice(b).some((p) => p.kind === 'rider_offer'));         // 15-minute expiry
