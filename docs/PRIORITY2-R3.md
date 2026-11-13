@@ -16,12 +16,12 @@ with Phase 1. No business rule, price, commission or payment behaviour was chang
 
 ## 2. Exact changed files (against `pakka-local-priority2-r2.zip`)
 
-Modified (11): `.env.example`, `backend/package.json` (vendor script only), `backend/src/config.js` (`MAP_TILE_URL=none`),
+Modified (12): `.env.example`, `docs/PRIORITY2.md` (pointer to this file), `backend/package.json` (vendor script only), `backend/src/config.js` (`MAP_TILE_URL=none`),
 `backend/test/p2-payments.test.js`, `frontend/public/admin/app.js`, `frontend/public/restaurant/app.js`,
 `frontend/public/shared/pl.css`, `frontend/public/shared/track.js` (fallback message text), `frontend/public/sw.js`,
 `frontend/public/vendor/leaflet/README.md`, `scripts/vendor-leaflet.sh`
 
-Added (11 files): `docs/PRIORITY2-R3.md`, `backend/test/p2-dashboard.test.js`, `backend/scripts/local-test-scenario.js`,
+Added (13 files): `docs/PRIORITY2-R3.md`, `backend/test/p2-dashboard.test.js`, `backend/scripts/local-test-scenario.js`,
 `scripts/vendor-leaflet.mjs`, `frontend/public/vendor/leaflet/{leaflet.js, leaflet.js.map, leaflet.css, LICENSE}`,
 `frontend/public/vendor/leaflet/images/{marker-icon.png, marker-icon-2x.png, marker-shadow.png, layers.png, layers-2x.png}`
 
