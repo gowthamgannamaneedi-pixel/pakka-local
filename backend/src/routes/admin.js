@@ -155,6 +155,8 @@ export function adminRoutes(db) {
     recent: db.prepare("SELECT o.order_code, o.created_at, o.delivery_paise, o.delivery_pricing, o.delivery_distance_m, o.delivery_band, o.delivery_route_source, r.name AS restaurant, COALESCE(o.dest_location_name, o.dest_place_name) AS place FROM orders o JOIN restaurants r ON r.id=o.restaurant_id WHERE o.delivery_pricing LIKE 'distance%' ORDER BY o.id DESC LIMIT 20").all() }));
   r.put('/distance-pricing', wrap((req, res) => { const out = Pricing.saveConfig(db, req.body || {}); if (out.error) return send(res, out);
     if (Object.keys(out.changed).length) audit(db, req, 'distance_pricing.update', 'settings', null, { changed: out.changed }); res.json(out); }));
+  // after refreshing the map data (same engine address), clear saved distances so new orders use the new roads
+  r.delete('/distance-pricing/cache', wrap((req, res) => { const n = Routing.clearRouteCache(db); audit(db, req, 'distance_pricing.cache_cleared', 'settings', null, { removed: n }); res.json({ ok: true, removed: n }); }));
   // try a restaurant -> place / point before going live: shows the road distance and the charge the current setup gives
   r.post('/distance-pricing/check', wrapA(async (req, res) => { const d = parse(z.object({ restaurant_id: z.number().int().positive(), location_id: z.number().int().positive().optional(), lat: z.number().min(-90).max(90).optional(), lng: z.number().min(-180).max(180).optional() }).strict(), req, res); if (!d) return;
     let point = null; if (d.location_id) { const l = db.prepare('SELECT lat, lng FROM delivery_locations WHERE id=?').get(d.location_id); if (!l) return res.status(404).json({ error: 'Place not found.' }); point = l.lat == null ? null : { lat: l.lat, lng: l.lng }; }

@@ -119,6 +119,9 @@ test('cache: identical points are not routed twice; moving the restaurant or the
   await quote(id); assert.equal(calls.length, 3, 'address moved');
   db.prepare("UPDATE route_cache SET created_at='2000-01-01T00:00:00.000Z'").run(); await quote(id); assert.equal(calls.length, 4, 'expired entries are not used');
   assert.ok(cacheKey('osrm', { lat: 1, lng: 2 }, { lat: 3, lng: 4 }) !== cacheKey('osrm', { lat: 1.000001, lng: 2 }, { lat: 3, lng: 4 }));
+  assert.equal((await call('DELETE', '/api/admin/distance-pricing/cache', null, S.c)).status, 403);
+  const cl = await call('DELETE', '/api/admin/distance-pricing/cache', null, S.admin); assert.equal(cl.status, 200); assert.ok(cl.body.removed >= 1);
+  assert.equal(db.prepare('SELECT COUNT(*) FROM route_cache').pluck().get(), 0); await quote(id); assert.equal(calls.length, 5, 'after clearing, the engine is asked again');
   await call('PUT', `/api/admin/restaurants/${S.r1}/pickup`, { lat: 17.1, lng: 78.3 }, S.admin);
   assert.equal(db.prepare('SELECT COUNT(*) FROM route_cache WHERE distance_m IS NULL').pluck().get(), 0);                  // failures are never cached
 });

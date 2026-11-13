@@ -32,7 +32,8 @@ export async function roadDistance(db, from, to) {
   if (!okPoint(from)) return { distance_m: null, reason: 'restaurant_has_no_pickup_point' };
   if (!okPoint(to)) return { distance_m: null, reason: 'invalid_delivery_point' };
   const provider = providerName(); if (provider === 'none') return { distance_m: null, reason: 'routing_not_configured' };
-  const key = cacheKey(provider, from, to), days = Number(getSetting(db, 'route_cache_days')) || 30;
+  // the engine's address is part of the key: pointing OSRM_URL at another engine (or new map data on another host) never reuses old distances
+  const key = cacheKey(provider === 'osrm' ? `osrm@${config.routing.osrmUrl}` : provider, from, to), days = Number(getSetting(db, 'route_cache_days')) || 30;
   const hit = db.prepare('SELECT distance_m, created_at FROM route_cache WHERE cache_key=?').get(key);
   if (hit && Date.now() - Date.parse(hit.created_at) < days * 864e5) return { distance_m: hit.distance_m, source: 'cache' };
   const out = await router(from, to);
@@ -42,3 +43,4 @@ export async function roadDistance(db, from, to) {
   return { distance_m: out.distance_m, source: provider };
 }
 export const purgeRouteCache = (db) => db.prepare('DELETE FROM route_cache WHERE created_at < ?').run(new Date(Date.now() - (Number(getSetting(db, 'route_cache_days')) || 30) * 864e5).toISOString()).changes;
+export const clearRouteCache = (db) => db.prepare('DELETE FROM route_cache').run().changes;

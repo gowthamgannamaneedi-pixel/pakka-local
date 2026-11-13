@@ -11,8 +11,9 @@ Nothing was deployed or purchased.
 2. Start point: the **restaurant's pickup point** (set per restaurant by an admin). End point: the address's map point
    (the customer's confirmed GPS, or for a listed place without customer GPS, the place's map point).
 3. The server asks the routing engine for the **road distance** (OSRM `route` service, `driving` profile). The result is
-   cached by the exact coordinates of both points (6 decimals) for `route_cache_days` (default 30); moving either point
-   always means a fresh lookup; failures are never cached.
+   cached by the engine's address and the exact coordinates of both points (6 decimals) for `route_cache_days`
+   (default 30); moving either point or pointing `OSRM_URL` at another engine always means a fresh lookup; failures are
+   never cached. Admins can also empty the cache ("Clear saved distances", audited), e.g. after refreshing map data.
 4. The distance is matched to the admin's ranges `[from, to)`: a distance exactly on a boundary uses the higher range
    (1.0 km → 1–2 km). The minimum charge (if set) is applied. The restaurant's free-delivery threshold and surge rules
    still apply afterwards, as before.
@@ -31,7 +32,8 @@ Nothing was deployed or purchased.
 - On/off switch (with confirmation) and the routing-engine status.
 - Ranges editor: from / to (empty = "and above") / charge. Refused: a first range not starting at 0, gaps, overlaps,
   an open-ended range that is not the last, negative or non-whole-paise charges, more than 30 ranges.
-- Maximum distance (km), minimum charge, fallback charge (empty = refuse), days to keep calculated distances.
+- Maximum distance (km), minimum charge, fallback charge (empty = refuse), days to keep calculated distances, and a
+  "Clear saved distances" button.
 - Restaurant pickup points (paste "17.3395, 78.3082" from Google Maps). "Try it": restaurant + place → road distance and
   the charge the current setup gives. Recent distance-priced orders with distance, range and method.
 - Each order's admin view shows "Road distance 4.27 km · 4–5 km: ₹30" or the fallback reason.
@@ -55,7 +57,9 @@ Hostinger KVM price before buying. OSRM, the map data (OpenStreetMap via Geofabr
 The same VPS can run Pakka Local itself, which also removes the idle-shutdown problem for background jobs and push.
 
 **Load:** with fewer than 50 orders a day, lookups are a few hundred a day at most (quotes are cached per exact pair of
-points). A routing engine for a clipped area of ~30 × 35 km uses well under 500 MB RAM and answers in milliseconds.
+points). Measured on the local test build (below): the Geofabrik southern-zone download is 560 MB, the clipped delivery
+area 27 MB; building it peaked at about 470 MB RAM; the running engine used about 144 MB RAM and answers in milliseconds.
+A 1 GB VPS is enough for the engine; 2 GB if Pakka Local runs on the same machine.
 
 ### OSRM setup on an Ubuntu VPS (one time, ~15 minutes)
 
@@ -84,17 +88,33 @@ narrow lanes a scooter could use, so road distances can be slightly longer than 
 
 - `restaurants`: `pickup_lat`, `pickup_lng` (validated), `pickup_updated_at`.
 - `distance_fee_bands` (from_km, to_km nullable for the last open range, fee_paise ≥ 0).
-- `route_cache` (key = provider + both exact coordinates, distance, duration, time).
+- `route_cache` (key = provider + engine address + both exact coordinates, distance, duration, time).
 - `orders`: `delivery_pricing`, `delivery_distance_m`, `delivery_band`, `delivery_route_source`; existing orders got
   `delivery_pricing` derived from what they already stored (listed / gps_fixed); the freeze trigger covers the new fields.
 - Settings: `distance_pricing_enabled` ('0'), `distance_max_km`, `distance_min_fee_paise`, `distance_fallback_fee_paise`
   (all empty = not set), `route_cache_days` ('30'). Environment: `OSRM_URL`, `OSRM_PROFILE` (driving), `OSRM_TIMEOUT_MS` (3000).
 
-## 5. Tests
+## 5. Local real-OSRM setup used for testing (Windows + WSL)
+
+Built on 13 Nov 2026 on the developer PC in WSL Ubuntu 24.04 (Docker 29.1.3, osmium 1.16), with exactly the VPS steps
+above: `/srv/osrm`, image `ghcr.io/project-osrm/osrm-backend:v5.27.1`, MLD, container `pakka-osrm` on
+`127.0.0.1:5000`. The local `backend/.env` (not in git) has `OSRM_URL=http://127.0.0.1:5000`.
+
+```bash
+wsl -d Ubuntu-24.04 -u root -- docker start pakka-osrm      # start (WSL stops when idle; keep a WSL window open)
+wsl -d Ubuntu-24.04 -u root -- docker stop pakka-osrm       # stop
+wsl -d Ubuntu-24.04 -u root -- bash -c "docker rm -f pakka-osrm; rm -rf /srv/osrm"   # remove completely (frees ~770 MB of map data; the image can go with docker rmi)
+```
+
+If the engine is stopped, Pakka Local uses the fallback charge (or refuses when none is set), as designed.
+
+## 6. Tests
 
 | Run | Routing | Result |
 | --- | --- | --- |
-| `node --test test/*.test.js` (Node 22, real dependencies) | **Mocked** router function; OSRM client against a **fake OSRM HTTP server** | **128 tests, 128 passed** (12 new: validation, permissions, every range and boundary, maximum, two restaurants, listed + GPS, minimum, failure → fallback / refusal, restaurant without pickup point, cache hits and invalidation, order snapshot vs later price change, tampering, admin check tool, OSRM success / NoRoute / HTTP 500 / timeout / not configured) |
+| `node --test test/*.test.js` (Node 22, real dependencies) | **Mocked** router function; OSRM client against a **fake OSRM HTTP server** | **128 passed, 2 skipped** (the real-OSRM file); **with `OSRM_TEST_URL=http://127.0.0.1:5000`: 130 / 130 passed** (12 new: validation, permissions, every range and boundary, maximum, two restaurants, listed + GPS, minimum, failure → fallback / refusal, restaurant without pickup point, cache hits and invalidation, order snapshot vs later price change, tampering, admin check tool, OSRM success / NoRoute / HTTP 500 / timeout / not configured) |
 | Chrome (headless) at 390 and 1280 px, local database | **Fake OSRM server** (straight line × 1.35, not road data) | Admin sets pickup point, ranges (gap refused), max, fallback, switches on, "Try it" 4.27 km → ₹30; customer: listed PG ₹30, GPS address 0.97 km → ₹10, address 37.6 km away refused; order keeps ₹30 after prices rise; admin order view shows distance and range; restaurant without pickup point → fallback notice; engine stopped → fallback ₹35 with no distance; no layout overflow |
+| `test/p6-osrm-real.test.js` | **REAL OSRM**, OpenStreetMap data (local WSL engine) | From the TEST pickup point 17.3380, 78.3000: Stanza Living Launceston House 3.89 km by road (3.17 km straight), JBIET 0.97, VJIT 3.57, Global Institute 2.52, Vivekananda Boys Hostel 1.46; second lookups come from the cache; a point in Delhi (outside the clipped map) never gets a Delhi-length route |
+| Chrome (headless) at 390 and 1280 px, local database | **REAL OSRM** | "Try it" Spice Route → Stanza 3.89 km → ₹25 (3–4 km); listed PG bill 3.89 km ₹25; GPS address 1.55 km → ₹15; address 37.2 km away refused; order stored 3891 m / 3–4 km: ₹25 and kept ₹25 after every range rose by ₹5; admin order view shows the distance; restaurant without pickup point → fallback ₹35 with notice; no layout overflow. Distance pricing switched back **off** afterwards |
 | Regression (places and GPS flows, distance off) | none | All steps pass |
-| **Not done** | **No real OSRM / real road data**, no VPS, no real phones or payments | Real road distances must be checked after OSRM is set up (compare a few "Try it" results with Google Maps). |
+| **Not done** | No VPS, no real phones or payments; pickup point is a TEST value | Set each restaurant's real pickup point and compare a few "Try it" results with Google Maps before switching on. |
