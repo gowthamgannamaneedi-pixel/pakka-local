@@ -246,7 +246,10 @@ export function adminRoutes(db) {
       if (k === 'fixed_delivery_otp' && v && !/^\d{4}$/.test(v)) return res.status(400).json({ error: 'Fixed delivery code must be 4 digits.' });
       if (k === 'payout_methods' && !/^[a-z]{2,12}(,[a-z]{2,12}){0,5}$/.test(String(v))) return res.status(400).json({ error: 'Payout methods: lowercase names separated by commas, e.g. upi,bank.' });
       if (k === 'restaurant_accept_timeout_min' && v !== '' && !(/^\d{1,3}$/.test(String(v)) && +v >= 1 && +v <= 120)) return res.status(400).json({ error: 'Restaurant response time must be 1 to 120 minutes, or empty for no timer.' });
-      if (!['delivery_otp_mode', 'fixed_delivery_otp', 'payout_methods', 'restaurant_accept_timeout_min'].includes(k) && !/^\d{1,9}$/.test(String(v))) return res.status(400).json({ error: `${k} must be a whole number.` }); }
+      if (k === 'gps_accuracy_warn_m' && v !== '' && !(/^\d{1,4}$/.test(String(v)) && +v >= 5 && +v <= 5000)) return res.status(400).json({ error: 'GPS accuracy limit must be 5 to 5000 metres, or empty for no limit.' });
+      if (k === 'gps_capture_timeout_sec' && !(/^\d{1,3}$/.test(String(v)) && +v >= 5 && +v <= 120)) return res.status(400).json({ error: 'GPS timeout must be 5 to 120 seconds.' });
+      if (k === 'gps_fix_max_age_min' && !(/^\d{1,3}$/.test(String(v)) && +v >= 1 && +v <= 120)) return res.status(400).json({ error: 'GPS reading age must be 1 to 120 minutes.' });
+      if (!['delivery_otp_mode', 'fixed_delivery_otp', 'payout_methods', 'restaurant_accept_timeout_min', 'gps_accuracy_warn_m'].includes(k) && !/^\d{1,9}$/.test(String(v))) return res.status(400).json({ error: `${k} must be a whole number.` }); }
     for (const [k, v] of Object.entries(s)) setSetting(db, k, v); audit(db, req, 'settings.update', 'settings', null, { keys: Object.keys(s) }); res.json({ ok: true }); }));
   r.get('/audit', (req, res) => res.json({ logs: db.prepare('SELECT a.action,a.target_type,a.target_id,a.actor_role,a.created_at,u.name AS actor FROM audit_logs a LEFT JOIN users u ON u.id=a.actor_user_id ORDER BY a.id DESC LIMIT 100').all() }));
   return r;

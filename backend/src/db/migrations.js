@@ -442,5 +442,65 @@ CREATE TABLE rider_phone_otps (
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 CREATE INDEX idx_rpo_rider ON rider_phone_otps(rider_id, created_at);`
+  },
+  {
+    // GPS-first delivery addresses. A customer's saved address always carries GPS coordinates the customer captured on the
+    // phone while standing at the delivery point, plus the written details a delivery partner needs (PG/college, building,
+    // block, floor, room, gate, landmark). Each order keeps its own copy of the destination (a snapshot), which the database
+    // refuses to change once payment has started, so editing or deleting a saved address never moves an existing order.
+    // reference_places is an EMPTY, admin-only directory for the official PG/college list the owner will supply later;
+    // it is kept separate from customer coordinates and nothing substitutes one for the other.
+    id: 'p4_001_gps_delivery_addresses',
+    sql: `
+CREATE TABLE customer_addresses (
+  id INTEGER PRIMARY KEY,
+  customer_id INTEGER NOT NULL REFERENCES users(id),
+  label TEXT NOT NULL CHECK (label IN ('home','hostel','pg','college','other')),
+  place_name TEXT, building TEXT, block TEXT, floor TEXT, room TEXT, entrance TEXT, landmark TEXT, instructions TEXT,
+  delivery_location_id INTEGER REFERENCES delivery_locations(id),      -- optional link to an admin delivery area (keeps that area's fee)
+  lat REAL NOT NULL CHECK (lat BETWEEN -90 AND 90),
+  lng REAL NOT NULL CHECK (lng BETWEEN -180 AND 180),
+  accuracy_m REAL CHECK (accuracy_m IS NULL OR accuracy_m >= 0),
+  captured_at TEXT NOT NULL,                                          -- when the phone produced the fix
+  accuracy_acknowledged INTEGER NOT NULL DEFAULT 0,                   -- customer confirmed a reading worse than the configured limit
+  is_default INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX idx_caddr_customer ON customer_addresses(customer_id, active);
+
+-- order destination snapshot (dest_text, dest_lat, dest_lng, dest_maps_link, instructions already exist)
+ALTER TABLE orders ADD COLUMN dest_address_id INTEGER;
+ALTER TABLE orders ADD COLUMN dest_label TEXT;
+ALTER TABLE orders ADD COLUMN dest_place_name TEXT;
+ALTER TABLE orders ADD COLUMN dest_building TEXT;
+ALTER TABLE orders ADD COLUMN dest_block TEXT;
+ALTER TABLE orders ADD COLUMN dest_floor TEXT;
+ALTER TABLE orders ADD COLUMN dest_room TEXT;
+ALTER TABLE orders ADD COLUMN dest_entrance TEXT;
+ALTER TABLE orders ADD COLUMN dest_landmark TEXT;
+ALTER TABLE orders ADD COLUMN dest_accuracy_m REAL;
+ALTER TABLE orders ADD COLUMN dest_captured_at TEXT;
+ALTER TABLE orders ADD COLUMN dest_confirmed_at TEXT;
+CREATE TRIGGER trg_order_destination_frozen BEFORE UPDATE OF dest_text, dest_lat, dest_lng, dest_maps_link, instructions, dest_address_id, dest_label,
+  dest_place_name, dest_building, dest_block, dest_floor, dest_room, dest_entrance, dest_landmark, dest_accuracy_m, dest_captured_at, dest_confirmed_at, delivery_location_id ON orders
+  WHEN OLD.status <> 'PAYMENT_PENDING'
+BEGIN SELECT RAISE(ABORT, 'order destination is fixed once payment has started'); END;
+
+CREATE TABLE reference_places (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('pg','college','hostel','other')),
+  address TEXT,
+  lat REAL CHECK (lat IS NULL OR lat BETWEEN -90 AND 90),
+  lng REAL CHECK (lng IS NULL OR lng BETWEEN -180 AND 180),
+  entrance_notes TEXT,
+  active INTEGER NOT NULL DEFAULT 0,
+  verification_status TEXT NOT NULL DEFAULT 'unverified' CHECK (verification_status IN ('unverified','verified','rejected')),
+  verified_by INTEGER REFERENCES users(id), verified_at TEXT, source TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);`
   }
 ];

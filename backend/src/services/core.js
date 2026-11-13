@@ -12,7 +12,10 @@ const DEFAULTS = { tax_bps: '0', gps_delivery_fee_paise: '4000', rider_payout_pa
   fixed_delivery_otp: '', minutes_per_km: '4', rider_to_restaurant_min: '8', default_delivery_min: '12', gateway_fee_bps: '200',
   max_active_per_rider: '2', rider_online_ttl_sec: '120', payment_timeout_min: '15', promo_daily_cap: '2', payout_methods: 'upi,bank', offer_expiry_min: '15',
   // Restaurant response timer shown on new orders. Empty = not set (no countdown). Informational only: nothing is auto-rejected.
-  restaurant_accept_timeout_min: '' };
+  restaurant_accept_timeout_min: '',
+  // Customer GPS capture. gps_accuracy_warn_m empty = no limit set: accuracy is always shown, never called exact; when set, a
+  // reading worse than it needs an explicit "use anyway". Timeout is how long the phone may take; max age is how old a reading may be when saved.
+  gps_accuracy_warn_m: '', gps_capture_timeout_sec: '20', gps_fix_max_age_min: '10' };
 export const SETTING_KEYS = Object.keys(DEFAULTS);
 export const getSetting = (db, k) => db.prepare('SELECT value FROM app_settings WHERE key = ?').pluck().get(k) ?? DEFAULTS[k];
 export const allSettings = (db) => Object.fromEntries(SETTING_KEYS.map(k => [k, getSetting(db, k)]));
@@ -77,16 +80,16 @@ export function quote(db, input) {
     lines.push({ food_item_id: id, name: f.name, qty, base: f.base_price_paise, price: f.base_price_paise + r.markup_paise, prep: f.prep_time_min });
     base += f.base_price_paise * qty; markup += r.markup_paise * qty; prep = Math.max(prep, f.prep_time_min);
   }
-  let loc = null, dest;
-  if (input.locationId) {
-    loc = db.prepare('SELECT * FROM delivery_locations WHERE id=? AND active=1').get(Number(input.locationId));
-    if (!loc) return { error: 'Please choose a valid delivery location.', status: 400 };
-    dest = { text: `${loc.name}, ${loc.address}`, lat: loc.lat, lng: loc.lng, link: loc.maps_link || mapsLink(loc.lat, loc.lng, `${loc.name} ${loc.address}`) };
-  } else {
-    const lat = Number(input.lat), lng = Number(input.lng);
-    if (!(Math.abs(lat) <= 90 && Math.abs(lng) <= 180) || input.lat == null || input.lng == null) return { error: 'Choose a delivery location or share your current location.', status: 400 };
-    dest = { text: String(input.destText || 'Current location (GPS)').slice(0, 200), lat, lng, link: mapsLink(lat, lng) };
-  }
+  // Destination = the customer's saved address: GPS coordinates captured on their phone at the delivery point + written details.
+  // Every order needs one. If the address is linked to an admin delivery area, that area's fee and surge rules apply exactly as
+  // before; otherwise the GPS delivery fee applies (also unchanged).
+  const a = input.address;
+  if (!a || !Number.isFinite(a.lat) || !Number.isFinite(a.lng) || Math.abs(a.lat) > 90 || Math.abs(a.lng) > 180 || (a.lat === 0 && a.lng === 0))
+    return { error: 'Add a delivery address with your GPS location before ordering.', status: 400, code: 'ADDRESS_REQUIRED' };
+  let loc = null;
+  if (a.delivery_location_id) { loc = db.prepare('SELECT * FROM delivery_locations WHERE id=? AND active=1').get(a.delivery_location_id); if (!loc) return { error: 'The delivery area on this address is no longer available. Edit the address.', status: 409 }; }
+  const words = [a.place_name, a.building, a.block && `Block ${a.block}`, a.floor && `Floor ${a.floor}`, a.room && `Room ${a.room}`].filter(Boolean).join(', ') || 'Saved location';
+  const dest = { text: words.slice(0, 200), lat: a.lat, lng: a.lng, link: mapsLink(a.lat, a.lng) };
   if (r.min_order_paise && base + markup < r.min_order_paise) return { error: `Minimum order for this restaurant is ${PLrs(r.min_order_paise)}.`, status: 400, code: 'MIN_ORDER' };
   const fee = loc ? loc.delivery_fee_paise : Number(getSetting(db, 'gps_delivery_fee_paise'));
   const delivery = r.free_delivery_above_paise && base + markup >= r.free_delivery_above_paise ? 0 : fee;     // restaurant-specific delivery rule
@@ -119,15 +122,19 @@ const refreshEta = (db, o, stage) => { const m = orderMins(db, o); db.prepare('U
 export function createOrder(db, customer, input) {
   const q = quote(db, input);
   if (q.error) return q;
-  const instructions = input.instructions ? String(input.instructions).slice(0, 300) : null;
+  const a = input.address;
+  const instructions = [a.instructions, input.instructions].map((x) => (x ? String(x).trim() : '')).filter(Boolean).join(' · ').slice(0, 300) || null;
   return db.transaction(() => {
     let code, tries = 0;
     do { code = `PL${new Date().toISOString().slice(0, 10).replace(/-/g, '')}${crypto.randomBytes(4).toString('hex').slice(0, 6).toUpperCase()}`; }
     while (db.prepare('SELECT 1 FROM orders WHERE order_code=?').get(code) && ++tries < 5);
+    // immutable destination snapshot: a copy of the address as confirmed now (trigger trg_order_destination_frozen locks it after payment starts)
     const id = db.prepare(`INSERT INTO orders (order_code,customer_id,restaurant_id,status,delivery_location_id,dest_text,dest_lat,dest_lng,dest_maps_link,instructions,
-      customer_name,customer_phone,items_base_paise,markup_paise,delivery_paise,surge_paise,tax_paise,total_paise,commission_bps,commission_paise,restaurant_payout_paise,rider_payout_paise)
-      VALUES (?,?,?,'PAYMENT_PENDING',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(code, customer.id, q.restaurant.id, q.locationId, q.dest.text, q.dest.lat, q.dest.lng, q.dest.link,
-      instructions, customer.name, customer.phone, q.base, q.markup, q.delivery, q.surge, q.tax, q.total, q.commissionBps, q.commission, q.restaurantPayout, q.riderPayout).lastInsertRowid;
+      customer_name,customer_phone,items_base_paise,markup_paise,delivery_paise,surge_paise,tax_paise,total_paise,commission_bps,commission_paise,restaurant_payout_paise,rider_payout_paise,
+      dest_address_id,dest_label,dest_place_name,dest_building,dest_block,dest_floor,dest_room,dest_entrance,dest_landmark,dest_accuracy_m,dest_captured_at,dest_confirmed_at)
+      VALUES (?,?,?,'PAYMENT_PENDING',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(code, customer.id, q.restaurant.id, q.locationId, q.dest.text, q.dest.lat, q.dest.lng, q.dest.link,
+      instructions, customer.name, customer.phone, q.base, q.markup, q.delivery, q.surge, q.tax, q.total, q.commissionBps, q.commission, q.restaurantPayout, q.riderPayout,
+      a.id, a.label, a.place_name, a.building, a.block, a.floor, a.room, a.entrance, a.landmark, a.accuracy_m, a.captured_at, iso()).lastInsertRowid;
     for (const l of q.lines) db.prepare('INSERT INTO order_items (order_id,food_item_id,name,qty,base_price_paise,customer_price_paise,prep_time_min) VALUES (?,?,?,?,?,?,?)').run(id, l.food_item_id, l.name, l.qty, l.base, l.price, l.prep);
     db.prepare('INSERT INTO payments (order_id,provider,merchant_order_id,amount_paise) VALUES (?,?,?,?)').run(id, config.paymentProvider, code, q.total);
     const mode = getSetting(db, 'delivery_otp_mode') === 'fixed' && getSetting(db, 'fixed_delivery_otp') ? 'fixed' : 'per_order';

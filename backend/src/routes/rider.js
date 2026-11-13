@@ -15,13 +15,19 @@ export function riderRoutes(db) {
   r.use(authenticate(db), requireRole('rider'));
   const me = (req) => db.prepare('SELECT * FROM riders WHERE user_id=?').get(req.user.id);
   const touch = (req) => db.prepare('UPDATE riders SET last_seen_at=? WHERE user_id=? AND is_online=1').run(iso(), req.user.id);
+  // Google Maps universal "directions" link to the order's own coordinates: opens the Maps app when installed, else the browser.
+  // No API key and no Google API call is involved. Returns null for missing or invalid coordinates.
+  const navUrl = (lat, lng) => { if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180 || (lat === 0 && lng === 0)) return null;
+    return 'https://www.google.com/maps/dir/?' + new URLSearchParams({ api: '1', destination: `${lat},${lng}`, travelmode: 'two-wheeler', dir_action: 'navigate' }).toString(); };
   // mine=false (an open offer): no customer phone, exact address, GPS pin, maps link or instructions until the rider has accepted
   const card = (o, mine = o.rider_id != null) => {
     const loc = o.delivery_location_id ? db.prepare('SELECT name, area, distance_km FROM delivery_locations WHERE id=?').get(o.delivery_location_id) : null;
     return { id: o.id, order_code: o.order_code, status: o.status, fee_paise: o.rider_payout_paise, eta_at: o.eta_at,
       restaurant: db.prepare('SELECT name,address,phone,maps_link FROM restaurants WHERE id=?').get(o.restaurant_id),
       customer: mine ? { name: o.customer_name, phone: o.customer_phone } : { name: null, phone: null },
-      destination: mine ? { text: o.dest_text, lat: o.dest_lat, lng: o.dest_lng, maps_link: o.dest_maps_link }
+      destination: mine ? { text: o.dest_text, lat: o.dest_lat, lng: o.dest_lng, maps_link: o.dest_maps_link, nav_url: navUrl(o.dest_lat, o.dest_lng),
+          label: o.dest_label, place_name: o.dest_place_name, building: o.dest_building, block: o.dest_block, floor: o.dest_floor, room: o.dest_room,
+          entrance: o.dest_entrance, landmark: o.dest_landmark, accuracy_m: o.dest_accuracy_m, captured_at: o.dest_captured_at }
         : { text: loc ? [loc.name, loc.area].filter(Boolean).join(', ') : 'Customer pinned location', area_only: true, lat: null, lng: null, maps_link: null },
       instructions: mine ? o.instructions : null, distance_km: loc?.distance_km ?? null,
       items: db.prepare('SELECT name,qty FROM order_items WHERE order_id=?').all(o.id) };

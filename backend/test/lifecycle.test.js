@@ -6,12 +6,14 @@ import { createApp } from '../src/app.js';
 import { completeApplication } from './helpers/rider-application.js';
 import { testOutbox } from '../src/otpProviders.js';
 import { NO_RIDER_MSG, balances, expireStalePayments } from '../src/services/core.js';
+import { withAddresses } from './helpers/address.js';
+const call = withAddresses((...a) => call0(...a));   // old cart shape -> saved GPS address (see helper)
 
 const db = openDb(':memory:');
 const server = createApp(db).listen(0);
 const base = `http://127.0.0.1:${server.address().port}`;
 test.after(() => server.close());
-const call = async (method, path, body, token) => {
+const call0 = async (method, path, body, token) => {
   const res = await fetch(base + path, { method, headers: { 'Content-Type': 'application/json', ...(token && { Authorization: `Bearer ${token}` }) }, body: body && JSON.stringify(body) });
   return { status: res.status, body: await res.json().catch(() => ({})) };
 };

@@ -7,11 +7,13 @@ import { openDb } from '../src/db/index.js';
 import { createApp } from '../src/app.js';
 import { testOutbox } from '../src/otpProviders.js';
 import { codeAt, decrypt } from '../src/totp.js';
+import { withAddresses } from './helpers/address.js';
+const call = withAddresses((...a) => call0(...a));   // old cart shape -> saved GPS address (see helper)
 
 const db = openDb(':memory:'); const server = createApp(db).listen(0); const base = `http://127.0.0.1:${server.address().port}`;
 test.after(() => server.close());
 const raw = (method, path, body, token, headers = {}) => fetch(base + path, { method, headers: { 'Content-Type': 'application/json', ...(token && { Authorization: `Bearer ${token}` }), ...headers }, body: body == null ? undefined : typeof body === 'string' ? body : JSON.stringify(body) });
-const call = async (...a) => { const r = await raw(...a); return { status: r.status, body: await r.json().catch(() => ({})), headers: r.headers }; };
+const call0 = async (...a) => { const r = await raw(...a); return { status: r.status, body: await r.json().catch(() => ({})), headers: r.headers }; };
 const PW = 'correct-horse-battery', hash = bcrypt.hashSync(PW, 4);
 const mk = (role, phone) => db.prepare('INSERT INTO users (role,phone,name,password_hash) VALUES (?,?,?,?)').run(role, phone, role, hash).lastInsertRowid;
 const login = async (portal, phone, extra = {}) => call('POST', '/api/auth/login', { portal, phone, password: PW, ...extra });

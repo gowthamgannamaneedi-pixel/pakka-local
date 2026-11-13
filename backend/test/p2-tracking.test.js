@@ -8,10 +8,12 @@ import { testOutbox } from '../src/otpProviders.js';
 import { setPushSender, dispatchPush } from '../src/services/push.js';
 import { recordLocation, customerView, adminActive, purgeLocations } from '../src/services/tracking.js';
 import { derivedOtp } from '../src/services/core.js';
+import { withAddresses } from './helpers/address.js';
+const call = withAddresses((...a) => call0(...a));   // old cart shape -> saved GPS address (see helper)
 
 const db = openDb(':memory:'); const server = createApp(db).listen(0); const base = `http://127.0.0.1:${server.address().port}`;
 test.after(() => server.close());
-const call = async (method, path, body, token) => { const r = await fetch(base + path, { method, headers: { 'Content-Type': 'application/json', ...(token && { Authorization: `Bearer ${token}` }) }, body: body && JSON.stringify(body) }); return { status: r.status, body: await r.json().catch(() => ({})) }; };
+const call0 = async (method, path, body, token) => { const r = await fetch(base + path, { method, headers: { 'Content-Type': 'application/json', ...(token && { Authorization: `Bearer ${token}` }) }, body: body && JSON.stringify(body) }); return { status: r.status, body: await r.json().catch(() => ({})) }; };
 const PW = 'correct-horse-battery', hash = bcrypt.hashSync(PW, 4);
 const mk = (role, phone) => db.prepare('INSERT INTO users (role,phone,name,password_hash) VALUES (?,?,?,?)').run(role, phone, role + phone.slice(-2), hash).lastInsertRowid;
 const staff = async (portal, phone) => (await call('POST', '/api/auth/login', { portal, phone, password: PW })).body.token;
@@ -78,7 +80,7 @@ test('customer sees the rider only for their own order and only between pickup a
   recordLocation(db, S.rdId1, { lat: 17.392, lng: 78.492 }, Date.now() + 30_000);
   db.prepare('UPDATE rider_locations SET received_at=? WHERE rider_id=?').run(new Date().toISOString(), S.rdId1);
   v = (await call('GET', `/api/tracking/orders/${S.o1.code}`, null, S.cust)).body;
-  assert.equal(v.tracking, true); assert.equal(v.state, 'live'); assert.equal(v.rider.lat, 17.392); assert.deepEqual([v.destination.lat, v.destination.lng], [17.4, 78.5]);
+  assert.equal(v.tracking, true); assert.equal(v.state, 'live'); assert.equal(v.rider.lat, 17.392); assert.deepEqual([v.destination.lat, v.destination.lng], [17.4401, 78.3489]);   // the customer's own GPS point, not the area's
   assert.equal(JSON.stringify(v).includes('97000000'), false);                                      // no phone numbers in tracking data
   assert.equal((await call('GET', `/api/tracking/orders/${S.o1.code}`, null, S.cust2)).status, 404);  // another customer
   assert.equal((await call('GET', `/api/tracking/orders/${S.o1.code}`)).status, 401);

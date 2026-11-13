@@ -5,10 +5,12 @@ import { openDb } from '../src/db/index.js';
 import { createApp } from '../src/app.js';
 import { testOutbox } from '../src/otpProviders.js';
 import { setPushSender, dispatchPush } from '../src/services/push.js';
+import { withAddresses } from './helpers/address.js';
+const call = withAddresses((...a) => call0(...a));   // old cart shape -> saved GPS address (see helper)
 
 const db = openDb(':memory:'); const server = createApp(db).listen(0); const base = `http://127.0.0.1:${server.address().port}`;
 test.after(() => server.close());
-const call = async (method, path, body, token) => { const r = await fetch(base + path, { method, headers: { 'Content-Type': 'application/json', ...(token && { Authorization: `Bearer ${token}` }) }, body: body == null ? undefined : JSON.stringify(body) }); return { status: r.status, body: await r.json().catch(() => ({})) }; };
+const call0 = async (method, path, body, token) => { const r = await fetch(base + path, { method, headers: { 'Content-Type': 'application/json', ...(token && { Authorization: `Bearer ${token}` }) }, body: body == null ? undefined : JSON.stringify(body) }); return { status: r.status, body: await r.json().catch(() => ({})) }; };
 const PW = 'correct-horse-battery', hash = bcrypt.hashSync(PW, 4), now = () => new Date().toISOString();
 const mk = (role, phone) => db.prepare('INSERT INTO users (role,phone,name,password_hash) VALUES (?,?,?,?)').run(role, phone, role + phone.slice(-2), hash).lastInsertRowid;
 const staff = async (portal, phone) => (await call('POST', '/api/auth/login', { portal, phone, password: PW })).body.token;
