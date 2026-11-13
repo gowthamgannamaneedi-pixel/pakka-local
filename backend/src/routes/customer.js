@@ -54,7 +54,8 @@ export function customerRoutes(db) {
     const ok = req.body?.outcome === 'success';
     send(res, settlePayment(db, o.order_code, ok ? 'SUCCESS' : 'FAILED', `SBX-${Date.now()}`, { sandbox: true }));
   }));
-  r.get('/orders', (req, res) => res.json({ orders: db.prepare(`SELECT o.order_code,o.status,o.total_paise,o.created_at,r.name AS restaurant FROM orders o JOIN restaurants r ON r.id=o.restaurant_id
+  r.get('/orders', (req, res) => res.json({ orders: db.prepare(`SELECT o.order_code,o.status,o.total_paise,o.created_at,o.eta_at,r.name AS restaurant,r.logo_path,
+      (SELECT group_concat(qty || ' × ' || name, ', ') FROM order_items i WHERE i.order_id=o.id) AS summary FROM orders o JOIN restaurants r ON r.id=o.restaurant_id
     WHERE o.customer_id=? ORDER BY o.id DESC LIMIT 50`).all(req.user.id) }));
   r.get('/orders/:code', (req, res) => {
     const o = db.prepare('SELECT o.*, r.name AS restaurant_name FROM orders o JOIN restaurants r ON r.id=o.restaurant_id WHERE o.order_code=? AND o.customer_id=?').get(req.params.code, req.user.id);

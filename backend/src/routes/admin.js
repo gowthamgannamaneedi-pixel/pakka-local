@@ -68,6 +68,25 @@ export function adminRoutes(db) {
       riders_available: eligibleRiderCount(db), pending_cashouts: one("SELECT COUNT(*) FROM cashout_requests WHERE status='PENDING'"), pending_riders: one("SELECT COUNT(*) FROM riders WHERE verification_status='pending'"),
       pending_refunds: one("SELECT COUNT(*) FROM refunds WHERE status='REFUND_INITIATED'") });
   });
+  // "Needs attention": live counts computed from the data itself (no stored flags), each with the screen that resolves it.
+  r.get('/attention', (req, res) => {
+    const t = getSetting(db, 'restaurant_accept_timeout_min'), today = new Date(Date.now() + IST).toISOString().slice(0, 10);
+    const placedOver = t ? one(`SELECT COUNT(*) FROM orders o WHERE o.status='PLACED' AND COALESCE((SELECT created_at FROM order_events e WHERE e.order_id=o.id AND e.event_type='PAYMENT_SUCCESS' ORDER BY id LIMIT 1), o.created_at) < ?`, new Date(Date.now() - Number(t) * 60_000).toISOString()) : 0;
+    const items = [
+      { key: 'verify', level: 'warn', n: one("SELECT COUNT(*) FROM riders WHERE verification_status='pending'"), text: 'delivery-agent application(s) waiting for review', path: '/riders', set: 'pending' },
+      { key: 'reverify', level: 'info', n: one("SELECT COUNT(*) FROM riders WHERE verification_status='reverification_required'"), text: 'agent(s) need re-verification before new deliveries', path: '/riders', set: 'reverification_required' },
+      { key: 'no_riders', level: 'bad', n: eligibleRiderCount(db) ? 0 : 1, text: 'No approved delivery agent is online, so customers cannot order', path: '/riders', set: 'approved', flag: true },
+      { key: 'placed_over', level: 'bad', n: placedOver, text: `order(s) waiting for the restaurant longer than ${t} min`, path: '/orders', flag: false },
+      { key: 'placed', level: 'warn', n: t ? 0 : one("SELECT COUNT(*) FROM orders WHERE status='PLACED'"), text: 'order(s) waiting for a restaurant to accept', path: '/orders' },
+      { key: 'unassigned', level: 'warn', n: one("SELECT COUNT(*) FROM orders WHERE rider_id IS NULL AND status IN ('ACCEPTED','PREPARING','READY')"), text: 'accepted order(s) without a delivery agent yet', path: '/orders' },
+      { key: 'cashouts', level: 'warn', n: one("SELECT COUNT(*) FROM cashout_requests WHERE status IN ('PENDING','APPROVED')"), text: 'payout request(s) to process', path: '/cashouts' },
+      { key: 'refunds', level: 'warn', n: one("SELECT COUNT(*) FROM refunds WHERE status='REFUND_INITIATED'"), text: 'refund(s) started and not yet confirmed by the payment provider', path: '/settings' },
+      { key: 'pay_failed', level: 'info', n: one("SELECT COUNT(*) FROM payments WHERE status IN ('FAILED','EXPIRED') AND substr(datetime(created_at,'+330 minutes'),1,10)=?", today), text: 'payment(s) failed or expired today', path: '/orders' },
+      { key: 'closed', level: 'info', n: one('SELECT COUNT(*) FROM restaurants r LEFT JOIN restaurant_operating_status s ON s.restaurant_id=r.id WHERE r.admin_visible=1 AND r.approved=1 AND COALESCE(s.is_open,0)=0'), text: 'visible restaurant(s) are closed right now', path: '/restaurants' },
+      { key: 'no_photo', level: 'info', n: one('SELECT COUNT(*) FROM food_items WHERE deleted=0 AND available=1 AND image_path IS NULL'), text: 'dish(es) shown without a photo (added before photos were required)', path: '/restaurants' }
+    ].filter((x) => x.n > 0);
+    res.json({ items, total: items.filter((x) => x.level !== 'info').reduce((s, x) => s + (x.flag ? 1 : x.n), 0) });
+  });
   r.get('/notifications', (req, res) => { const n = db.prepare('SELECT id,title,body,created_at,read_at FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 30').all(req.user.id); res.json({ notifications: n }); });
 
   // orders

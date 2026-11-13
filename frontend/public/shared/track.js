@@ -50,10 +50,18 @@
     const map = L.map(el, { zoomControl: true, attributionControl: true }).setView([17.385, 78.4867], 13); const layer = L.tileLayer(c.tile_url, { maxZoom: 19, attribution: c.attribution }); layer.addTo(map);
     let bad = 0; layer.on && layer.on('tileerror', () => { if (++bad === 4) { const n = document.createElement('div'); n.className = 'small'; n.style.cssText = 'position:absolute;z-index:500;left:8px;right:8px;top:8px;padding:6px 10px;border-radius:8px;background:#fff;color:#8a1c1c'; n.textContent = 'Map images are not loading. Positions and status are still correct.'; el.appendChild(n); } });
     const marks = {}; let fitted = '';
-    return { map, put(key, lat, lng, color, title, big) { let m = marks[key]; if (!m) m = marks[key] = L.circleMarker([lat, lng], { radius: big ? 10 : 7, weight: 3, fillOpacity: 0.9 }).addTo(map); m.setLatLng([lat, lng]); m.setStyle({ color: '#fff', fillColor: color }); if (title) m.bindTooltip(title); },
+    return { map, put(key, lat, lng, color, title, big) { let m = marks[key]; const ic = big ? riderIcon(color) : dropIcon();
+        if (!m) { m = marks[key] = L.marker([lat, lng], { icon: ic, keyboard: false, riseOnHover: true, zIndexOffset: big ? 500 : 0 }).addTo(map); m._c = color; }
+        m.setLatLng([lat, lng]); if (m._c !== color) { m.setIcon(ic); m._c = color; } if (title) { m.unbindTooltip(); m.bindTooltip(title); } },
       keep(keys) { for (const k of Object.keys(marks)) if (!keys.includes(k)) { map.removeLayer(marks[k]); delete marks[k]; } },
       fit() { const pts = Object.values(marks).map((m) => m.getLatLng()), sig = Object.keys(marks).sort().join(','); if (!pts.length || sig === fitted) return; fitted = sig; pts.length === 1 ? map.setView(pts[0], 16) : map.fitBounds(L.latLngBounds(pts).pad(0.3)); } };
   }
+  // Map markers: delivery partner = scooter badge whose ring colour shows live / last seen / offline; drop-off = home pin.
+  // Inline SVG (no image download); class names let tests and screen readers tell them apart.
+  const SCOOTER = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="17" r="2.6"/><circle cx="18" cy="17" r="2.6"/><path d="M8.6 17h6.8M15 17l-2-7h-3M13 10h3l2.2 4.6M6 14.4l2-4.4"/><path d="M15.5 6.5h2.5"/></svg>';
+  const HOME = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11l8-7 8 7v9h-5v-6h-6v6H4z"/></svg>';
+  const riderIcon = (color) => L.divIcon({ className: 'pl-mk pl-mk-rider', html: `<span class="ring" style="--c:${color}"><span class="core" style="background:${color}">${SCOOTER}</span></span>`, iconSize: [44, 44], iconAnchor: [22, 22], tooltipAnchor: [0, -22] });
+  const dropIcon = () => L.divIcon({ className: 'pl-mk pl-mk-drop', html: `<span class="pin">${HOME}</span>`, iconSize: [32, 40], iconAnchor: [16, 38], tooltipAnchor: [0, -36] });
   const live = (el, fn, ms, admin) => { if (!el || el._pl) return; el._pl = true; let m; const run = async () => { if (!document.body.contains(el)) return clearInterval(iv); if (m === undefined) m = await makeMap(el, admin); if (!document.hidden) fn(m); }; const iv = setInterval(run, ms); run(); };
 
   // customer: card on the order page, shown only while the order is out for delivery

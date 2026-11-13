@@ -103,3 +103,37 @@ input:disabled,select:disabled,textarea:disabled{background:var(--soft);color:va
 .dayrow{display:grid;grid-template-columns:92px 1fr auto;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}.dayrow:last-child{border-bottom:0}.dayrow .dn{font-weight:600;font-size:.88rem}.dayrow .bar{height:8px;background:var(--soft);border-radius:99px;overflow:hidden}.dayrow .bar i{display:block;height:100%;background:var(--brand);border-radius:99px}
 .chips{display:flex;flex-wrap:wrap;gap:6px}.chipbtn{border:1.5px dashed var(--line);background:#fff;border-radius:99px;padding:6px 12px;font:600 .84rem 'DM Sans',system-ui,sans-serif;cursor:pointer;color:var(--ink)}.chipbtn:hover{border-color:var(--brand);color:var(--brand)}
 .thumb.lg{width:100%;height:160px;object-fit:cover;border-radius:12px;margin-bottom:6px}
+/* ---------- map markers ---------- */
+.pl-mk{background:none;border:0}
+.pl-mk-rider .ring{display:grid;place-items:center;width:44px;height:44px;border-radius:50%;background:color-mix(in srgb,var(--c) 22%,transparent);animation:pl-pulse 2s ease-out infinite}
+.pl-mk-rider .core{display:grid;place-items:center;width:34px;height:34px;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+.pl-mk-drop .pin{display:grid;place-items:center;width:32px;height:32px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:var(--brand);border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.3)}.pl-mk-drop .pin svg{transform:rotate(45deg)}
+@keyframes pl-pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--c) 45%,transparent)}100%{box-shadow:0 0 0 14px transparent}}
+/* ---------- design layer shared by all four portals ---------- */
+.shell{background:#f7f5f1}
+.shell main>h2:first-child,.shell main>.row:first-child h2{margin-top:2px}
+button.card{display:block;width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer}
+.card{transition:box-shadow .15s,border-color .15s}
+@media(hover:hover){button.card:hover,.card[data-act]:hover{border-color:#d9d3c8;box-shadow:0 2px 4px rgba(20,30,25,.06),0 10px 24px rgba(20,30,25,.08)}.btn:hover{filter:brightness(.97)}.btn.ghost:hover,.btn.danger:hover{background:var(--soft)}}
+:focus-visible{outline:3px solid #f2a46c;outline-offset:2px}
+.sec{display:flex;align-items:center;gap:8px}.sec:after{content:'';flex:1;height:1px;background:var(--line)}
+.stat .v{color:var(--ink)}.stat{box-shadow:var(--sh)}
+.tbl{background:#fff;border-radius:14px;overflow:hidden;box-shadow:var(--sh)}.tbl th{background:#faf8f5;font-weight:700}
+@media(max-width:720px){.tbl{background:none;box-shadow:none}}
+.loading{display:grid;gap:12px;padding:16px 0}.loading:before,.loading:after{content:'';height:86px;border-radius:var(--r);background:linear-gradient(90deg,#eeeae3 25%,#f6f3ee 37%,#eeeae3 63%);background-size:400% 100%;animation:shimmer 1.3s infinite}
+@keyframes shimmer{0%{background-position:100% 0}100%{background-position:0 0}}
+.empty svg{color:#c9bfae}
+@media(prefers-reduced-motion:reduce){.pl-mk-rider .ring,.loading:before,.loading:after{animation:none}}
+/* ---------- customer: live order card, progress, tracking header, account ---------- */
+.card.live{border:1.5px solid var(--brand);background:linear-gradient(180deg,#fff,#fff8f3)}.card.live h3{font-size:1.15rem;margin-top:2px}.card.live .eta{font:800 1.2rem Manrope,system-ui,sans-serif;color:var(--brand-d)}.link{color:var(--brand);font-weight:700}
+.pbar{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin:12px 0 8px}.pbar i{height:6px;border-radius:99px;background:#ece7df}.pbar i.on{background:var(--ok)}.pbar i.cur{background:linear-gradient(90deg,var(--brand),#f3a36b);background-size:200% 100%;animation:shimmer 1.6s infinite linear}
+.hero{background:var(--green);color:#fff;border:0}.hero .small{opacity:.85}.hero h2{color:#fff;font-size:1.5rem;margin:2px 0}.hero .pbar i{background:rgba(255,255,255,.22)}.hero .pbar i.on{background:#6fd3a8}.hero .code{color:#fff}.hero .copy{background:rgba(255,255,255,.18);color:#fff}
+.hero.st-DELIVERED{background:var(--ok)}.hero.st-REJECTED,.hero.st-CANCELLED,.hero.st-PAYMENT_FAILED,.hero.st-EXPIRED{background:#7d2a24}
+.eta-box{text-align:right;background:rgba(255,255,255,.14);border-radius:12px;padding:8px 12px}.eta-box b{display:block;font:800 1.35rem Manrope,system-ui,sans-serif}
+.hscroll{display:flex;gap:10px;overflow-x:auto;margin:0 -16px 6px;padding:2px 16px 6px;scrollbar-width:none}.hscroll::-webkit-scrollbar{display:none}
+.mini{flex:none;width:210px;display:grid;gap:3px;text-align:left;background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px;box-shadow:var(--sh);cursor:pointer;font:inherit;color:inherit}
+.profile{display:flex;align-items:center;gap:14px}.avatar{width:58px;height:58px;border-radius:50%;display:grid;place-items:center;background:var(--brand);color:#fff;font:800 1.5rem Manrope,system-ui,sans-serif;flex:none}
+.card.list{padding:0}.li{display:flex;align-items:center;gap:12px;padding:14px;border-bottom:1px solid var(--line);width:100%;background:none;border-left:0;border-right:0;border-top:0;font:inherit;color:inherit;text-align:left;cursor:pointer}.li:last-child{border-bottom:0}.li>span:first-child{color:var(--brand)}
+details.card summary{cursor:pointer;list-style:none}details.card summary::-webkit-details-marker{display:none}details.card summary:after{content:'›';float:right;color:var(--mute);transition:transform .2s}details[open].card summary:after{transform:rotate(90deg)}
+/* admin: needs-attention panel */
+.attn{padding-bottom:4px}.attn .li{padding:11px 4px;border-bottom:1px solid var(--line)}.attn .li:last-child{border-bottom:0}.attn .lvl{width:9px;height:9px;border-radius:50%;flex:none;background:var(--mute)}.attn .li.warn .lvl{background:var(--warn)}.attn .li.bad .lvl{background:var(--bad)}.attn .li.info .lvl{background:#7ba7d9}

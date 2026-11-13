@@ -86,3 +86,11 @@ test('daily earnings: India-day buckets from delivered orders; matches the per-o
   assert.deepEqual([d.yesterday.orders, d.yesterday.payout_paise], [1, 4500]);
   assert.equal(d.daily.reduce((s, x) => s + x.payout_paise, 0), d.orders.reduce((s, o) => s + o.restaurant_payout_paise, 0));
 });
+
+test('admin "needs attention" lists live counts and is admin-only', async () => {
+  db.prepare("INSERT INTO cashout_requests (account_type, account_id, requested_by, amount_paise, payout_method, beneficiary, status) VALUES ('restaurant', ?, 1, 5000, 'upi', 'test@okbank', 'PENDING')").run(S.rid);
+  const a = (await call('GET', '/api/admin/attention', null, S.admin)).body;
+  assert.ok(a.items.find((x) => x.key === 'cashouts')?.n >= 1); assert.ok(a.items.find((x) => x.key === 'no_riders')); assert.ok(a.total >= 2);
+  assert.ok(a.items.every((x) => x.n > 0 && x.path && x.text));
+  assert.equal((await call('GET', '/api/admin/attention', null, S.rt)).status, 403);
+});
