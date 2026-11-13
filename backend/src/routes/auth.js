@@ -3,9 +3,10 @@ import bcrypt from 'bcryptjs';
 import crypto from 'node:crypto';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
-import { config } from '../config.js';
+import { config, EMAIL_RE } from '../config.js';
 import { signToken, authenticate } from '../auth.js';
 import { getOtpProvider } from '../otpProviders.js';
+import { getEmailProvider } from '../emailProviders.js';
 import { decrypt, verifyTotp } from '../totp.js';
 
 const phoneSchema = z.string().trim().regex(/^\+?[1-9]\d{9,14}$/, 'Enter a valid mobile number');
@@ -100,6 +101,58 @@ export function authRoutes(db) {
     res.json(sessionOut(user));
   });
 
+
+  // ---- STAGING-ONLY e-mail login for allow-listed testers (WhatsApp OTP above stays the real customer login) ----
+  // 6-digit code, 5-minute expiry, 5 attempts, 60 s resend wait, hashed, single use, per-IP and per-address limits.
+  // Each allow-listed address signs in as the customer account of the phone number it is mapped to.
+  const E = config.emailOtp, emailOff = (req, res, next) => (E.enabled ? next() : res.status(404).json({ error: 'Not found.' }));
+  const emailSchema = z.string().trim().toLowerCase().max(200).regex(EMAIL_RE, 'Enter a valid email address');
+  const hashEmailOtp = (email, otp) => crypto.createHmac('sha256', config.jwtSecret).update(`email:${email}:${otp}`).digest('hex');
+  r.post('/customer/email-otp/request', emailOff, limiter(10), async (req, res) => {
+    const p = z.object({ email: emailSchema }).safeParse(req.body);
+    if (!p.success) return res.status(400).json({ error: p.error.issues[0].message });
+    const email = p.data.email;
+    if (!E.allow.has(email)) return res.status(403).json({ error: 'This email is not enabled for staging test login.' });
+    const recent = db.prepare('SELECT created_at FROM email_otp_challenges WHERE email = ? AND created_at > ? ORDER BY id DESC').all(email, new Date(Date.now() - 3600_000).toISOString());
+    if (recent[0] && Date.now() - Date.parse(recent[0].created_at) < E.resendCooldownMs) return res.status(429).json({ error: 'Please wait a minute before requesting another code.' });
+    if (recent.length >= E.perHour) return res.status(429).json({ error: 'Too many codes for this email. Try again in an hour.' });
+    const prov = getEmailProvider(); if (!prov) return res.status(503).json({ error: 'Email login is not available.' });
+    const otp = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
+    db.prepare('UPDATE email_otp_challenges SET used = 1 WHERE email = ? AND used = 0').run(email);      // only the newest code works
+    const id = db.prepare('INSERT INTO email_otp_challenges (email, otp_hash, expires_at) VALUES (?,?,?)')
+      .run(email, hashEmailOtp(email, otp), new Date(Date.now() + E.ttlMs).toISOString()).lastInsertRowid;
+    try { await prov.send(email, otp); }
+    catch (e) {
+      db.prepare('UPDATE email_otp_challenges SET used = 1 WHERE id = ?').run(id);
+      console.error('Email OTP delivery failed:', e.message);
+      return res.status(502).json({ error: 'We could not send the email. Please try again.' });
+    }
+    res.json({ ok: true, resendAfterSec: E.resendCooldownMs / 1000 });      // never returns the code
+  });
+  r.post('/customer/email-otp/verify', emailOff, limiter(20), (req, res) => {
+    const p = z.object({ email: emailSchema, otp: z.string().regex(/^\d{6}$/), name: z.string().trim().min(1).max(80).optional() }).safeParse(req.body);
+    if (!p.success) return res.status(400).json({ error: 'Enter the 6-digit code.' });
+    const email = p.data.email, phone = E.allow.get(email);
+    const fail = () => res.status(401).json({ error: 'That code is incorrect or has expired.' });
+    if (!phone) return fail();
+    const ch = db.prepare('SELECT * FROM email_otp_challenges WHERE email = ? AND used = 0 ORDER BY id DESC LIMIT 1').get(email);
+    if (!ch || ch.expires_at < new Date().toISOString() || ch.attempts >= E.maxAttempts) return fail();
+    db.prepare('UPDATE email_otp_challenges SET attempts = attempts + 1 WHERE id = ?').run(ch.id);
+    if (!crypto.timingSafeEqual(Buffer.from(ch.otp_hash), Buffer.from(hashEmailOtp(email, p.data.otp)))) return fail();
+    const user = db.transaction(() => {
+      if (db.prepare('UPDATE email_otp_challenges SET used = 1 WHERE id = ? AND used = 0').run(ch.id).changes !== 1) return null;   // single use
+      let u = db.prepare('SELECT * FROM users WHERE phone = ?').get(phone);
+      if (!u) {
+        const id = db.prepare("INSERT INTO users (role, phone, name) VALUES ('customer', ?, ?)").run(phone, p.data.name || 'Test customer').lastInsertRowid;
+        db.prepare('INSERT INTO customers (user_id) VALUES (?)').run(id);
+        u = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+      }
+      return u;
+    })();
+    if (!user || user.role !== 'customer') return fail();      // a staff phone can never be reached through e-mail login
+    if (!user.active) return res.status(403).json({ error: 'This account has been deactivated. Contact support.' });
+    res.json(sessionOut(user));
+  });
 
   r.get('/me', authenticate(db), (req, res) => res.json({ user: { id: req.user.id, role: req.user.role, name: req.user.name } }));
   // Revokes every session of this user on all devices.

@@ -17,8 +17,27 @@
   }
   PL.actions['to-login'] = () => {
     PL.$('#root').innerHTML = `<div class="loginbox"><img class="logo" src="/assets/logo.png" alt="Pakka Local"><h1 style="text-align:center">Welcome</h1><p class="mute" style="text-align:center">Sign in with your mobile number. We’ll send a one-time code on WhatsApp.</p>
-      <form data-form="otp-request"><label>Mobile number</label><input name="phone" inputmode="tel" autocomplete="tel" placeholder="98765 43210" required><button class="btn block mt" type="submit">Send code</button></form></div>`;
+      <form data-form="otp-request"><label>Mobile number</label><input name="phone" inputmode="tel" autocomplete="tel" placeholder="98765 43210" required><button class="btn block mt" type="submit">Send code</button></form><div id="email-login"></div></div>`;
+    // STAGING ONLY: the server says whether allow-listed testers may sign in by e-mail (never on production)
+    PL.api('/api/public/config').then((c) => { const el = PL.$('#email-login'); if (el && c?.emailLogin) el.innerHTML = `<div class="banner info small mt">Staging test login: approved testers can get the code by email instead.</div><button class="btn ghost block mt2" data-act="to-email-login">Use a test email</button>`; }).catch(() => {});
   };
+  // ---------- STAGING-ONLY e-mail login for allow-listed testers ----------
+  PL.actions['to-email-login'] = () => {
+    PL.$('#root').innerHTML = `<div class="loginbox"><img class="logo" src="/assets/logo.png" alt="Pakka Local"><h1 style="text-align:center">Staging test login</h1><p class="mute" style="text-align:center">Only approved test emails work. We’ll email you a 6-digit code.</p>
+      <form data-form="email-otp-request"><label>Test email</label><input name="email" type="email" inputmode="email" autocomplete="email" placeholder="tester@example.com" required><button class="btn block mt" type="submit">Email me a code</button></form>
+      <button class="btn ghost block mt2" data-act="to-login">Use mobile number instead</button></div>`;
+  };
+  PL.forms['email-otp-request'] = async (f) => { const email = PL.form(f).email.trim().toLowerCase(); const r = await PL.run(() => PL.post('/api/auth/customer/email-otp/request', { email })); if (r) emailOtpView(email, r.resendAfterSec); };
+  function emailOtpView(email, wait) {
+    PL.$('#root').innerHTML = `<div class="loginbox"><img class="logo" src="/assets/logo.png" alt=""><h1 style="text-align:center">Check your email</h1><p class="mute" style="text-align:center">Code sent to ${e(email)}. Check spam too. It expires in 5 minutes.</p>
+      <form data-form="email-otp-verify" data-email="${e(email)}"><label>6-digit code</label><input name="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="\\d{6}" required>
+      <label>Your name (optional)</label><input name="name" autocomplete="name" maxlength="80"><button class="btn block mt" type="submit">Verify and continue</button></form>
+      <button class="btn ghost block mt" id="resend" data-act="email-resend" data-email="${e(email)}" disabled>Resend in ${wait}s</button><button class="btn ghost block mt2" data-act="to-email-login">Change email</button></div>`;
+    let t = wait; const iv = setInterval(() => { const b = PL.$('#resend'); if (!b) return clearInterval(iv); t--; if (t <= 0) { b.disabled = false; b.textContent = 'Resend code'; clearInterval(iv); } else b.textContent = `Resend in ${t}s`; }, 1000);
+  }
+  PL.actions['email-resend'] = async (el) => { const r = await PL.run(() => PL.post('/api/auth/customer/email-otp/request', { email: el.dataset.email }), 'Code sent'); if (r) emailOtpView(el.dataset.email, r.resendAfterSec); };
+  PL.forms['email-otp-verify'] = async (f) => { const v = PL.form(f); const body = { email: f.dataset.email, otp: v.otp }; if (v.name?.trim()) body.name = v.name.trim();
+    const r = await PL.run(() => PL.post('/api/auth/customer/email-otp/verify', body)); if (r) { PL.setSession(r); history.replaceState({ idx: 0 }, '', location.hash || '#'); PL.boot(); } };
   const normPhone = (p) => { p = p.replace(/[\s-]/g, ''); return /^\d{10}$/.test(p) ? '+91' + p : p; };
   PL.forms['otp-request'] = async (f) => { const phone = normPhone(PL.form(f).phone); const r = await PL.run(() => PL.post('/api/auth/customer/otp/request', { phone })); if (r) otpView(phone, r.resendAfterSec); };
   function otpView(phone, wait) {

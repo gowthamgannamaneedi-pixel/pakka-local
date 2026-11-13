@@ -597,5 +597,17 @@ CREATE TRIGGER trg_order_destination_frozen BEFORE UPDATE OF dest_text, dest_lat
   dest_kind, dest_location_name, dest_coord_source, delivery_paise, delivery_pricing, delivery_distance_m, delivery_band, delivery_route_source ON orders
   WHEN OLD.status <> 'PAYMENT_PENDING'
 BEGIN SELECT RAISE(ABORT, 'order destination is fixed once payment has started'); END;`
+  },
+  {
+    // STAGING ONLY: e-mail login codes for allow-listed testers while WhatsApp OTP is not available. Separate from the
+    // WhatsApp/phone login table and from pickup/delivery OTPs. Codes are stored hashed and used once.
+    id: 'p7_001_email_otp',
+    sql: `
+CREATE TABLE email_otp_challenges (
+  id INTEGER PRIMARY KEY, email TEXT NOT NULL, otp_hash TEXT NOT NULL, expires_at TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0, used INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX idx_email_otp ON email_otp_challenges(email, created_at);`
   }
 ];

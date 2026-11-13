@@ -28,6 +28,19 @@ if (!env.VAPID_PUBLIC_KEY && !env.VAPID_PRIVATE_KEY && secretsDir) {
   env.VAPID_PUBLIC_KEY = k.publicKey; env.VAPID_PRIVATE_KEY = k.privateKey;
 }
 
+export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// "a@x.com=+919876543210, b@y.com=9876543211" -> Map(email -> +91 phone). Malformed entries stop the app (never silently skipped).
+function parseEmailAllow(v) {
+  const m = new Map();
+  for (const part of v.split(',').map((x) => x.trim()).filter(Boolean)) {
+    const [email, phone] = part.split('=').map((x) => (x || '').trim());
+    const ph = /^\d{10}$/.test(phone) ? '+91' + phone : phone;
+    if (!EMAIL_RE.test(email || '') || !/^\+91[6-9]\d{9}$/.test(ph || '')) throw new Error('EMAIL_OTP_ALLOWLIST entries must look like tester@example.com=+91XXXXXXXXXX');
+    m.set(email.toLowerCase(), ph);
+  }
+  return m;
+}
+
 function required(name) {
   const v = env[name];
   if (!v && isProd) throw new Error(`Missing required environment variable: ${name}`);
@@ -67,6 +80,11 @@ export const config = {
   publicApiUrl: (env.PUBLIC_API_URL || '').replace(/\/$/, ''),
   otpProvider: isTest ? 'test' : (env.OTP_PROVIDER || 'whatsapp'),
   testOtp: { code: env.TEST_OTP_CODE, phones: (env.TEST_OTP_PHONES || '').split(',').map((x) => x.trim()).filter(Boolean) },
+  // STAGING-ONLY e-mail login for allow-listed testers (EMAIL_OTP_ALLOWLIST="tester@example.com=+919876543210,...":
+  // each address signs in as that phone number's customer account). Refused on production; WhatsApp stays the real login.
+  emailOtp: { requested: env.EMAIL_OTP_ENABLED === '1', allow: parseEmailAllow(env.EMAIL_OTP_ALLOWLIST || ''), provider: isTest ? 'test' : (env.EMAIL_PROVIDER || 'brevo'),
+    apiUrl: env.BREVO_API_URL || 'https://api.brevo.com/v3/smtp/email', apiKey: (env.BREVO_API_KEY || '').trim(), from: (env.EMAIL_FROM || '').trim(), fromName: env.EMAIL_FROM_NAME || 'Pakka Local (staging)',
+    ttlMs: 5 * 60_000, maxAttempts: 5, resendCooldownMs: 60_000, perHour: 6 },
   whatsapp: {
     token: env.WHATSAPP_ACCESS_TOKEN, phoneId: env.WHATSAPP_PHONE_NUMBER_ID,
     template: env.WHATSAPP_OTP_TEMPLATE_NAME, apiVersion: env.WHATSAPP_API_VERSION || 'v21.0'
@@ -81,6 +99,11 @@ if (!['disabled', 'sandbox', 'phonepe'].includes(config.paymentProvider)) throw 
 if (appEnv === 'production' && config.paymentProvider === 'sandbox') throw new Error('PAYMENT_PROVIDER=sandbox is not allowed in production. Use PAYMENT_PROVIDER=disabled until a real payment gateway is integrated.');
 if (appEnv === 'staging' && config.paymentProvider === 'sandbox' && !config.sandboxPhones.length) throw new Error('Staging sandbox payments require SANDBOX_PAYMENT_PHONES (comma-separated tester phone numbers).');
 config.sandboxPayments = config.paymentProvider === 'sandbox' && appEnv !== 'production';
+// E-mail login is a staging test aid only: no override exists for production.
+if (appEnv === 'production' && config.emailOtp.requested) throw new Error('EMAIL_OTP_ENABLED is for staging testing only and is refused when APP_ENV=production.');
+if (config.emailOtp.requested && !config.emailOtp.allow.size) throw new Error('EMAIL_OTP_ENABLED=1 needs EMAIL_OTP_ALLOWLIST (tester emails).');
+if (config.emailOtp.requested && config.emailOtp.provider === 'brevo' && !EMAIL_RE.test(config.emailOtp.from)) throw new Error('EMAIL_OTP_ENABLED=1 needs EMAIL_FROM (the sender address verified in Brevo).');
+config.emailOtp.enabled = config.emailOtp.requested && appEnv !== 'production';
 
 // Data must live outside the deployed code: hosts such as Hostinger replace the whole app folder on every deployment,
 // which would silently delete the database, uploads and backups. Refused on production/staging; no override.
