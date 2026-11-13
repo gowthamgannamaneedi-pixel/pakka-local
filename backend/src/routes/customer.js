@@ -23,7 +23,7 @@ export function publicRoutes(db) {
   r.get('/restaurants/:id/menu', (req, res) => {
     const rest = db.prepare('SELECT r.id,r.name,r.description,r.cuisine,r.logo_path,r.image_path,r.markup_paise,r.operating_info,r.min_order_paise,r.free_delivery_above_paise,r.rating,r.rating_count,COALESCE(s.is_open,0) AS is_open FROM restaurants r LEFT JOIN restaurant_operating_status s ON s.restaurant_id=r.id WHERE r.id=? AND r.approved=1 AND r.admin_visible=1').get(req.params.id);
     if (!rest) return res.status(404).json({ error: 'Restaurant not found.' });
-    const items = db.prepare('SELECT id,name,description,image_path,base_price_paise,prep_time_min,available,category_id FROM food_items WHERE restaurant_id=? AND deleted=0 ORDER BY name').all(rest.id)
+    const items = db.prepare('SELECT id,name,description,image_path,base_price_paise,prep_time_min,available,category_id FROM food_items WHERE restaurant_id=? AND deleted=0 AND NOT (available=0 AND image_path IS NULL) ORDER BY name').all(rest.id)
       .map(i => ({ ...i, restaurant_price_paise: i.base_price_paise, price_paise: i.base_price_paise + rest.markup_paise, base_price_paise: undefined }));
     const categories = db.prepare('SELECT id,name FROM food_categories WHERE restaurant_id=? ORDER BY sort_order, name').all(rest.id);
     res.json({ restaurant: { ...rest, markup_paise: undefined }, items, categories });

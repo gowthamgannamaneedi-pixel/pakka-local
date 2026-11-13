@@ -163,7 +163,7 @@ export function adminRoutes(db) {
     if (!out.error) audit(db, req, `cashout.${req.params.action}`, 'cashout', req.params.id, { txn: req.body?.txn_reference }); send(res, out); }));
 
   // surge
-  r.get('/surge', (req, res) => res.json({ rules: db.prepare('SELECT * FROM surge_charge_rules ORDER BY id DESC').all(), requests: db.prepare('SELECT q.*, r.name AS restaurant FROM surge_charge_requests q JOIN restaurants r ON r.id=q.restaurant_id ORDER BY (q.status=\'PENDING\') DESC, q.id DESC LIMIT 50').all(),
+  r.get('/surge', (req, res) => res.json({ rules: db.prepare('SELECT * FROM surge_charge_rules ORDER BY id DESC').all(),
     orders: db.prepare("SELECT order_code,surge_paise,created_at FROM orders WHERE surge_paise>0 AND status NOT IN ('PAYMENT_PENDING','PAYMENT_FAILED','EXPIRED') ORDER BY id DESC LIMIT 50").all(),
     collected_paise: one("SELECT SUM(surge_paise) FROM orders WHERE surge_paise>0 AND status='DELIVERED'") }));
   const rule = z.object({ name: z.string().trim().min(1).max(60), kind: z.enum(['fixed', 'percent']), value: z.number().int().min(0).max(100000), location_id: z.number().int().nullish(), starts_at: z.string().datetime().nullish(), ends_at: z.string().datetime().nullish(), active: z.boolean() });
@@ -173,10 +173,7 @@ export function adminRoutes(db) {
   r.put('/surge/rules/:id', wrap((req, res) => { const d = parse(rule, req, res); if (!d) return;
     const c = db.prepare('UPDATE surge_charge_rules SET name=?,kind=?,value=?,location_id=?,starts_at=?,ends_at=?,active=? WHERE id=?').run(d.name, d.kind, d.value, d.location_id ?? null, d.starts_at ?? null, d.ends_at ?? null, d.active ? 1 : 0, req.params.id).changes;
     audit(db, req, 'surge.update', 'surge_rule', req.params.id, d); c ? res.json({ ok: true }) : res.status(404).json({ error: 'Rule not found.' }); }));
-  r.post('/surge/requests/:id/decide', wrap((req, res) => { const d = parse(z.object({ approve: z.boolean(), note: z.string().max(200).optional() }), req, res); if (!d) return;
-    const c = db.prepare("UPDATE surge_charge_requests SET status=?,decided_by=?,decided_at=?,decision_note=? WHERE id=? AND status='PENDING'").run(d.approve ? 'APPROVED' : 'REJECTED', req.user.id, iso(), d.note ?? null, req.params.id).changes;
-    audit(db, req, d.approve ? 'surge.request.approve' : 'surge.request.reject', 'surge_request', req.params.id);
-    c ? res.json({ ok: true, note: d.approve ? 'Approved. Create or activate a surge rule to apply it.' : undefined }) : res.status(409).json({ error: 'Request already decided.' }); }));
+  // Restaurant surge *requests* were removed. Past requests stay in the database untouched; surge rules (admin pricing) are unchanged.
 
 
   // broadcast campaigns (Web Push only; promotions never go through WhatsApp)
@@ -229,7 +226,8 @@ export function adminRoutes(db) {
       if (k === 'delivery_otp_mode' && !['fixed', 'per_order'].includes(v)) return res.status(400).json({ error: 'Invalid OTP mode.' });
       if (k === 'fixed_delivery_otp' && v && !/^\d{4}$/.test(v)) return res.status(400).json({ error: 'Fixed delivery code must be 4 digits.' });
       if (k === 'payout_methods' && !/^[a-z]{2,12}(,[a-z]{2,12}){0,5}$/.test(String(v))) return res.status(400).json({ error: 'Payout methods: lowercase names separated by commas, e.g. upi,bank.' });
-      if (!['delivery_otp_mode', 'fixed_delivery_otp', 'payout_methods'].includes(k) && !/^\d{1,9}$/.test(String(v))) return res.status(400).json({ error: `${k} must be a whole number.` }); }
+      if (k === 'restaurant_accept_timeout_min' && v !== '' && !(/^\d{1,3}$/.test(String(v)) && +v >= 1 && +v <= 120)) return res.status(400).json({ error: 'Restaurant response time must be 1 to 120 minutes, or empty for no timer.' });
+      if (!['delivery_otp_mode', 'fixed_delivery_otp', 'payout_methods', 'restaurant_accept_timeout_min'].includes(k) && !/^\d{1,9}$/.test(String(v))) return res.status(400).json({ error: `${k} must be a whole number.` }); }
     for (const [k, v] of Object.entries(s)) setSetting(db, k, v); audit(db, req, 'settings.update', 'settings', null, { keys: Object.keys(s) }); res.json({ ok: true }); }));
   r.get('/audit', (req, res) => res.json({ logs: db.prepare('SELECT a.action,a.target_type,a.target_id,a.actor_role,a.created_at,u.name AS actor FROM audit_logs a LEFT JOIN users u ON u.id=a.actor_user_id ORDER BY a.id DESC LIMIT 100').all() }));
   return r;

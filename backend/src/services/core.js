@@ -10,7 +10,9 @@ const PLrs = (p) => '₹' + (p / 100).toLocaleString('en-IN', { maximumFractionD
 // ---------- settings ----------
 const DEFAULTS = { tax_bps: '0', gps_delivery_fee_paise: '4000', rider_payout_paise: '3000', delivery_otp_mode: 'per_order',
   fixed_delivery_otp: '', minutes_per_km: '4', rider_to_restaurant_min: '8', default_delivery_min: '12', gateway_fee_bps: '200',
-  max_active_per_rider: '2', rider_online_ttl_sec: '120', payment_timeout_min: '15', promo_daily_cap: '2', payout_methods: 'upi,bank', offer_expiry_min: '15' };
+  max_active_per_rider: '2', rider_online_ttl_sec: '120', payment_timeout_min: '15', promo_daily_cap: '2', payout_methods: 'upi,bank', offer_expiry_min: '15',
+  // Restaurant response timer shown on new orders. Empty = not set (no countdown). Informational only: nothing is auto-rejected.
+  restaurant_accept_timeout_min: '' };
 export const SETTING_KEYS = Object.keys(DEFAULTS);
 export const getSetting = (db, k) => db.prepare('SELECT value FROM app_settings WHERE key = ?').pluck().get(k) ?? DEFAULTS[k];
 export const allSettings = (db) => Object.fromEntries(SETTING_KEYS.map(k => [k, getSetting(db, k)]));
