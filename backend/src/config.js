@@ -31,6 +31,8 @@ export const config = {
   // Map tiles (Leaflet). Production must name a provider whose terms allow this use; public OSM tiles are for development only.
   // MAP_TILE_URL=none turns the map off on any environment (status text only), e.g. to check the no-provider fallback locally.
   map: { tileUrl: env.MAP_TILE_URL === 'none' ? '' : env.MAP_TILE_URL || (isProd ? '' : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'), attribution: env.MAP_TILE_ATTRIBUTION || '&copy; OpenStreetMap contributors' },
+  // Road distance for distance-based delivery charges: a self-hosted OSRM engine (see docs/DISTANCE-PRICING.md). Empty = not set up.
+  routing: { osrmUrl: (env.OSRM_URL || '').trim(), profile: env.OSRM_PROFILE || 'driving', timeoutMs: Number(env.OSRM_TIMEOUT_MS || 3000) },
   serveFrontend: env.SERVE_FRONTEND === 'true' || (!isProd && !isTest),
   vapid: { publicKey: env.VAPID_PUBLIC_KEY, privateKey: env.VAPID_PRIVATE_KEY, subject: env.VAPID_SUBJECT || 'mailto:admin@pakkalocal.example' },
   publicApiUrl: (env.PUBLIC_API_URL || '').replace(/\/$/, ''),

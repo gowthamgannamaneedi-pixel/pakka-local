@@ -557,5 +557,45 @@ CREATE TRIGGER trg_order_destination_frozen BEFORE UPDATE OF dest_text, dest_lat
   dest_kind, dest_location_name, dest_coord_source, delivery_paise ON orders
   WHEN OLD.status <> 'PAYMENT_PENDING'
 BEGIN SELECT RAISE(ABORT, 'order destination is fixed once payment has started'); END;`
+  },
+  {
+    // Distance-based delivery charges (road distance from the restaurant's pickup point to the delivery point).
+    //  - restaurants get a pickup point (entered by an admin; nothing is guessed)
+    //  - distance_fee_bands: admin-configured ranges [from_km, to_km) with a charge each; the last band may be open-ended
+    //  - route_cache: road distances from the routing engine, keyed by the EXACT coordinates of both points and the
+    //    provider, so moving either point can never reuse an old distance
+    //  - orders keep the distance, the band, how the charge was worked out and which router answered (frozen after payment)
+    id: 'p6_001_distance_pricing',
+    sql: `
+ALTER TABLE restaurants ADD COLUMN pickup_lat REAL CHECK (pickup_lat IS NULL OR pickup_lat BETWEEN -90 AND 90);
+ALTER TABLE restaurants ADD COLUMN pickup_lng REAL CHECK (pickup_lng IS NULL OR pickup_lng BETWEEN -180 AND 180);
+ALTER TABLE restaurants ADD COLUMN pickup_updated_at TEXT;
+
+CREATE TABLE distance_fee_bands (
+  id INTEGER PRIMARY KEY,
+  from_km REAL NOT NULL CHECK (from_km >= 0),
+  to_km REAL CHECK (to_km IS NULL OR to_km > from_km),
+  fee_paise INTEGER NOT NULL CHECK (fee_paise >= 0)
+);
+
+CREATE TABLE route_cache (
+  cache_key TEXT PRIMARY KEY,
+  provider TEXT NOT NULL,
+  distance_m REAL NOT NULL CHECK (distance_m >= 0),
+  duration_s REAL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+ALTER TABLE orders ADD COLUMN delivery_pricing TEXT;        -- listed | gps_fixed | distance | distance_fallback
+ALTER TABLE orders ADD COLUMN delivery_distance_m REAL;     -- road distance used (NULL for fallback or fixed charges)
+ALTER TABLE orders ADD COLUMN delivery_band TEXT;           -- e.g. "2–3 km: ₹20"
+ALTER TABLE orders ADD COLUMN delivery_route_source TEXT;   -- osrm | cache | none (+ reason for fallback)
+UPDATE orders SET delivery_pricing = CASE dest_kind WHEN 'listed' THEN 'listed' WHEN 'gps' THEN 'gps_fixed' END WHERE delivery_pricing IS NULL AND dest_kind IS NOT NULL;
+DROP TRIGGER trg_order_destination_frozen;
+CREATE TRIGGER trg_order_destination_frozen BEFORE UPDATE OF dest_text, dest_lat, dest_lng, dest_maps_link, instructions, dest_address_id, dest_label,
+  dest_place_name, dest_building, dest_block, dest_floor, dest_room, dest_entrance, dest_landmark, dest_accuracy_m, dest_captured_at, dest_confirmed_at, delivery_location_id,
+  dest_kind, dest_location_name, dest_coord_source, delivery_paise, delivery_pricing, delivery_distance_m, delivery_band, delivery_route_source ON orders
+  WHEN OLD.status <> 'PAYMENT_PENDING'
+BEGIN SELECT RAISE(ABORT, 'order destination is fixed once payment has started'); END;`
   }
 ];

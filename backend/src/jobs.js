@@ -1,5 +1,6 @@
 import { backupDb } from './db/index.js';
 import { purgeLocations } from './services/tracking.js';
+import { purgeRouteCache } from './services/routing.js';
 import { expireStalePayments } from './services/core.js';
 import { dispatchPush, processCampaigns } from './services/push.js';
 // Runs on the server regardless of any browser session.
@@ -14,6 +15,7 @@ export function startJobs(db, backupDir) {
     setInterval(() => { try { expireStalePayments(db); } catch (e) { console.error('payment expiry:', e.message); } }, 60_000),
     (() => { let busy = false; return setInterval(async () => { if (busy) return; busy = true; try { processCampaigns(db); await dispatchPush(db); } catch (e) { console.error('push job:', e.message); } finally { busy = false; } }, 2000); })(),
     setInterval(() => { try { purgeLocations(db); } catch (e) { console.error('location cleanup:', e.message); } }, 60_000),      // backstop; the database trigger does the immediate cleanup
+    setInterval(() => { try { purgeRouteCache(db); } catch (e) { console.error('route cache cleanup:', e.message); } }, 6 * 3600_000),      // expired road distances
     setInterval(() => backupDb(db, backupDir).catch(e => console.error('backup:', e.message)), 6 * 3600_000)
   ];
   return () => timers.forEach(clearInterval);

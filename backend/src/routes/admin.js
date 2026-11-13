@@ -5,8 +5,10 @@ import { z } from 'zod';
 import { authenticate, requireRole, audit, requireFreshAuth } from '../auth.js';
 import { adminView, decide, revealPayout, missing, DOC_LABEL, ID_TYPES } from '../services/riderApplication.js';
 import * as Locs from '../services/locations.js';
+import * as Pricing from '../services/distancePricing.js';
+import * as Routing from '../services/routing.js';
 import { allSettings, setSetting, SETTING_KEYS, adminCashout, balances, settleRefund, eligibleRiderCount, getSetting, iso, adminCancel, adminUnassign } from '../services/core.js';
-import { send, parse, wrap, money } from './util.js';
+import { send, parse, wrap, wrapA, money } from './util.js';
 import { newSecret, encrypt, decrypt, verifyTotp, otpauthUri } from '../totp.js';
 import { audienceUsers, campaignStats, processCampaigns } from '../services/push.js';
 import { saveUpload } from '../services/core.js';
@@ -84,6 +86,8 @@ export function adminRoutes(db) {
       { key: 'refunds', level: 'warn', n: one("SELECT COUNT(*) FROM refunds WHERE status='REFUND_INITIATED'"), text: 'refund(s) started and not yet confirmed by the payment provider', path: '/settings' },
       { key: 'pay_failed', level: 'info', n: one("SELECT COUNT(*) FROM payments WHERE status IN ('FAILED','EXPIRED') AND substr(datetime(created_at,'+330 minutes'),1,10)=?", today), text: 'payment(s) failed or expired today', path: '/orders' },
       { key: 'closed', level: 'info', n: one('SELECT COUNT(*) FROM restaurants r LEFT JOIN restaurant_operating_status s ON s.restaurant_id=r.id WHERE r.admin_visible=1 AND r.approved=1 AND COALESCE(s.is_open,0)=0'), text: 'visible restaurant(s) are closed right now', path: '/restaurants' },
+      { key: 'routing_off', level: 'bad', n: Pricing.getConfig(db).enabled && Routing.providerName() === 'none' ? 1 : 0, text: 'Distance pricing is on but no routing engine is set up (OSRM_URL), so every order uses the fallback charge or is refused', path: '/distance', flag: true },
+      { key: 'no_pickup', level: 'warn', n: Pricing.getConfig(db).enabled ? one('SELECT COUNT(*) FROM restaurants WHERE admin_visible=1 AND approved=1 AND pickup_lat IS NULL') : 0, text: 'visible restaurant(s) have no pickup point, so distance cannot be calculated for them', path: '/distance' },
       { key: 'no_photo', level: 'info', n: one('SELECT COUNT(*) FROM food_items WHERE deleted=0 AND available=1 AND image_path IS NULL'), text: 'dish(es) shown without a photo (added before photos were required)', path: '/restaurants' }
     ].filter((x) => x.n > 0);
     res.json({ items, total: items.filter((x) => x.level !== 'info').reduce((s, x) => s + (x.flag ? 1 : x.n), 0) });
@@ -138,6 +142,26 @@ export function adminRoutes(db) {
     db.prepare('UPDATE restaurants SET name=?,description=?,address=?,phone=?,cuisine=?,commission_bps=?,markup_paise=?,packing_buffer_min=?,min_order_paise=?,free_delivery_above_paise=?,admin_visible=?,approved=? WHERE id=?')
       .run(m.name, m.description, m.address, m.phone, m.cuisine, m.commission_bps, m.markup_paise, m.packing_buffer_min, m.min_order_paise ?? 0, m.free_delivery_above_paise, m.admin_visible, m.approved, c.id);
     audit(db, req, 'restaurant.update', 'restaurant', c.id, d); res.json({ ok: true }); }));
+  // restaurant pickup point (start of the road-distance calculation). Entered by an admin; audited with old/new values.
+  r.put('/restaurants/:id(\\d+)/pickup', wrap((req, res) => { const d = parse(z.object({ lat: z.number().min(-90).max(90).nullable(), lng: z.number().min(-180).max(180).nullable() }).strict()
+      .refine((x) => (x.lat == null) === (x.lng == null), 'Enter both latitude and longitude, or neither.').refine((x) => !(x.lat === 0 && x.lng === 0), 'That map point is not valid.'), req, res); if (!d) return;
+    const c = db.prepare('SELECT id, pickup_lat, pickup_lng FROM restaurants WHERE id=?').get(req.params.id); if (!c) return res.status(404).json({ error: 'Restaurant not found.' });
+    db.prepare('UPDATE restaurants SET pickup_lat=?, pickup_lng=?, pickup_updated_at=? WHERE id=?').run(d.lat, d.lng, iso(), c.id);
+    audit(db, req, 'restaurant.pickup_point', 'restaurant', c.id, { changed: { pickup: { from: c.pickup_lat == null ? null : [c.pickup_lat, c.pickup_lng], to: d.lat == null ? null : [d.lat, d.lng] } } });
+    res.json({ ok: true }); }));
+  // ---------- distance-based delivery pricing ----------
+  r.get('/distance-pricing', (req, res) => res.json({ config: Pricing.getConfig(db), provider: Routing.providerName(), osrm_configured: !!config.routing.osrmUrl,
+    restaurants: db.prepare('SELECT id, name, pickup_lat, pickup_lng, admin_visible FROM restaurants ORDER BY name').all(),
+    recent: db.prepare("SELECT o.order_code, o.created_at, o.delivery_paise, o.delivery_pricing, o.delivery_distance_m, o.delivery_band, o.delivery_route_source, r.name AS restaurant, COALESCE(o.dest_location_name, o.dest_place_name) AS place FROM orders o JOIN restaurants r ON r.id=o.restaurant_id WHERE o.delivery_pricing LIKE 'distance%' ORDER BY o.id DESC LIMIT 20").all() }));
+  r.put('/distance-pricing', wrap((req, res) => { const out = Pricing.saveConfig(db, req.body || {}); if (out.error) return send(res, out);
+    if (Object.keys(out.changed).length) audit(db, req, 'distance_pricing.update', 'settings', null, { changed: out.changed }); res.json(out); }));
+  // try a restaurant -> place / point before going live: shows the road distance and the charge the current setup gives
+  r.post('/distance-pricing/check', wrapA(async (req, res) => { const d = parse(z.object({ restaurant_id: z.number().int().positive(), location_id: z.number().int().positive().optional(), lat: z.number().min(-90).max(90).optional(), lng: z.number().min(-180).max(180).optional() }).strict(), req, res); if (!d) return;
+    let point = null; if (d.location_id) { const l = db.prepare('SELECT lat, lng FROM delivery_locations WHERE id=?').get(d.location_id); if (!l) return res.status(404).json({ error: 'Place not found.' }); point = l.lat == null ? null : { lat: l.lat, lng: l.lng }; }
+    else if (d.lat != null && d.lng != null) point = { lat: d.lat, lng: d.lng };
+    if (!point) return res.status(400).json({ error: 'Choose a place with a map point, or enter latitude and longitude.' });
+    const route = await Pricing.routeFor(db, d.restaurant_id, point), cfg = Pricing.getConfig(db), price = Pricing.priceFor(cfg, route);
+    res.json({ distance_km: route.distance_m == null ? null : Math.round(route.distance_m / 10) / 100, source: route.source || null, reason: route.reason || null, price: price.error ? null : { fee_paise: price.fee, band: price.band, pricing: price.pricing }, error: price.error || null, enabled: cfg.enabled }); }));
   r.get('/restaurants/:id/menu', (req, res) => res.json({ items: db.prepare('SELECT id,name,base_price_paise,prep_time_min,available FROM food_items WHERE restaurant_id=? AND deleted=0').all(req.params.id) }));
 
   // ---------- delivery locations (PGs, hostels, colleges...) with their own delivery charges ----------

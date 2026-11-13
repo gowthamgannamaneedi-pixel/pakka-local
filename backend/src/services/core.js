@@ -1,3 +1,4 @@
+import { getConfig as getDistanceConfig, priceFor } from './distancePricing.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -15,7 +16,10 @@ const DEFAULTS = { tax_bps: '0', gps_delivery_fee_paise: '4000', rider_payout_pa
   restaurant_accept_timeout_min: '',
   // Customer GPS capture. gps_accuracy_warn_m empty = no limit set: accuracy is always shown, never called exact; when set, a
   // reading worse than it needs an explicit "use anyway". Timeout is how long the phone may take; max age is how old a reading may be when saved.
-  gps_accuracy_warn_m: '', gps_capture_timeout_sec: '20', gps_fix_max_age_min: '10' };
+  gps_accuracy_warn_m: '', gps_capture_timeout_sec: '20', gps_fix_max_age_min: '10',
+  // Distance-based delivery charges (off by default; ranges live in distance_fee_bands). Empty = not set: no maximum,
+  // no minimum, and no fallback (an order whose road distance cannot be worked out is refused rather than guessed).
+  distance_pricing_enabled: '0', distance_max_km: '', distance_min_fee_paise: '', distance_fallback_fee_paise: '', route_cache_days: '30' };
 export const SETTING_KEYS = Object.keys(DEFAULTS);
 export const getSetting = (db, k) => db.prepare('SELECT value FROM app_settings WHERE key = ?').pluck().get(k) ?? DEFAULTS[k];
 export const allSettings = (db) => Object.fromEntries(SETTING_KEYS.map(k => [k, getSetting(db, k)]));
@@ -60,6 +64,22 @@ export const reopenDue = (db) => db.prepare(`UPDATE restaurant_operating_status 
   WHERE is_open=0 AND reopen_mode='auto' AND reopen_at IS NOT NULL AND reopen_at <= ?`).run(iso(), iso()).changes;
 
 // ---------- pricing (server is the only authority) ----------
+// Where the order goes: the saved address's map point (customer GPS, or the listed place's point when the customer has none).
+const okPoint = (la, ln) => Number.isFinite(la) && Number.isFinite(ln) && Math.abs(la) <= 90 && Math.abs(ln) <= 180 && !(la === 0 && ln === 0);
+export function addressPoint(db, a) {
+  if (!a) return { error: 'Choose a delivery address before ordering.', status: 400, code: 'ADDRESS_REQUIRED' };
+  let loc = null, point = null, coordSource = null;
+  if (a.kind === 'listed') {
+    loc = db.prepare('SELECT * FROM delivery_locations WHERE id=? AND active=1').get(a.delivery_location_id);
+    if (!loc) return { error: 'The place on this address is no longer on Pakka Local’s list. Choose another place or use your GPS location.', status: 409, code: 'LOCATION_UNAVAILABLE' };
+    if (okPoint(a.lat, a.lng)) { point = { lat: a.lat, lng: a.lng }; coordSource = 'customer_gps'; } else if (okPoint(loc.lat, loc.lng)) { point = { lat: loc.lat, lng: loc.lng }; coordSource = 'location'; }
+    if (!point) return { error: 'This place has no map point yet. Edit the address and capture your GPS location so the delivery partner can find you.', status: 400, code: 'NO_MAP_POINT' };
+  } else {
+    if (!okPoint(a.lat, a.lng)) return { error: 'Add a delivery address with your GPS location before ordering.', status: 400, code: 'ADDRESS_REQUIRED' };
+    point = { lat: a.lat, lng: a.lng }; coordSource = 'customer_gps';
+  }
+  return { loc, point, coordSource };
+}
 export function quote(db, input) {
   reopenDue(db);
   const r = db.prepare('SELECT * FROM restaurants WHERE id=?').get(input.restaurantId);
@@ -87,22 +107,20 @@ export function quote(db, input) {
   //   listed -> the chosen PG/hostel/college must still be active; ITS delivery charge applies; map point = the customer's own
   //             GPS if they captured one, otherwise the place's map point.
   //   gps    -> not on the list; the fixed GPS-address charge (setting gps_delivery_fee_paise) applies; map point = customer's GPS.
-  const a = input.address; if (!a) return { error: 'Choose a delivery address before ordering.', status: 400, code: 'ADDRESS_REQUIRED' };
-  const okPoint = (la, ln) => Number.isFinite(la) && Number.isFinite(ln) && Math.abs(la) <= 90 && Math.abs(ln) <= 180 && !(la === 0 && ln === 0);
-  let loc = null, point = null, coordSource = null;
-  if (a.kind === 'listed') {
-    loc = db.prepare('SELECT * FROM delivery_locations WHERE id=? AND active=1').get(a.delivery_location_id);
-    if (!loc) return { error: 'The place on this address is no longer on Pakka Local’s list. Choose another place or use your GPS location.', status: 409, code: 'LOCATION_UNAVAILABLE' };
-    if (okPoint(a.lat, a.lng)) { point = { lat: a.lat, lng: a.lng }; coordSource = 'customer_gps'; } else if (okPoint(loc.lat, loc.lng)) { point = { lat: loc.lat, lng: loc.lng }; coordSource = 'location'; }
-    if (!point) return { error: 'This place has no map point yet. Edit the address and capture your GPS location so the delivery partner can find you.', status: 400, code: 'NO_MAP_POINT' };
-  } else {
-    if (!okPoint(a.lat, a.lng)) return { error: 'Add a delivery address with your GPS location before ordering.', status: 400, code: 'ADDRESS_REQUIRED' };
-    point = { lat: a.lat, lng: a.lng }; coordSource = 'customer_gps';
-  }
+  const a = input.address, ap = addressPoint(db, a); if (ap.error) return ap;
+  const { loc, point, coordSource } = ap;
   const words = [loc ? loc.name : a.place_name, a.building, a.block && `Block ${a.block}`, a.floor && `Floor ${a.floor}`, a.room && `Room ${a.room}`].filter(Boolean).join(', ') || 'Saved location';
   const dest = { text: words.slice(0, 200), lat: point.lat, lng: point.lng, link: mapsLink(point.lat, point.lng), kind: loc ? 'listed' : 'gps', locationName: loc?.name ?? null, coordSource };
   if (r.min_order_paise && base + markup < r.min_order_paise) return { error: `Minimum order for this restaurant is ${PLrs(r.min_order_paise)}.`, status: 400, code: 'MIN_ORDER' };
-  const fee = loc ? loc.delivery_fee_paise : Number(getSetting(db, 'gps_delivery_fee_paise'));
+  // Charge: distance-based when the admin has switched it on (for every order: listed places and GPS addresses alike),
+  // otherwise the listed place's own charge or the fixed GPS-address charge. The road distance was looked up beforehand
+  // (async) by the caller and is passed in as input.route; it is never taken from the browser.
+  const dcfg = getDistanceConfig(db); let fee, pricing, priced = null;
+  if (dcfg.enabled) {
+    if (input.route === undefined) return { error: 'Delivery distance was not calculated.', status: 500 };
+    priced = priceFor(dcfg, input.route); if (priced.error) return priced;
+    fee = priced.fee; pricing = priced.pricing;
+  } else { fee = loc ? loc.delivery_fee_paise : Number(getSetting(db, 'gps_delivery_fee_paise')); pricing = loc ? 'listed' : 'gps_fixed'; }
   const delivery = r.free_delivery_above_paise && base + markup >= r.free_delivery_above_paise ? 0 : fee;     // restaurant-specific delivery rule
   const now = iso();
   let surge = 0;
@@ -113,7 +131,8 @@ export function quote(db, input) {
   const total = base + markup + delivery + surge + tax;
   const perKm = Number(getSetting(db, 'minutes_per_km'));
   const deliveryMin = loc?.distance_km ? Math.round(loc.distance_km * perKm) + 3 : Number(getSetting(db, 'default_delivery_min'));
-  return { restaurant: r, lines, dest, locationId: loc?.id ?? null, feeSource: loc ? 'listed' : 'gps', baseDeliveryFee: fee, base, markup, delivery, surge, tax, total, commissionBps: r.commission_bps, commission,
+  return { restaurant: r, lines, dest, locationId: loc?.id ?? null, feeSource: loc ? 'listed' : 'gps', baseDeliveryFee: fee, pricing,
+    distanceM: priced?.distance_m ?? null, band: priced?.band ?? null, routeSource: priced ? (priced.pricing === 'distance' ? priced.source : `none:${priced.reason}`) : null, base, markup, delivery, surge, tax, total, commissionBps: r.commission_bps, commission,
     restaurantPayout: base - commission, riderPayout: Number(getSetting(db, 'rider_payout_paise')), prepMin: prep + r.packing_buffer_min, deliveryMin };
 }
 const etaFrom = (db, prepMin, deliveryMin, stage) => {
@@ -143,12 +162,12 @@ export function createOrder(db, customer, input) {
     const id = db.prepare(`INSERT INTO orders (order_code,customer_id,restaurant_id,status,delivery_location_id,dest_text,dest_lat,dest_lng,dest_maps_link,instructions,
       customer_name,customer_phone,items_base_paise,markup_paise,delivery_paise,surge_paise,tax_paise,total_paise,commission_bps,commission_paise,restaurant_payout_paise,rider_payout_paise,
       dest_address_id,dest_label,dest_place_name,dest_building,dest_block,dest_floor,dest_room,dest_entrance,dest_landmark,dest_accuracy_m,dest_captured_at,dest_confirmed_at,
-      dest_kind,dest_location_name,dest_coord_source)
-      VALUES (?,?,?,'PAYMENT_PENDING',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(code, customer.id, q.restaurant.id, q.locationId, q.dest.text, q.dest.lat, q.dest.lng, q.dest.link,
+      dest_kind,dest_location_name,dest_coord_source,delivery_pricing,delivery_distance_m,delivery_band,delivery_route_source)
+      VALUES (?,?,?,'PAYMENT_PENDING',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(code, customer.id, q.restaurant.id, q.locationId, q.dest.text, q.dest.lat, q.dest.lng, q.dest.link,
       instructions, customer.name, customer.phone, q.base, q.markup, q.delivery, q.surge, q.tax, q.total, q.commissionBps, q.commission, q.restaurantPayout, q.riderPayout,
       a.id, a.label, q.dest.locationName || a.place_name, a.building, a.block, a.floor, a.room, a.entrance, a.landmark,
       q.dest.coordSource === 'customer_gps' ? a.accuracy_m : null, q.dest.coordSource === 'customer_gps' ? a.captured_at : null, iso(),
-      q.dest.kind, q.dest.locationName, q.dest.coordSource).lastInsertRowid;
+      q.dest.kind, q.dest.locationName, q.dest.coordSource, q.pricing, q.distanceM, q.band, q.routeSource).lastInsertRowid;
     for (const l of q.lines) db.prepare('INSERT INTO order_items (order_id,food_item_id,name,qty,base_price_paise,customer_price_paise,prep_time_min) VALUES (?,?,?,?,?,?,?)').run(id, l.food_item_id, l.name, l.qty, l.base, l.price, l.prep);
     db.prepare('INSERT INTO payments (order_id,provider,merchant_order_id,amount_paise) VALUES (?,?,?,?)').run(id, config.paymentProvider, code, q.total);
     const mode = getSetting(db, 'delivery_otp_mode') === 'fixed' && getSetting(db, 'fixed_delivery_otp') ? 'fixed' : 'per_order';

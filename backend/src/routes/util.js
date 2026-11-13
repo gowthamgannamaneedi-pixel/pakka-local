@@ -8,3 +8,7 @@ export const wrap = (fn) => (req, res, next) => { try { fn(req, res, next); } ca
 export const pid = z.coerce.number().int().positive();
 export const money = z.number().int().min(0).max(10_000_000);
 export const img = z.string().max(5_000_000).optional();
+// async version of wrap: awaits the handler so rejected promises get the same error handling
+export const wrapA = (fn) => (req, res, next) => Promise.resolve().then(() => fn(req, res, next)).catch((e) => {
+  if (res.headersSent) return; if (e.status) return res.status(e.status).json({ error: e.message });
+  console.error('route error:', e.message); res.status(500).json({ error: 'Something went wrong. Please try again.' }); });

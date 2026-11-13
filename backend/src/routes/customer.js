@@ -3,7 +3,9 @@ import { z } from 'zod';
 import { authenticate, requireRole } from '../auth.js';
 import { config } from '../config.js';
 import { quote, createOrder, settlePayment, eligibleRiderCount, reopenDue, getSetting, deliveryCodeFor, NO_RIDER_MSG } from '../services/core.js';
-import { send, parse, wrap } from './util.js';
+import { send, parse, wrap, wrapA } from './util.js';
+import * as Pricing from '../services/distancePricing.js';
+import { addressPoint } from '../services/core.js';
 import { iso } from '../services/core.js';
 import * as Addr from '../services/addresses.js';
 
@@ -11,8 +13,9 @@ import * as Addr from '../services/addresses.js';
 const cartSchema = z.object({ restaurant_id: z.number().int(), items: z.array(z.object({ id: z.number().int(), qty: z.number().int() })).max(30),
   address_id: z.number({ required_error: 'Choose a delivery address.', invalid_type_error: 'Choose a delivery address.' }).int().positive(),
   confirm_destination: z.boolean().optional(), instructions: z.string().max(300).optional() });   // unknown fields (e.g. a client-sent total) are ignored; prices come from the server
-const qIn = (d, address) => ({ restaurantId: d.restaurant_id, items: d.items, address, instructions: d.instructions });
-const breakdown = (q) => ({ delivery_type: q.feeSource, delivery_location: q.dest.locationName, delivery_fee_before_offers_paise: q.baseDeliveryFee, items_base_paise: q.base, markup_paise: q.markup, delivery_paise: q.delivery, surge_paise: q.surge, tax_paise: q.tax, total_paise: q.total, prep_min: q.prepMin, delivery_min: q.deliveryMin,
+const qIn = (d, address, route) => ({ restaurantId: d.restaurant_id, items: d.items, address, instructions: d.instructions, route });
+const breakdown = (q) => ({ delivery_type: q.feeSource, delivery_location: q.dest.locationName, delivery_fee_before_offers_paise: q.baseDeliveryFee,
+  delivery_pricing: q.pricing, delivery_distance_km: q.distanceM == null ? null : Math.round(q.distanceM / 10) / 100, delivery_band: q.band, delivery_fallback: q.pricing === 'distance_fallback', items_base_paise: q.base, markup_paise: q.markup, delivery_paise: q.delivery, surge_paise: q.surge, tax_paise: q.tax, total_paise: q.total, prep_min: q.prepMin, delivery_min: q.deliveryMin,
   lines: q.lines.map(l => ({ name: l.name, qty: l.qty, price_paise: l.price })) });
 
 export function publicRoutes(db) {
@@ -47,15 +50,17 @@ export function customerRoutes(db) {
   r.put('/addresses/:id(\\d+)', noStore, wrap((req, res) => send(res, Addr.update(db, req.user.id, Number(req.params.id), req.body))));
   r.delete('/addresses/:id(\\d+)', noStore, wrap((req, res) => send(res, Addr.remove(db, req.user.id, Number(req.params.id)))));
   const withAddress = (d, req, res) => { const a = Addr.forOrder(db, req.user.id, d.address_id); if (!a) { res.status(404).json({ error: 'That address was not found. Choose or add a delivery address.', code: 'ADDRESS_REQUIRED' }); return null; } return a; };
-  r.post('/quote', wrap((req, res) => { const d = parse(cartSchema, req, res); if (!d) return; const a = withAddress(d, req, res); if (!a) return; const q = quote(db, qIn(d, a)); q.error ? send(res, q) : res.json(breakdown(q)); }));
-  r.post('/orders', wrap(async (req, res) => {
+  // Road distance (only when distance pricing is on): restaurant pickup point -> the address's map point, looked up here on the server.
+  const routeFor = async (d, a) => { if (!Pricing.getConfig(db).enabled) return undefined; const ap = addressPoint(db, a); if (ap.error) return { distance_m: null, reason: 'invalid_delivery_point' }; return Pricing.routeFor(db, d.restaurant_id, ap.point); };
+  r.post('/quote', wrapA(async (req, res) => { const d = parse(cartSchema, req, res); if (!d) return; const a = withAddress(d, req, res); if (!a) return; const q = quote(db, qIn(d, a, await routeFor(d, a))); q.error ? send(res, q) : res.json(breakdown(q)); }));
+  r.post('/orders', wrapA(async (req, res) => {
     // No real payment gateway is integrated yet. Unless this is an explicitly configured test environment, no order is created at all.
     if (!config.sandboxPayments) return res.status(503).json({ error: 'Online ordering is not open yet. Please check back soon.', code: 'ORDERING_CLOSED' });
     if (!sandboxTester(req)) return res.status(403).json({ error: 'This test environment only accepts orders from approved tester numbers.', code: 'NOT_A_TESTER' });
     const d = parse(cartSchema, req, res); if (!d) return;
     if (d.confirm_destination !== true) return res.status(400).json({ error: 'Confirm the delivery point before paying.', code: 'CONFIRM_DESTINATION' });
     const a = withAddress(d, req, res); if (!a) return;
-    const c = createOrder(db, { id: req.user.id, name: req.user.name, phone: req.user.phone }, qIn(d, a));
+    const c = createOrder(db, { id: req.user.id, name: req.user.name, phone: req.user.phone }, qIn(d, a, await routeFor(d, a)));      // distance re-checked here, never taken from the browser
     if (c.error) return send(res, c);
     res.status(201).json({ order_code: c.order.order_code, total_paise: c.order.total_paise, payment: { provider: 'sandbox', status: 'PENDING' } });
   }));
