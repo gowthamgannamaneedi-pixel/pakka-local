@@ -153,3 +153,13 @@ details.card summary{cursor:pointer;list-style:none}details.card summary::-webki
 .nav-btn{min-height:56px;font-size:1.05rem;background:#1a73e8;border-color:#1a73e8;margin-top:12px}.nav-btn svg{width:22px;height:22px}
 .coords{display:flex;align-items:center;gap:8px;justify-content:space-between;margin-top:8px;font-size:.85rem;color:var(--mute)}
 html{scroll-padding-top:72px;scroll-padding-bottom:84px}
+/* ---------- checkout: two ways to choose the delivery place ---------- */
+.method-tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.method-tabs button{display:flex;gap:8px;align-items:flex-start;text-align:left;border:1.5px solid var(--line);background:#fff;border-radius:14px;padding:12px;cursor:pointer;font:inherit;color:var(--ink);min-height:64px}
+.method-tabs button svg{flex:none;color:var(--mute);margin-top:2px}.method-tabs button b{display:block;font-size:.92rem;line-height:1.25}.method-tabs button small{color:var(--mute);font-size:.78rem}
+.method-tabs button.on{border-color:var(--brand);background:var(--brand-l);box-shadow:0 0 0 1px var(--brand) inset}.method-tabs button.on svg{color:var(--brand)}
+.fee-tag{flex:none;font:800 .9rem Manrope,system-ui,sans-serif;color:var(--green);background:#e8f4ee;border-radius:99px;padding:3px 10px}
+.place-card .row b{min-width:0}.place-card .chip{font-size:.72rem}.place-sel{border:1.5px solid var(--green);background:#f3faf6}
+details.gps-opt summary{list-style:none;cursor:pointer}details.gps-opt summary::-webkit-details-marker{display:none}details.gps-opt .gps-card{margin-top:10px;box-shadow:none}
+@media(max-width:360px){.method-tabs{grid-template-columns:1fr}}
+.gpsfee{display:flex;gap:12px;align-items:center;border:1.5px solid var(--green);background:#f3faf6}.gpsfee .big{font:800 1.6rem Manrope,system-ui,sans-serif;color:var(--green)}
