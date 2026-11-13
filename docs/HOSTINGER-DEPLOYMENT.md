@@ -289,3 +289,17 @@ customer not on the list -> refused (NOT_A_TESTER). Production with `PAYMENT_PRO
 Live staging end-to-end (customer -> simulated payment -> restaurant -> rider APK -> pickup code -> delivery code ->
 Delivered) completed by the owner on 14 Nov 2026 (reported; the test passwords and code are only in the private secrets folder).
 To switch ordering off again: set `PAYMENT_PROVIDER=disabled` and redeploy with previous files.
+
+## 15. Staging maps with OpenStreetMap tiles (14 Nov 2026, build a94115a)
+
+Approved for light staging testing only: `MAP_TILE_URL=https://tile.openstreetmap.org/{z}/{x}/{y}.png` (no key, no
+account, no cost). Production keeps no tile provider until one whose terms fit a commercial app is chosen.
+- OSM's tile policy requires a Referer: with the site's `Referrer-Policy: no-referrer`, OSM returned a red "403 Access
+  blocked" tile. The map layer now sends only the site origin (`strict-origin-when-cross-origin`); page paths and order
+  codes are never sent. "© OpenStreetMap contributors" is shown on every map.
+- Verified locally (Chrome, 390 px and 1280 px): customer order-tracking map and admin live map load real tiles (0
+  blocked), show the attribution, and the rider marker moves on each new GPS point (12/12 checks; screenshots in
+  `screenshots-maps/`). Live staging: CSP allows tile.openstreetmap.org, OSM serves real tiles to the staging origin.
+- The rider app has no in-app map by design (navigation opens Google Maps).
+- Limits: OSM's public servers are volunteer-run and only for light use: no heavy traffic, no bulk downloading;
+  they can block an app at any time. Not for production.
