@@ -29,7 +29,8 @@ export const config = {
   paymentProvider: env.PAYMENT_PROVIDER || (isProd ? 'disabled' : 'sandbox'),
   sandboxPhones: (env.SANDBOX_PAYMENT_PHONES || '').split(',').map((x) => x.trim()).filter(Boolean),
   // Map tiles (Leaflet). Production must name a provider whose terms allow this use; public OSM tiles are for development only.
-  map: { tileUrl: env.MAP_TILE_URL || (isProd ? '' : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'), attribution: env.MAP_TILE_ATTRIBUTION || '&copy; OpenStreetMap contributors' },
+  // MAP_TILE_URL=none turns the map off on any environment (status text only), e.g. to check the no-provider fallback locally.
+  map: { tileUrl: env.MAP_TILE_URL === 'none' ? '' : env.MAP_TILE_URL || (isProd ? '' : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'), attribution: env.MAP_TILE_ATTRIBUTION || '&copy; OpenStreetMap contributors' },
   serveFrontend: env.SERVE_FRONTEND === 'true' || (!isProd && !isTest),
   vapid: { publicKey: env.VAPID_PUBLIC_KEY, privateKey: env.VAPID_PRIVATE_KEY, subject: env.VAPID_SUBJECT || 'mailto:admin@pakkalocal.example' },
   publicApiUrl: (env.PUBLIC_API_URL || '').replace(/\/$/, ''),

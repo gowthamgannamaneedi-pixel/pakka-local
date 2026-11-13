@@ -5,17 +5,40 @@
   const TABS = [['new', 'New'], ['accepted', 'Accepted'], ['preparing', 'Preparing'], ['ready', 'Ready'], ['picked', 'Picked up'], ['done', 'Completed'], ['rejected', 'Rejected']];
 
   // ---------- real-time alerts (1s poll; backend is the authority) ----------
+  // One alert card at a time, docked above the bottom navigation. Every PLACED order stays in the queue (and in the
+  // "New" tab) until the server says it is no longer PLACED; the queue only changes which one is shown.
+  let curId = null, collapsed = false;
+  const ago = (t) => { const m = Math.max(0, Math.round((Date.now() - new Date(String(t).replace(' ', 'T') + (/Z|[+-]\d\d:?\d\d$/.test(t) ? '' : 'Z')).getTime()) / 60000)); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : `${Math.floor(m / 60)} h ${m % 60} min ago`; };
+  const setAlertSpace = (box) => document.documentElement.style.setProperty('--alert-h', box.classList.contains('hide') ? '0px' : box.offsetHeight + 'px');
   async function alertTick() {
     let list; try { list = (await PL.api('/api/restaurant/orders')).orders; } catch { return; }
-    pending = list.filter((o) => o.status === 'PLACED'); PL.badge('/orders', pending.length);
+    pending = list.filter((o) => o.status === 'PLACED').sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)) || a.id - b.id);   // oldest first: it has waited longest
+    PL.badge('/orders', pending.length);
     const box = PL.$('#alerts'); if (!box) return;
-    const html = pending.map((o) => `<div class="card"><div class="row between"><b>New order</b><span class="chip brand">Action needed</span></div><div class="mt2">${PL.code(o.order_code)}</div>
-      ${o.items.map((i) => `<div class="kv"><span>${i.qty} × ${e(i.name)}</span><span class="mute small">~${i.prep_time_min} min</span></div>`).join('')}<div class="small mute">You receive ${rs(o.payout_paise)} after commission</div>
-      ${PL.sound.unlocked || !PL.sound.enabled() && false ? '' : `<button class="btn ghost block mt2" data-act="sound-on">Tap to enable alert sound</button>`}
-      <div class="row mt2"><button class="btn danger grow" data-act="reject" data-id="${o.id}">Reject</button><button class="btn grow" data-act="accept" data-id="${o.id}">Accept order</button></div></div>`).join('');
+    box.classList.add('rq');
+    let i = pending.findIndex((o) => o.id === curId); if (i < 0) i = 0;
+    const o = pending[i]; curId = o ? o.id : null; if (!o) collapsed = false;
+    const n = pending.length;
+    const soundBtn = PL.sound.unlocked ? '' : `<button class="btn ghost sm block mt2" data-act="sound-on">${PL.icon('sound', 'width="18" height="18"')} Enable alert sound</button>`;
+    const html = !o ? '' : collapsed
+      ? `<div class="card rq-bar" role="status"><span class="dot"></span><b class="grow">${n} new order${n > 1 ? 's' : ''} waiting</b><button class="btn sm" data-act="rq-expand">Show</button></div>`
+      : `<div class="card" role="alertdialog" aria-label="New order ${i + 1} of ${n}">
+      <div class="row between"><b>New order${n > 1 ? ` <span class="mute">· ${i + 1} of ${n}</span>` : ''}</b><div class="row" style="gap:4px">${n > 1 ? `<button class="iconbtn" data-act="rq-prev" aria-label="Previous order" ${i === 0 ? 'disabled' : ''}>‹</button><button class="iconbtn" data-act="rq-next" aria-label="Next order" ${i === n - 1 ? 'disabled' : ''}>›</button>` : ''}<button class="iconbtn" data-act="rq-collapse" aria-label="Minimise alert" title="Minimise">${PL.icon('x')}</button></div></div>
+      ${n > 1 ? `<div class="rq-list" role="tablist">${pending.map((p, k) => `<button role="tab" aria-selected="${k === i}" class="${k === i ? 'on' : ''}" data-act="rq-pick" data-id="${p.id}">${e(String(p.order_code).slice(-6))} · ${rs(p.total_items_paise)}</button>`).join('')}</div>` : ''}
+      <div class="row between mt2 wrap">${PL.code(o.order_code)}<span class="small mute" title="${e(PL.dt(o.created_at))}">${e(PL.dt(o.created_at))} · ${ago(o.created_at)}</span></div>
+      <div class="rq-items">${o.items.map((it) => `<div class="kv"><span>${it.qty} × ${e(it.name)}</span><span class="mute small">~${it.prep_time_min} min</span></div>`).join('')}</div>
+      <div class="kv tot"><span>Order amount</span><span>${rs(o.total_items_paise)}</span></div><div class="small mute">You receive ${rs(o.payout_paise)} after commission</div>
+      ${soundBtn}<div class="row mt2"><button class="btn danger grow" data-act="reject" data-id="${o.id}">Reject</button><button class="btn grow" data-act="accept" data-id="${o.id}">Accept order</button></div></div>`;
     if (box.dataset.h !== html) { box.dataset.h = html; box.innerHTML = html; }
-    box.classList.toggle('hide', !pending.length); PL.sound.sync(pending.length > 0);
+    box.classList.toggle('hide', !n); setAlertSpace(box); PL.sound.sync(n > 0);
   }
+  const move = (d) => { const i = pending.findIndex((o) => o.id === curId); const nx = pending[Math.min(pending.length - 1, Math.max(0, i + d))]; if (nx) curId = nx.id; alertTick(); };
+  PL.actions['rq-prev'] = () => move(-1);
+  PL.actions['rq-next'] = () => move(1);
+  PL.actions['rq-pick'] = (el) => { curId = Number(el.dataset.id); alertTick(); };
+  PL.actions['rq-collapse'] = () => { collapsed = true; alertTick(); };
+  PL.actions['rq-expand'] = () => { collapsed = false; alertTick(); };
+  addEventListener('resize', () => { const b = PL.$('#alerts'); if (b) setAlertSpace(b); });
   PL.actions['sound-on'] = async () => { await PL.sound.enable(); const b = PL.$('#sbtn'); if (b) b.innerHTML = PL.icon('sound'); alertTick(); };
   PL.actions.accept = async (el) => { await PL.run(() => PL.post(`/api/restaurant/orders/${el.dataset.id}/accept`), 'Order accepted'); await alertTick(); PL.rerender(); };
   PL.actions.reject = (el) => PL.modal(`<h3>Reject this order?</h3><p class="small mute">The customer is notified and a refund is started.</p><form data-form="reject" data-id="${el.dataset.id}"><label>Reason</label><select name="reason" required><option value="">Choose a reason</option>${['Items unavailable', 'Restaurant too busy', 'Restaurant temporarily closed', 'Technical issue', 'Other'].map((r) => `<option>${r}</option>`).join('')}</select><label>Details (optional)</label><textarea name="note" maxlength="300"></textarea><button class="btn danger block mt" type="submit">Reject order</button></form>`);
@@ -98,6 +121,6 @@
   PL.start({ portal: 'restaurant', name: 'Restaurant', home: '/orders', loginView: (root) => PL.staffLogin(root, { title: 'Restaurant portal', blurb: 'Manage your menu, orders and payouts.' }),
     right: () => `<button class="iconbtn" id="sbtn" data-act="sound-toggle" aria-label="Alert sound">${PL.icon(PL.sound.enabled() && PL.sound.unlocked ? 'sound' : 'mute')}</button>`,
     tabs: [{ path: '/orders', label: 'Orders', icon: 'orders' }, { path: '/menu', label: 'Menu', icon: 'menu' }, { path: '/earnings', label: 'Earnings', icon: 'wallet' }, { path: '/more', label: 'More', icon: 'gear' }],
-    onReady: () => { alertTick(); const iv = setInterval(alertTick, 1000); PL.hooks.stop = [() => { clearInterval(iv); const b = PL.$('#alerts'); if (b) { b.innerHTML = ''; b.dataset.h = ''; b.classList.add('hide'); } }]; },
+    onReady: () => { alertTick(); const iv = setInterval(alertTick, 1000); PL.hooks.stop = [() => { clearInterval(iv); const b = PL.$('#alerts'); if (b) { b.innerHTML = ''; b.dataset.h = ''; b.classList.add('hide'); setAlertSpace(b); } }]; },
     routes: { '/orders': { title: 'Orders', render: orders, poll: 2000 }, '/order/:id': { title: 'Order', render: oneOrder, poll: 2000 }, '/menu': { title: 'Menu', render: menu }, '/earnings': { title: 'Earnings', render: earnings, poll: 5000 }, '/more': { title: 'More', render: more }, '/surge': { title: 'Surge requests', render: surge, poll: 6000 } } });
 })();

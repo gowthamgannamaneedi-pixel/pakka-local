@@ -52,6 +52,21 @@ textarea{min-height:84px;resize:vertical}input:focus,select:focus,textarea:focus
 .install{position:fixed;left:10px;right:10px;bottom:calc(70px + env(safe-area-inset-bottom));z-index:40;background:#fff;border:1px solid var(--line);border-radius:16px;padding:12px;box-shadow:0 8px 30px rgba(0,0,0,.18);display:flex;gap:10px;align-items:center}.install img{width:44px;height:44px;border-radius:10px}
 .alerts{position:fixed;left:0;right:0;bottom:0;z-index:60;max-height:86dvh;overflow:auto;padding:10px 10px calc(10px + env(safe-area-inset-bottom));background:linear-gradient(transparent,rgba(15,25,20,.35) 24px)}
 .alerts .card{border:2px solid var(--brand);margin-bottom:10px;animation:up .25s}
+/* restaurant order queue: one card, docked above the bottom navigation, page content padded so nothing hides behind it */
+.alerts.rq{bottom:calc(62px + env(safe-area-inset-bottom));padding:0 10px 8px;max-height:none;overflow:visible;background:none;pointer-events:none}
+.alerts.rq .card{pointer-events:auto;margin:0;max-width:560px;margin-left:auto;margin-right:auto;box-shadow:0 10px 30px rgba(20,30,25,.22);max-height:calc(100dvh - 140px - env(safe-area-inset-bottom) - env(safe-area-inset-top));overflow:auto}
+.alerts.rq .card.rq-bar{display:flex;align-items:center;gap:10px;padding:10px 12px}
+.rq-bar .dot{width:10px;height:10px;border-radius:50%;background:var(--brand);flex:none;animation:blink 1s infinite alternate}@keyframes blink{to{opacity:.25}}
+.rq-list{display:flex;gap:6px;overflow-x:auto;margin:8px -4px 0;padding:0 4px 2px;scrollbar-width:none}.rq-list::-webkit-scrollbar{display:none}
+.rq-list button{flex:none;border:1.5px solid var(--line);background:#fff;border-radius:99px;padding:5px 10px;font:700 .78rem 'DM Sans',system-ui,sans-serif;cursor:pointer;color:var(--ink)}.rq-list button.on{background:var(--brand);border-color:var(--brand);color:#fff}
+.rq-items{max-height:28dvh;overflow:auto;margin-top:6px}
+.alerts.rq .iconbtn[disabled]{opacity:.3;cursor:default}
+body:has(.alerts.rq:not(.hide)) .shell{padding-bottom:calc(76px + var(--alert-h,0px) + 28px + env(safe-area-inset-bottom))}
+@media(min-width:900px){.alerts.rq{left:auto;right:16px;width:420px;padding:0 0 8px}.alerts.rq .card{max-width:none}
+  /* desktop: the queue is a side panel; the page keeps a right-hand gutter so no order card or button sits underneath it */
+  body:has(.alerts.rq:not(.hide)) .shell,body.wide:has(.alerts.rq:not(.hide)) .shell{padding-bottom:90px}
+  body:has(.alerts.rq:not(.hide)) main{padding-right:452px;margin-left:0;max-width:none}}
+@media(min-width:1640px){body:has(.alerts.rq:not(.hide)) main{margin-left:auto;padding-right:16px;max-width:1180px}}
 .tbl{width:100%;border-collapse:collapse}.tbl th{text-align:left;font-size:.8rem;color:var(--mute);padding:8px;border-bottom:1px solid var(--line)}.tbl td{padding:10px 8px;border-bottom:1px solid var(--line);vertical-align:top}
 @media(max-width:720px){.tbl,.tbl tbody,.tbl tr,.tbl td{display:block;width:100%}.tbl thead{display:none}.tbl tr{border:1px solid var(--line);border-radius:14px;padding:8px 12px;margin-bottom:10px;background:#fff}.tbl td{border:0;padding:5px 0;display:flex;justify-content:space-between;gap:12px}.tbl td:before{content:attr(data-label);color:var(--mute);font-size:.82rem;flex:none}.tbl td.act{display:block}}
 .tabs{display:flex;gap:6px;overflow-x:auto;margin:0 -16px 12px;padding:0 16px;scrollbar-width:none}.tabs::-webkit-scrollbar{display:none}.tabs button{flex:none;border:1.5px solid var(--line);background:#fff;border-radius:99px;padding:8px 14px;font:700 .88rem 'DM Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;cursor:pointer}.tabs button.on{background:var(--green);color:#fff;border-color:var(--green)}

@@ -12,6 +12,7 @@ let port = 18300;
 const boot = (extra) => new Promise((resolve) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pl-pay-')), p = ++port;
   const env = { PATH: process.env.PATH, HOME: process.env.HOME, NODE_OPTIONS: '--no-warnings', JWT_SECRET: 'x'.repeat(40), DB_PATH: path.join(dir, 'db.sqlite'), UPLOAD_DIR: path.join(dir, 'up'), BACKUP_DIR: path.join(dir, 'bk'), PORT: String(p), OTP_PROVIDER: 'testcode', TEST_OTP_CODE: '424242', TEST_OTP_PHONES: '+919811111111,+919822222222', ALLOW_TEST_OTP: '1', ...extra };
+  env.DOTENV_CONFIG_PATH = path.join(dir, 'no-such.env');      // a developer's backend/.env must not leak into these cases
   const child = spawn(process.execPath, ['src/server.js'], { cwd: root, env }); let out = '';
   child.stdout.on('data', (d) => { out += d; }); child.stderr.on('data', (d) => { out += d; });
   const t = setInterval(async () => { try { const r = await fetch(`http://127.0.0.1:${p}/healthz`); if (r.ok) { clearInterval(t); resolve({ up: true, base: `http://127.0.0.1:${p}`, stop: () => child.kill(), db: env.DB_PATH }); } } catch { /* not up yet */ } }, 150);

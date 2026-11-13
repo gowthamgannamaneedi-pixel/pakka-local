@@ -1,5 +1,7 @@
 # Priority 2 – Live rider tracking and restaurant background notifications
 
+Revision 3 changes (alert queue, Daily trend chart, Leaflet bundled, Node 22 test run) are in `docs/PRIORITY2-R3.md`; where they differ, that file wins.
+
 Revision 2 (after independent review). Built on a separate copy of `pakka-local-test-build.tar.gz`.
 The original archive and the Phase 1 working copy were not touched, and nothing here is merged with Phase 1.
 

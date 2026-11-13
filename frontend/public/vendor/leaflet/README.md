@@ -1,4 +1,8 @@
-Leaflet 1.9.4 goes here (BSD-2-Clause, free). It is NOT bundled in this build because the build machine had no internet access.
+Leaflet 1.9.4 (BSD-2-Clause, see LICENSE), served from this folder. Nothing is downloaded when the app runs.
 
-From the project root run:   bash scripts/vendor-leaflet.sh
-That places leaflet.js and leaflet.css in this folder. Until then the tracking pages work but show status text instead of a map.
+Files: leaflet.js, leaflet.js.map, leaflet.css, images/ (marker and layer icons), LICENSE.
+
+To refresh them (needs internet once, at build time): `node scripts/vendor-leaflet.mjs` from the project root,
+or `npm run vendor:leaflet` from `backend/`. Commit the result.
+
+The map background (tiles) is NOT part of Leaflet. It comes from the provider set in `MAP_TILE_URL`.

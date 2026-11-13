@@ -15,7 +15,7 @@
     "test": "NODE_ENV=test UPLOAD_DIR=/tmp/pl-test-uploads node --test \"test/*.test.js\"",
     "test:browser": "bash test/run-browser.sh",
     "test:browser:p2": "bash test/run-p2-browser.sh",
-    "vendor:leaflet": "bash ../scripts/vendor-leaflet.sh"
+    "vendor:leaflet": "node ../scripts/vendor-leaflet.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

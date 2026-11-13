@@ -7,12 +7,25 @@
 
   const shortDate = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
   // dependency-free SVG chart that scales to any screen width
-  const chart = (daily) => { const W = 340, H = 170, L = 8, B = 22, T = 10, n = daily.length, max = Math.max(100, ...daily.map((d) => Math.max(d.collected_paise, d.revenue_paise))), slot = (W - L * 2) / n, bw = Math.min(26, slot * 0.38), y = (v) => T + (H - B - T) * (1 - v / max);
-    const bars = daily.map((d, i) => { const x = L + slot * i + slot / 2; return `<rect x="${x - bw - 1}" y="${y(d.collected_paise)}" width="${bw}" height="${H - B - y(d.collected_paise)}" rx="3" fill="#cfd8d3"/><rect x="${x + 1}" y="${y(d.revenue_paise)}" width="${bw}" height="${H - B - y(d.revenue_paise)}" rx="3" fill="#d4500f"/>`; }).join('');
-    const lab = (i) => `<text x="${L + slot * i + slot / 2}" y="${H - 6}" text-anchor="middle" font-size="9" fill="#667069">${shortDate(daily[i].date)}</text>`;
-    const idx = n <= 7 ? daily.map((_, i) => i) : [0, Math.floor(n / 2), n - 1];
-    return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Daily collected versus platform revenue" style="width:100%;height:auto;display:block"><line x1="${L}" x2="${W - L}" y1="${H - B}" y2="${H - B}" stroke="#e8e6e1"/><text x="${L}" y="${T}" font-size="9" fill="#667069">${rs(max)}</text>${bars}${idx.map(lab).join('')}</svg>
-      <div class="row small mute" style="gap:14px;margin-top:6px"><span><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#cfd8d3"></i> Collected</span><span><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#d4500f"></i> Platform revenue</span></div>`; };
+  // Values come straight from /api/admin/overview: "collected" = totals of orders DELIVERED that day, "revenue" = platform
+  // ledger entries (markup, commission, delivery margin, surge) posted at delivery. Nothing is estimated or filled in here.
+  const niceMax = (v) => { if (v <= 0) return 0; const p = 10 ** Math.floor(Math.log10(v)), f = v / p; return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p; };
+  const rsShort = (p) => { const r = p / 100; return '₹' + (r >= 1e5 ? +(r / 1e5).toFixed(1) + 'L' : r >= 1e3 ? +(r / 1e3).toFixed(1) + 'k' : Math.round(r)); };
+  const chart = (daily) => {
+    const n = daily.length, pos = (v) => Math.max(0, Number(v) || 0);
+    const totC = daily.reduce((s, d) => s + pos(d.collected_paise), 0), totR = daily.reduce((s, d) => s + pos(d.revenue_paise), 0), totO = daily.reduce((s, d) => s + (d.orders || 0), 0);
+    const span = n ? (n === 1 ? shortDate(daily[0].date) : `${shortDate(daily[0].date)} – ${shortDate(daily[n - 1].date)}`) : '';
+    if (!n || (!totC && !totR)) return `<div class="empty" style="padding:22px 10px"><b>No delivered orders in this range</b><div class="small mt2">${e(span)}. The chart fills in when orders are delivered; cancelled, rejected and unpaid orders are not counted.${S.preset === 'today' || S.preset === 'yesterday' ? ' Try “Last 7 days” or “Last 30 days”.' : ''}</div></div>`;
+    const W = 360, H = 190, L = 44, R = 8, B = 24, T = 12, max = niceMax(Math.max(...daily.map((d) => Math.max(pos(d.collected_paise), pos(d.revenue_paise))))), slot = (W - L - R) / n, bw = Math.max(2, Math.min(22, slot * 0.36)), y = (v) => T + (H - B - T) * (1 - pos(v) / max);
+    const grid = [0, 0.5, 1].map((f) => `<line x1="${L}" x2="${W - R}" y1="${y(max * f)}" y2="${y(max * f)}" stroke="#e8e6e1" ${f ? 'stroke-dasharray="3 3"' : ''}/><text x="${L - 6}" y="${y(max * f) + 3}" text-anchor="end" font-size="9" fill="#667069">${rsShort(max * f)}</text>`).join('');
+    const bar = (x, v, fill, tip) => { const h = H - B - y(v); return `<rect x="${x}" y="${y(v) - (v > 0 && h < 2 ? 2 - h : 0)}" width="${bw}" height="${v > 0 ? Math.max(2, h) : 0}" rx="2" fill="${fill}"><title>${tip}</title></rect>`; };
+    const bars = daily.map((d, i) => { const x = L + slot * i + slot / 2, day = shortDate(d.date), c = pos(d.collected_paise), r = pos(d.revenue_paise);
+      return `<g>${bar(x - bw - 1, c, '#9fb3a8', `${day}: collected ${rs(c)} from ${d.orders || 0} delivered order${d.orders === 1 ? '' : 's'}`)}${bar(x + 1, r, '#d4500f', `${day}: platform revenue ${rs(r)}`)}</g>`; }).join('');
+    const idx = n <= 8 ? daily.map((_, i) => i) : [0, Math.floor((n - 1) / 3), Math.floor((2 * (n - 1)) / 3), n - 1];
+    const lab = (i) => `<text x="${L + slot * i + slot / 2}" y="${H - 7}" text-anchor="middle" font-size="9" fill="#667069">${shortDate(daily[i].date)}</text>`;
+    return `<div class="row between wrap small"><span class="mute">${e(span)} · ${totO} delivered order${totO === 1 ? '' : 's'}</span><span><b>${rs(totC)}</b> <span class="mute">collected</span> · <b>${rs(totR)}</b> <span class="mute">platform revenue</span></span></div>
+      <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Daily collected versus platform revenue, ${e(span)}" style="width:100%;max-width:720px;max-height:300px;height:auto;display:block;margin:6px auto 0">${grid}${bars}${idx.map(lab).join('')}</svg>
+      <div class="row small mute wrap" style="gap:14px;margin-top:6px"><span><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#9fb3a8"></i> Collected from customers</span><span><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#d4500f"></i> Platform revenue</span>${n === 1 ? '<span>Single day. Choose “Last 7 days” to see a trend.</span>' : ''}</div>`; };
   // ---------- overview ----------
   async function overview() { const q = S.preset === 'custom' ? `?preset=custom&from=${S.from}&to=${S.to}` : `?preset=${S.preset}`; const [o, n] = await Promise.all([A('/overview' + q), A('/notifications')]); const m = o.money, c = o.current;
     return `<div class="tabs">${[['today', 'Today'], ['yesterday', 'Yesterday'], ['7d', 'Last 7 days'], ['30d', 'Last 30 days'], ['custom', 'Custom']].map(([k, l]) => `<button class="${S.preset === k ? 'on' : ''}" data-act="preset" data-k="${k}">${l}</button>`).join('')}</div>

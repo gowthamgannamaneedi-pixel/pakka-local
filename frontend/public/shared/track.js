@@ -45,7 +45,7 @@
   const mmss = (s) => (s == null ? '' : s < 60 ? `${s}s ago` : `${Math.round(s / 60)} min ago`);
   T.label = (st, age) => ({ live: 'Live', stale: `Last seen ${mmss(age)}`, offline: `Offline · last seen ${mmss(age)}`, unavailable: 'Location not available yet' }[st] || '');
   async function makeMap(el, admin) {
-    const c = await cfg(), why = !window.L ? 'The map library (Leaflet) is not installed on this server. Run scripts/vendor-leaflet.sh and redeploy.' : !c.tile_url ? 'No map tile provider is configured. Set MAP_TILE_URL on the server.' : '';
+    const c = await cfg(), why = !window.L ? 'The map library (Leaflet) is not installed on this server. Run node scripts/vendor-leaflet.mjs and redeploy.' : !c.tile_url ? 'No map tile provider is configured. Set MAP_TILE_URL on the server.' : '';
     if (why) { el.style.height = 'auto'; el.innerHTML = `<div class="empty small" style="padding:20px 10px">${admin ? e(why) : 'The map is not available right now. The live status shown here is still accurate.'}</div>`; return null; }
     const map = L.map(el, { zoomControl: true, attributionControl: true }).setView([17.385, 78.4867], 13); const layer = L.tileLayer(c.tile_url, { maxZoom: 19, attribution: c.attribution }); layer.addTo(map);
     let bad = 0; layer.on && layer.on('tileerror', () => { if (++bad === 4) { const n = document.createElement('div'); n.className = 'small'; n.style.cssText = 'position:absolute;z-index:500;left:8px;right:8px;top:8px;padding:6px 10px;border-radius:8px;background:#fff;color:#8a1c1c'; n.textContent = 'Map images are not loading. Positions and status are still correct.'; el.appendChild(n); } });
