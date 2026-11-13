@@ -152,3 +152,4 @@ details.card summary{cursor:pointer;list-style:none}details.card summary::-webki
 .dest-line{display:flex;gap:8px;align-items:flex-start;font-size:.92rem;margin-top:6px}.dest-line svg{flex:none;color:var(--green);margin-top:2px}
 .nav-btn{min-height:56px;font-size:1.05rem;background:#1a73e8;border-color:#1a73e8;margin-top:12px}.nav-btn svg{width:22px;height:22px}
 .coords{display:flex;align-items:center;gap:8px;justify-content:space-between;margin-top:8px;font-size:.85rem;color:var(--mute)}
+html{scroll-padding-top:72px;scroll-padding-bottom:84px}
