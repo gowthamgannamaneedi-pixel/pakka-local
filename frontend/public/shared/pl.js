@@ -43,7 +43,10 @@
   PL.toast = (msg, bad) => { const t = document.createElement('div'); t.className = 'toast' + (bad ? ' bad' : ''); t.textContent = msg; document.body.append(t); setTimeout(() => t.remove(), 3200); };
   // run an action, toast on failure, only show success text when the backend says OK
   PL.run = async (fn, ok) => { try { const r = await fn(); if (ok) PL.toast(ok); return r; } catch (err) { PL.toast(err.message, true); return null; } };
-  PL.copy = (t) => { navigator.clipboard?.writeText(t).then(() => PL.toast('Copied')).catch(() => PL.toast('Copy failed', true)); };
+  // Clipboard API first; older Android browsers fall back to a hidden textarea; if both fail, show the text to copy by hand.
+  PL.copy = async (t) => { try { await navigator.clipboard.writeText(t); return PL.toast('Copied'); } catch {}
+    try { const ta = document.createElement('textarea'); ta.value = t; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;top:-100px;opacity:0'; document.body.append(ta); ta.select(); const ok = document.execCommand('copy'); ta.remove(); if (ok) return PL.toast('Copied'); } catch {}
+    PL.modal(`<h3>Copy this</h3><p class="small mute">Press and hold the text, then choose Copy.</p><textarea readonly style="min-height:90px">${e(t)}</textarea><button class="btn block mt" data-act="close-modal">Done</button>`); };
   PL.code = (c) => `<span class="code">${e(c)}</span><button class="copy" data-act="copy" data-v="${e(c)}">Copy</button>`;
   PL.chip = (s) => { const m = { DELIVERED: 'ok', PICKED_UP: 'brand', READY: 'brand', PREPARING: 'warn', ACCEPTED: 'warn', PLACED: 'warn', REJECTED: 'bad', EXPIRED: 'bad', PAYMENT_FAILED: 'bad', approved: 'ok', pending: 'warn', rejected: 'bad', suspended: 'bad', corrections_requested: 'warn', draft: '', reverification_required: 'warn', PAID: 'ok', APPROVED: 'brand', PENDING: 'warn', REFUND_COMPLETED: 'ok', REFUND_INITIATED: 'warn', REFUND_FAILED: 'bad' }; return `<span class="chip ${m[s] || ''}">${e(PL.LABEL[s] || String(s).replace(/_/g, ' ').toLowerCase().replace(/^./, (c) => c.toUpperCase()))}</span>`; };
   // agent verification states, worded the same way in every portal

@@ -137,3 +137,18 @@ button.card{width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer
 details.card summary{cursor:pointer;list-style:none}details.card summary::-webkit-details-marker{display:none}details.card summary:after{content:'›';float:right;color:var(--mute);transition:transform .2s}details[open].card summary:after{transform:rotate(90deg)}
 /* admin: needs-attention panel */
 .attn{padding-bottom:4px}.attn .li{padding:11px 4px;border-bottom:1px solid var(--line)}.attn .li:last-child{border-bottom:0}.attn .lvl{width:9px;height:9px;border-radius:50%;flex:none;background:var(--mute)}.attn .li.warn .lvl{background:var(--warn)}.attn .li.bad .lvl{background:var(--bad)}.attn .li.info .lvl{background:#7ba7d9}
+/* ---------- customer: GPS delivery address ---------- */
+.gps-card{background:#fff;border:1.5px solid var(--line);border-radius:var(--r);padding:16px;box-shadow:var(--sh);margin-top:12px}.gps-card.got{border-color:var(--ok)}.gps-card.error{border-color:var(--bad)}
+.gps-hint{margin:0 0 12px;padding:10px 12px;border-radius:12px;background:var(--brand-l);color:var(--brand-d);font-size:.92rem}
+.gps-btn{min-height:58px;font-size:1.05rem;letter-spacing:.02em;box-shadow:0 8px 20px rgba(212,80,15,.28)}
+.gps-ok{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:12px;background:#e3f5ee;color:#0d5a43}.gps-ok svg{flex:none;margin-top:2px}
+.gps-busy{display:grid;justify-items:center;gap:6px;text-align:center;padding:14px}.spin{width:34px;height:34px;border-radius:50%;border:4px solid var(--brand-l);border-top-color:var(--brand);animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+.g3{grid-template-columns:1fr 1fr 1fr}.seg.wrap{flex-wrap:wrap}.seg.wrap label{flex:1 1 30%;justify-content:center}
+.addr-pick{display:flex;gap:10px;align-items:flex-start;cursor:pointer;margin-bottom:10px}.addr-pick.on{border:1.5px solid var(--brand);background:#fff8f3}.addr-pick input{width:20px;min-height:20px;margin:3px 0 0;flex:none}
+.confirm-dest{background:#fff;border:1.5px solid var(--line);border-radius:12px;padding:12px;margin-top:10px}.addr-empty{border:1.5px dashed var(--brand)}
+/* ---------- rider: delivery destination card ---------- */
+.dest-card{border:1.5px solid var(--green);border-radius:16px;padding:14px;background:linear-gradient(180deg,#f3faf6,#fff);margin-top:10px}
+.dest-card .place{font:800 1.15rem Manrope,system-ui,sans-serif;margin:2px 0}.dest-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0}.dest-grid div{background:#fff;border:1px solid var(--line);border-radius:10px;padding:6px 8px}.dest-grid b{display:block;font-size:1.05rem}.dest-grid span{font-size:.75rem;color:var(--mute)}
+.dest-line{display:flex;gap:8px;align-items:flex-start;font-size:.92rem;margin-top:6px}.dest-line svg{flex:none;color:var(--green);margin-top:2px}
+.nav-btn{min-height:56px;font-size:1.05rem;background:#1a73e8;border-color:#1a73e8;margin-top:12px}.nav-btn svg{width:22px;height:22px}
+.coords{display:flex;align-items:center;gap:8px;justify-content:space-between;margin-top:8px;font-size:.85rem;color:var(--mute)}

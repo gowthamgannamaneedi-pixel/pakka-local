@@ -32,9 +32,15 @@ await call('POST', '/api/rider/online', { online: true }, rider);               
 const { restaurants } = await call('GET', '/api/public/restaurants', null, cust); const R = restaurants.find((r) => r.name === 'Spice Route Biryani');
 const { items } = await call('GET', `/api/public/restaurants/${R.id}/menu`, null, cust);
 const { locations } = await call('GET', '/api/public/locations', null, cust);
+const ADDR = {};
 const place = async (k, pin) => {
   const cart = [{ id: items[k % items.length].id, qty: 1 + (k % 2) }, ...(k % 3 === 0 ? [{ id: items[(k + 1) % items.length].id, qty: 1 }] : [])];
-  const o = await call('POST', '/api/customer/orders', { restaurant_id: R.id, items: cart, ...(pin ? { lat: 17.4401, lng: 78.3489, dest_text: 'Test drop-off, Gachibowli' } : { location_id: locations[k % locations.length].id }) }, cust);
+  // orders now go to a saved GPS address (SIMULATED coordinates for local testing; a real customer captures them on the phone)
+  const key = pin ? 'pin' : 'loc' + (k % locations.length);
+  if (!ADDR[key]) ADDR[key] = (await call('POST', '/api/customer/addresses', { label: 'pg', place_name: pin ? 'Test PG (simulated GPS)' : `Test hostel near ${locations[k % locations.length].name}`, building: 'Block A', floor: '2', room: String(200 + k),
+    entrance: 'Main gate', landmark: 'Test landmark', lat: pin ? 17.4401 : 17.4392 + k * 0.0004, lng: pin ? 78.3489 : 78.3470 + k * 0.0004, accuracy_m: 15, captured_at: new Date().toISOString(), confirm: true,
+    delivery_location_id: pin ? null : locations[k % locations.length].id }, cust)).address.id;
+  const o = await call('POST', '/api/customer/orders', { restaurant_id: R.id, items: cart, address_id: ADDR[key], confirm_destination: true }, cust);
   await call('POST', `/api/customer/payments/sandbox/${o.order_code}/complete`, { outcome: 'success' }, cust);
   const { orders } = await call('GET', '/api/restaurant/orders', null, rest); return orders.find((x) => x.order_code === o.order_code);
 };

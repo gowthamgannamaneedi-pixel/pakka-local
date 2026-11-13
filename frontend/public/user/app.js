@@ -2,8 +2,9 @@
 (function () {
   const e = PL.esc, rs = PL.rs, S = PL.state;
   const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
-  S.cart = load('pl.cart', { rid: null, rname: '', items: {} }); S.dest = load('pl.dest', null); S.instr = '';
+  S.cart = load('pl.cart', { rid: null, rname: '', items: {} }); S.addrId = load('pl.addr', null); S.instr = ''; try { localStorage.removeItem('pl.dest'); } catch {}      // the server is the source of truth for addresses
   const saveCart = () => localStorage.setItem('pl.cart', JSON.stringify(S.cart));
+  const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };      // only small preferences (e.g. which saved address is chosen); never coordinates
   const cartCount = () => Object.values(S.cart.items).reduce((a, i) => a + i.qty, 0);
   const cartTotal = () => Object.values(S.cart.items).reduce((a, i) => a + i.qty * i.price, 0);
   document.addEventListener('input', (ev) => { const k = ev.target.dataset?.bind; if (k) S[k] = ev.target.value; });
@@ -45,23 +46,15 @@
   async function home() {
     const [c, l, r, my] = await Promise.all([PL.api('/api/public/config'), PL.api('/api/public/locations'), PL.api('/api/public/restaurants'), PL.api('/api/customer/orders').catch(() => ({ orders: [] }))]);
     const active = my.orders.filter((o) => ACTIVE.includes(o.status)), recent = my.orders.filter((o) => o.status === 'DELIVERED').slice(0, 3);
-    const d = S.dest, loc = d && d.location_id && l.locations.find((x) => x.id === d.location_id);
+    const ad = (await PL.api('/api/customer/addresses').catch(() => ({ addresses: [] }))).addresses, cur = ad.find((x) => x.id === S.addrId) || ad.find((x) => x.is_default) || ad[0];
     return `${c.paymentsAvailable === false ? '<div class="banner warn small">Online ordering is not open yet. You can browse menus; ordering opens soon.</div>' : ''}${c.testPayments ? '<div class="banner info small">Test mode: payments are simulated. No real money moves.</div>' : ''}${noRiders(c)}
-      <button class="card row" style="width:100%;text-align:left;cursor:pointer" data-act="pick-loc"><span style="color:var(--brand)">${PL.icon('pin')}</span><div class="grow"><div class="small mute">Deliver to</div><b class="ellip">${d ? (d.gps ? 'Current location (GPS)' : loc ? e(loc.name) : 'Choose a location') : 'Choose a location'}</b></div><span class="mute">Change</span></button>
+      <button class="card row" data-act="go" data-path="/addresses"><span style="color:var(--brand)">${PL.icon('pin')}</span><div class="grow"><div class="small mute">Deliver to</div><b class="ellip">${cur ? e(addrLine(cur)) : 'Add your delivery address'}</b>${cur ? '' : '<div class="small mute">Uses your phone’s GPS. Takes a minute.</div>'}</div><span class="mute">${cur ? 'Change' : 'Add'}</span></button>
       ${active.length ? `<div class="sec">On its way</div>${active.map(liveCard).join('')}` : ''}
       ${recent.length ? `<div class="sec">Recent orders</div><div class="hscroll">${recent.map((o) => `<button class="mini" data-act="go" data-path="/orders/${e(o.order_code)}"><b class="ellip">${e(o.restaurant)}</b><span class="small mute ellip">${e(o.summary || '')}</span><span class="small">${PL.dt(o.created_at)} · ${rs(o.total_paise)}</span></button>`).join('')}</div>` : ''}
       <h2 class="mt" style="margin-bottom:10px">Local restaurants</h2>
       ${r.restaurants.length ? r.restaurants.map((x) => `<div class="card rest-card ${x.is_open ? '' : 'closed'}" data-act="go" data-path="/r/${x.id}" style="cursor:pointer">${x.image_path ? PL.img(x.image_path, 'cover') : `<div class="cover" style="height:90px;background:var(--brand-l);display:grid;place-items:center;color:var(--brand)">${PL.icon('shop', 'width="34" height="34"')}</div>`}
         <div class="b"><div class="row between"><h3>${e(x.name)}</h3>${x.is_open ? '<span class="chip ok">Open</span>' : '<span class="chip bad">Closed</span>'}</div><div class="small mute">${e(x.cuisine || 'Local favourites')}${x.rating ? ` · ★ ${x.rating} (${x.rating_count})` : ''}</div><div class="small mute">${x.min_prep ? `Prep ~${x.min_prep + x.packing_buffer_min} min` : ''}${x.eta_min ? ` · Delivery in ~${x.eta_min} min` : ''}</div>${x.operating_info ? `<div class="small mute">${e(x.operating_info)}</div>` : ''}${!x.is_open && x.reopen_at ? `<div class="small mute">Reopens around ${PL.time(x.reopen_at)}</div>` : ''}</div></div>`).join('') : '<div class="empty">No restaurants are available in your area yet.</div>'}`;
   }
-  PL.actions['pick-loc'] = async () => { const { locations } = await PL.api('/api/public/locations');
-    PL.modal(`<h3>Delivery location</h3><div class="mt2">${locations.map((l) => `<button class="card row" style="width:100%;text-align:left;cursor:pointer" data-act="set-loc" data-id="${l.id}"><div class="grow"><b>${e(l.name)}</b><div class="small mute">${e(l.address)}</div></div><span class="price">${PL.rs(l.delivery_fee_paise)}</span></button>`).join('') || '<p class="mute">No saved locations yet.</p>'}</div>
-      <div class="card flat"><b>Not listed?</b><p class="small mute">Share your current location and we’ll deliver there.</p><button class="btn ghost block" data-act="gps">${PL.icon('pin', 'width="18" height="18"')} Use my current location</button></div>`); };
-  PL.actions['set-loc'] = (el) => { S.dest = { location_id: Number(el.dataset.id) }; localStorage.setItem('pl.dest', JSON.stringify(S.dest)); PL.closeModal(); setTimeout(PL.rerender, 60); };
-  PL.actions.gps = () => { if (!navigator.geolocation) return PL.toast('Location is not supported on this device.', true);
-    PL.toast('Fetching your location…'); navigator.geolocation.getCurrentPosition((p) => { S.dest = { gps: true, lat: +p.coords.latitude.toFixed(6), lng: +p.coords.longitude.toFixed(6) }; localStorage.setItem('pl.dest', JSON.stringify(S.dest)); PL.closeModal(); setTimeout(PL.rerender, 60); PL.toast('Location captured'); },
-      () => PL.toast('Could not get your location. Allow location access and try again.', true), { enableHighAccuracy: true, timeout: 12000 }); };
-
   // ---------- menu ----------
   async function menu({ id }) {
     const [c, m] = await Promise.all([PL.api('/api/public/config'), PL.api(`/api/public/restaurants/${id}/menu`)]); const r = m.restaurant, inCart = (i) => (S.cart.rid === r.id && S.cart.items[i]?.qty) || 0;
@@ -83,23 +76,100 @@
   PL.actions.dec = (el) => { const it = S.cart.items[el.dataset.id]; if (!it) return; it.qty--; if (it.qty <= 0) delete S.cart.items[el.dataset.id]; if (!cartCount()) S.cart.rid = null; saveCart(); PL.rerender(); };
 
   // ---------- cart + checkout ----------
-  const body = () => ({ restaurant_id: S.cart.rid, items: Object.entries(S.cart.items).map(([id, i]) => ({ id: Number(id), qty: i.qty })), instructions: S.instr || undefined,
-    ...(S.dest?.gps ? { lat: S.dest.lat, lng: S.dest.lng, dest_text: 'Current location (GPS)' } : S.dest?.location_id ? { location_id: S.dest.location_id } : {}) });
+  const body = () => ({ restaurant_id: S.cart.rid, items: Object.entries(S.cart.items).map(([id, i]) => ({ id: Number(id), qty: i.qty })), instructions: S.instr || undefined, address_id: S.addrId || undefined });
   async function cart() {
     if (!cartCount()) return '<div class="empty">Your cart is empty.<br><button class="btn mt" data-act="go" data-path="/home">Browse restaurants</button></div>';
-    const locs = (await PL.api('/api/public/locations')).locations; let q = null, err = null;
-    if (S.dest) { try { q = await PL.post('/api/customer/quote', body()); } catch (x) { err = x; } } else { try { await PL.post('/api/customer/quote', { ...body(), location_id: locs[0]?.id ?? 0 }); } catch (x) { if (x.code === 'NO_RIDERS') err = x; } }
-    const blocked = err && err.code === 'NO_RIDERS';
-    return `<h2>${e(S.cart.rname)}</h2><div class="mt2">${Object.entries(S.cart.items).map(([id, i]) => `<div class="card row"><div class="grow"><b>${e(i.name)}</b><div class="small mute">${rs(i.price)} each</div></div><div class="qty"><button data-act="dec" data-id="${id}">−</button><span>${i.qty}</span><button data-act="inc" data-id="${id}">+</button></div></div>`).join('')}</div>
-      <div class="sec">Delivery location</div><div class="card"><select data-act-change="loc" id="locsel"><option value="">Choose hostel, PG or apartment</option>${locs.map((l) => `<option value="${l.id}" ${S.dest?.location_id === l.id ? 'selected' : ''}>${e(l.name)} · ${rs(l.delivery_fee_paise)}</option>`).join('')}${S.dest?.gps ? '<option value="gps" selected>Current location (GPS)</option>' : ''}</select>
-      <button class="btn ghost block mt2" data-act="gps">${PL.icon('pin', 'width="18" height="18"')} ${S.dest?.gps ? 'Update my GPS location' : 'My address isn’t listed. Use current location'}</button></div>
-      <div class="sec">Delivery instructions (optional)</div><textarea data-bind="instr" maxlength="300" placeholder="Gate number, room or block, call before arriving…">${e(S.instr)}</textarea>
-      ${blocked ? `<div class="banner warn mt">${e(err.message)}</div>` : err && S.dest ? `<div class="banner bad mt">${e(err.message)}</div>` : ''}
+    const ad = (await PL.api('/api/customer/addresses')).addresses;
+    if (!ad.some((x) => x.id === S.addrId)) { S.addrId = (ad.find((x) => x.is_default) || ad[0])?.id || null; save('pl.addr', S.addrId); S.confirmed = false; }
+    const sel = ad.find((x) => x.id === S.addrId); let q = null, err = null;
+    if (sel) { try { q = await PL.post('/api/customer/quote', body()); } catch (x) { err = x; } }
+    const items = `<h2>${e(S.cart.rname)}</h2><div class="mt2">${Object.entries(S.cart.items).map(([id, i]) => `<div class="card row"><div class="grow"><b>${e(i.name)}</b><div class="small mute">${rs(i.price)} each</div></div><div class="qty"><button data-act="dec" data-id="${id}">−</button><span>${i.qty}</span><button data-act="inc" data-id="${id}">+</button></div></div>`).join('')}</div>`;
+    const where = !ad.length ? `<div class="card addr-empty"><b>Add where we should deliver</b><p class="small mute">Stand at your delivery spot and capture your phone’s GPS location, then add your PG, hostel or college details.</p><button class="btn block mt2" data-act="go" data-path="/addresses/new?back=cart">${PL.icon('pin', 'width="18" height="18"')} Add delivery address</button></div>`
+      : `${ad.map((x) => `<label class="card addr-pick ${x.id === S.addrId ? 'on' : ''}"><input type="radio" name="addr" value="${x.id}" ${x.id === S.addrId ? 'checked' : ''}><div class="grow"><div class="row between"><b>${e(LBL[x.label])}${x.is_default ? ' <span class="chip">Default</span>' : ''}</b><span class="small mute">GPS ±${Math.round(x.accuracy_m)} m</span></div><div class="small">${e(addrLine(x))}</div>${x.entrance || x.landmark ? `<div class="small mute">${e([x.entrance, x.landmark].filter(Boolean).join(' · '))}</div>` : ''}</div></label>`).join('')}
+        <div class="row wrap"><button class="btn ghost sm grow" data-act="go" data-path="/addresses/new?back=cart">+ New address</button>${sel ? `<button class="btn ghost sm grow" data-act="go" data-path="/addresses/${sel.id}?back=cart&gps=1">${PL.icon('pin', 'width="16" height="16"')} I’ve moved: update GPS</button>` : ''}</div>
+        ${sel ? `<label class="check confirm-dest"><input type="checkbox" id="confirm-dest" ${S.confirmed ? 'checked' : ''}> Deliver to this point. The location was captured ${PL.dt(sel.captured_at)} and I am ordering for that place.</label>` : ''}`;
+    return `${items}<div class="sec">Deliver to</div>${where}
+      <div class="sec">Note for this order (optional)</div><textarea data-bind="instr" maxlength="300" placeholder="Anything extra for this order only">${e(S.instr)}</textarea>
+      ${err ? `<div class="banner ${err.code === 'NO_RIDERS' ? 'warn' : 'bad'} mt">${e(err.message)}</div>` : ''}
       ${q ? `<div class="sec">Bill details</div><div class="card"><div class="kv"><span>Item total (restaurant price)</span><span>${rs(q.items_base_paise)}</span></div><div class="kv"><span>Platform markup</span><span>${rs(q.markup_paise)}</span></div><div class="kv"><span>Delivery charge</span><span>${rs(q.delivery_paise)}</span></div>${q.surge_paise ? `<div class="kv"><span>Surge charge</span><span>${rs(q.surge_paise)}</span></div>` : ''}${q.tax_paise ? `<div class="kv"><span>Taxes</span><span>${rs(q.tax_paise)}</span></div>` : ''}<div class="kv tot"><span>Total</span><span class="num">${rs(q.total_paise)}</span></div><div class="small mute">Estimated delivery in ~${q.prep_min + 8 + q.delivery_min} min</div></div>` : ''}
-      <button class="btn block mt" data-act="place" ${q && !err ? '' : 'disabled'}>${q ? `Pay ${rs(q.total_paise)}` : 'Choose a delivery location'}</button><p class="small mute mt2" style="text-align:center">Online payment only. Cash on delivery is not available.</p>`;
+      <button class="btn block mt" data-act="place" ${q && !err && S.confirmed ? '' : 'disabled'}>${!sel ? 'Add a delivery address first' : !S.confirmed ? 'Confirm the delivery point to continue' : q ? `Pay ${rs(q.total_paise)}` : 'Not available'}</button><p class="small mute mt2" style="text-align:center">Online payment only. Cash on delivery is not available.</p>`;
   }
-  document.addEventListener('change', (ev) => { if (ev.target.id !== 'locsel') return; const v = ev.target.value; if (v === 'gps') return; S.dest = v ? { location_id: Number(v) } : null; localStorage.setItem('pl.dest', JSON.stringify(S.dest)); PL.rerender(); });
-  PL.actions.place = async (el) => { el.disabled = true; const r = await PL.run(() => PL.post('/api/customer/orders', body())); if (r) PL.go('/pay/' + r.order_code, true); else el.disabled = false; };
+  document.addEventListener('change', (ev) => { const t = ev.target;
+    if (t.name === 'addr' && t.closest('.addr-pick')) { S.addrId = Number(t.value); save('pl.addr', S.addrId); S.confirmed = false; PL.rerender(); }
+    if (t.id === 'confirm-dest') { S.confirmed = t.checked; PL.rerender(); } });
+  PL.actions.place = async (el) => { if (!S.confirmed) return PL.toast('Confirm the delivery point first.', true); el.disabled = true;
+    const r = await PL.run(() => PL.post('/api/customer/orders', { ...body(), confirm_destination: true })); if (r) { S.confirmed = false; PL.go('/pay/' + r.order_code, true); } else el.disabled = false; };
+
+  // ---------- delivery addresses (GPS-first) ----------
+  const LBL = { home: 'Home', hostel: 'Hostel', pg: 'PG', college: 'College', other: 'Other' };
+  const addrLine = (a) => [a.place_name, a.building, a.block && `Block ${a.block}`, a.floor && `Floor ${a.floor}`, a.room && `Room ${a.room}`].filter(Boolean).join(', ') || 'Saved location';
+  // Fresh, high-accuracy reading from this phone. Never reuses an old browser position and never invents one.
+  const GPS_ERR = { 1: ['Location permission is blocked', 'Allow location for this site: tap the lock or ⓘ icon next to the web address, choose Permissions → Location → Allow, then try again.'],
+    2: ['Your phone could not find its location', 'Turn on Location (GPS) in your phone’s quick settings, step outside or near a window, then try again.'],
+    3: ['Finding your location took too long', 'Make sure Location (GPS) is on and you have signal, then try again. Outdoors works best.'] };
+  const captureGps = (timeoutSec) => new Promise((ok, no) => {
+    if (!window.isSecureContext) return no({ title: 'Location needs a secure connection', text: 'Open Pakka Local over https:// to share your location.' });
+    if (!navigator.geolocation) return no({ title: 'This browser cannot share location', text: 'Open Pakka Local in Chrome or Safari on your phone.' });
+    navigator.geolocation.getCurrentPosition((p) => { const c = p.coords, t = p.timestamp || Date.now();
+      if (!Number.isFinite(c.latitude) || !Number.isFinite(c.longitude) || Math.abs(c.latitude) > 90 || Math.abs(c.longitude) > 180 || (c.latitude === 0 && c.longitude === 0)) return no({ title: 'Your phone returned an invalid location', text: 'Try again.' });
+      if (Date.now() - t > 120_000) return no({ title: 'Your phone gave an old location', text: 'Try again so we get your position right now.' });
+      ok({ lat: c.latitude, lng: c.longitude, accuracy_m: Number.isFinite(c.accuracy) ? c.accuracy : null, captured_at: new Date(t).toISOString() }); },
+    (err) => no({ code: err.code, title: (GPS_ERR[err.code] || GPS_ERR[2])[0], text: (GPS_ERR[err.code] || GPS_ERR[2])[1] }),
+    { enableHighAccuracy: true, maximumAge: 0, timeout: Math.max(5, timeoutSec || 20) * 1000 }); });
+
+  async function addresses() { const { addresses: ad, max } = await PL.api('/api/customer/addresses');
+    return `<div class="row between wrap"><h2>Delivery addresses</h2>${ad.length < max ? '<button class="btn sm" data-act="go" data-path="/addresses/new">+ Add address</button>' : ''}</div>
+      <p class="small mute mt2">Each address has the GPS point you captured standing there, so your delivery partner can navigate straight to you.</p>
+      ${ad.map((a) => `<div class="card"><div class="row between"><b>${e(LBL[a.label])}${a.is_default ? ' <span class="chip ok">Default</span>' : ''}</b><span class="small mute">GPS ±${Math.round(a.accuracy_m)} m · ${PL.dt(a.captured_at)}</span></div>
+        <div class="mt2">${e(addrLine(a))}</div>${[a.entrance && 'Gate: ' + a.entrance, a.landmark && 'Near ' + a.landmark].filter(Boolean).map((x) => `<div class="small mute">${e(x)}</div>`).join('')}${a.instructions ? `<div class="small mute">“${e(a.instructions)}”</div>` : ''}
+        <div class="row wrap mt2"><button class="btn ghost sm" data-act="go" data-path="/addresses/${a.id}">Edit</button>${a.is_default ? '' : `<button class="btn ghost sm" data-act="addr-default" data-id="${a.id}">Make default</button>`}<button class="btn danger sm" data-act="addr-del" data-id="${a.id}">Remove</button></div></div>`).join('') || `<div class="empty">${PL.icon('pin', 'width="40" height="40"')}<br><b>No saved addresses yet</b><br><span class="small">Add one while standing at your PG, hostel or room.</span><br><button class="btn mt" data-act="go" data-path="/addresses/new">Add delivery address</button></div>`}`; }
+  PL.actions['addr-default'] = async (el) => { const r = await PL.run(() => PL.put('/api/customer/addresses/' + el.dataset.id, { make_default: true }), 'Default address updated'); if (r) PL.rerender(); };
+  PL.actions['addr-del'] = async (el) => { if (!(await PL.confirm('Remove this address? Orders already placed keep their delivery details.', 'Remove'))) return; const r = await PL.run(() => PL.api('/api/customer/addresses/' + el.dataset.id, { method: 'DELETE' }), 'Address removed'); if (r) PL.rerender(); };
+
+  // add / edit form. The GPS reading lives only in this screen's memory until it is saved to the server.
+  let F = null;
+  async function addressForm({ id }) {
+    const qs = new URLSearchParams(location.hash.split('?')[1] || ''), isNew = id === 'new';
+    const [{ addresses: ad, policy }, { locations }] = await Promise.all([PL.api('/api/customer/addresses'), PL.api('/api/public/locations')]);
+    if (!F || F.id !== id) { const a = isNew ? {} : ad.find((x) => String(x.id) === String(id)); if (!a) return '<div class="empty">Address not found.<br><button class="btn mt" data-act="go" data-path="/addresses">Back</button></div>';
+      F = { id, back: qs.get('back'), policy, a: { label: 'pg', ...a }, gps: null, state: isNew || qs.get('gps') ? 'need' : 'kept', err: null, here: false, ack: false }; }
+    const a = F.a, p = F.policy, g = F.gps, poor = g && p.warn_m && g.accuracy_m > p.warn_m;
+    const gpsBox = `<div class="gps-card ${F.state}">
+      <p class="gps-hint"><b>Please stand at your actual delivery location before capturing your GPS location. Our delivery partner will use these coordinates to reach you.</b></p>
+      ${F.state === 'kept' ? `<div class="gps-ok">${PL.icon('check', 'width="20" height="20"')}<div><b>Saved GPS location</b><div class="small">Accuracy about ±${Math.round(a.accuracy_m)} m · captured ${PL.dt(a.captured_at)}</div></div></div><button class="btn ghost block mt2" data-act="gps-go">${PL.icon('pin', 'width="18" height="18"')} Capture again (I’m here now)</button>` : ''}
+      ${F.state === 'need' ? `<button class="btn gps-btn block" data-act="gps-go">${PL.icon('pin', 'width="22" height="22"')} USE MY CURRENT LOCATION</button><p class="small mute mt2">Your phone will ask for location permission. Allow it.</p>` : ''}
+      ${F.state === 'busy' ? `<div class="gps-busy"><span class="spin"></span><b>Finding your location…</b><div class="small mute">This can take up to ${p.timeout_sec} seconds. Stay where you are.</div></div>` : ''}
+      ${F.state === 'error' ? `<div class="banner bad" style="margin:0"><b>${e(F.err.title)}</b><div class="small" style="font-weight:500">${e(F.err.text)}</div></div><button class="btn block mt2" data-act="gps-go">Try again</button>` : ''}
+      ${F.state === 'got' ? `<div class="gps-ok">${PL.icon('check', 'width="20" height="20"')}<div><b>Location captured</b><div class="small">Accuracy about ±${Math.round(g.accuracy_m)} m · ${PL.time(g.captured_at)}</div><div class="small mute">${g.lat.toFixed(6)}, ${g.lng.toFixed(6)}</div></div></div>
+        ${poor ? `<div class="banner warn mt2" style="margin-bottom:0">This reading is only accurate to about ${Math.round(g.accuracy_m)} m (Pakka Local’s limit is ${p.warn_m} m). Step outside or near a window and try again, or use it anyway.</div><label class="check"><input type="checkbox" id="gps-ack" ${F.ack ? 'checked' : ''}> Use this location anyway (about ±${Math.round(g.accuracy_m)} m)</label>` : g.accuracy_m > 50 ? '<p class="small mute mt2">The accuracy number is quite large. If you can, step outside or near a window and capture again.</p>' : ''}
+        <label class="check"><input type="checkbox" id="gps-here" ${F.here ? 'checked' : ''}> I am standing at my delivery location right now.</label>
+        <button class="btn ghost sm mt2" data-act="gps-go">Capture again</button>` : ''}</div>`;
+    const inp = (k, l, attrs = '') => `<label for="a-${k}">${l}</label><input id="a-${k}" name="${k}" value="${e(a[k] ?? '')}" ${attrs}>`;
+    return `<h2>${isNew ? 'Add delivery address' : 'Edit delivery address'}</h2>${gpsBox}
+      <form data-form="addr" class="card mt" novalidate><label>This place is a</label><div class="seg wrap">${Object.entries(LBL).map(([k, l]) => `<label class="${a.label === k ? 'on' : ''}"><input type="radio" name="label" value="${k}" ${a.label === k ? 'checked' : ''}> ${l}</label>`).join('')}</div>
+        ${inp('place_name', 'PG, hostel or college name', 'maxlength="80" placeholder="e.g. the name on the board outside"')}
+        ${inp('building', 'Building or hostel block name', 'maxlength="80"')}
+        <div class="grid g3"><div>${inp('block', 'Block / tower', 'maxlength="30"')}</div><div>${inp('floor', 'Floor', 'maxlength="20" inputmode="numeric"')}</div><div>${inp('room', 'Room no.', 'maxlength="30"')}</div></div>
+        ${inp('entrance', 'Main gate or entrance', 'maxlength="120" placeholder="e.g. back gate near the parking"')}
+        ${inp('landmark', 'Nearby landmark', 'maxlength="120"')}
+        <label for="a-instructions">Delivery instructions</label><textarea id="a-instructions" name="instructions" maxlength="300" placeholder="e.g. call from the gate, security won’t let riders in">${e(a.instructions || '')}</textarea>
+        ${locations.length ? `<label for="a-area">Pakka Local delivery area (if your place is on this list)</label><select id="a-area" name="delivery_location_id"><option value="">Not on the list</option>${locations.map((l) => `<option value="${l.id}" ${a.delivery_location_id === l.id ? 'selected' : ''}>${e(l.name)}${l.area ? ' · ' + e(l.area) : ''}</option>`).join('')}</select>` : ''}
+        <p class="small mute mt2">Required: the PG/hostel/college or building name, and a room number, gate or landmark.</p>
+        ${isNew ? `<label class="check"><input type="checkbox" name="make_default" ${ad.length ? '' : 'checked'}> Make this my default address</label>` : ''}
+        <button class="btn block mt" type="submit">Save address</button></form>`; }
+  const keepForm = () => { const f = PL.$('form[data-form=addr]'); if (!f) return; const v = PL.form(f); Object.assign(F.a, v, { label: f.label.value || F.a.label, delivery_location_id: v.delivery_location_id ? Number(v.delivery_location_id) : null }); };
+  PL.actions['gps-go'] = async () => { keepForm(); F.state = 'busy'; F.err = null; F.here = false; F.ack = false; PL.rerender();
+    try { F.gps = await captureGps(F.policy.timeout_sec); F.state = 'got'; } catch (x) { F.err = x; F.state = 'error'; } PL.rerender(); };
+  document.addEventListener('change', (ev) => { const t = ev.target; if (!F) return;
+    if (t.id === 'gps-here') F.here = t.checked; if (t.id === 'gps-ack') F.ack = t.checked;
+    if (t.name === 'label' && t.closest('form[data-form=addr]')) { keepForm(); PL.rerender(); } });
+  PL.forms.addr = async (f) => { keepForm(); const a = F.a, isNew = F.id === 'new';
+    if (isNew && F.state !== 'got') return PL.toast('Capture your GPS location first.', true);
+    if (F.state === 'got' && !F.here) return PL.toast('Confirm that you are standing at the delivery location.', true);
+    const det = { label: a.label, place_name: a.place_name, building: a.building, block: a.block, floor: a.floor, room: a.room, entrance: a.entrance, landmark: a.landmark, instructions: a.instructions, delivery_location_id: a.delivery_location_id ?? null };
+    const gps = F.state === 'got' ? { lat: F.gps.lat, lng: F.gps.lng, accuracy_m: F.gps.accuracy_m, captured_at: F.gps.captured_at, accuracy_acknowledged: F.ack, confirm: true } : {};
+    const r = await PL.run(() => (isNew ? PL.post('/api/customer/addresses', { ...det, ...gps, confirm: true, make_default: !!f.make_default?.checked }) : PL.put('/api/customer/addresses/' + F.id, { ...det, ...gps })), 'Address saved');
+    if (!r) return; const back = F.back; S.addrId = r.address.id; save('pl.addr', S.addrId); S.confirmed = false; F = null; PL.go(back === 'cart' ? '/cart' : '/addresses', true); };
 
   // ---------- sandbox payment (stands in for the PhonePe checkout page) ----------
   async function pay({ code }) {
@@ -138,7 +208,7 @@
       <div class="sec">Settings</div><div class="card list">
         <button class="li" data-act="go" data-path="/orders"><span>${PL.icon('orders')}</span><b class="grow">My orders</b><span class="mute">›</span></button>
         <div class="li"><span>${PL.icon('bell')}</span><div class="grow"><b>Offers and promotions</b><div class="small mute">Order updates are always sent.</div></div><button class="sw ${pf.promo_opt_in ? 'on' : ''}" data-act="promo-toggle" data-v="${pf.promo_opt_in ? 0 : 1}" aria-label="Offers and promotions"><i></i></button></div>
-        <div class="li"><span>${PL.icon('pin')}</span><div class="grow"><b>Delivery location</b><div class="small mute">Change it from the home screen.</div></div></div></div>
+        <button class="li" data-act="go" data-path="/addresses"><span>${PL.icon('pin')}</span><div class="grow"><b>Delivery addresses</b><div class="small mute">Saved places with their GPS location</div></div><span class="mute">›</span></button></div>
       ${PL.push.card('user')}
       <details class="card"><summary><b>Install Pakka Local on your phone</b></summary><p class="small mute mt2">Android: use the Install prompt in Chrome. iPhone: open in Safari, tap Share, then “Add to Home Screen”. Notifications on iPhone need iOS 16.4 or later and the installed app.</p></details>
       <button class="btn ghost block mt" data-act="logout">Sign out</button>`; }
@@ -150,5 +220,5 @@
     tabs: [{ path: '/home', label: 'Home', icon: 'home' }, { path: '/orders', label: 'Orders', icon: 'orders' }, { path: '/me', label: 'Account', icon: 'user' }],
     onReady: () => { const tick = async () => { try { const { orders } = await PL.api('/api/customer/orders'); PL.badge('/orders', orders.filter((o) => ACTIVE.includes(o.status)).length); } catch {} }; tick(); const iv = setInterval(tick, 10000); PL.hooks.stop = [() => clearInterval(iv)]; },
     routes: { '/home': { title: 'Pakka Local', render: home, poll: 6000 }, '/r/:id': { title: 'Menu', render: menu, poll: 8000 }, '/cart': { title: 'Your cart', render: cart, poll: 8000 }, '/pay/:code': { title: 'Payment', render: pay, noNav: true },
-      '/orders': { title: 'My orders', render: orders, poll: 5000 }, '/orders/:code': { title: 'Order', render: track, poll: 2000, after: () => PL.track.customerMount() }, '/me': { title: 'Account', render: account } } });
+      '/orders': { title: 'My orders', render: orders, poll: 5000 }, '/orders/:code': { title: 'Order', render: track, poll: 2000, after: () => PL.track.customerMount() }, '/me': { title: 'Account', render: account }, '/addresses': { title: 'Delivery addresses', render: addresses }, '/addresses/:id': { title: 'Delivery address', render: addressForm } } });
 })();

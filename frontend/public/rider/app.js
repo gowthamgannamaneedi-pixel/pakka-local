@@ -6,8 +6,19 @@
     <div class="sec">Pickup</div><b>${e(o.restaurant.name)}</b><div class="small">${e(o.restaurant.address || '')}</div><div class="row wrap mt2">${PL.mapsBtn(o.restaurant.maps_link, 'Map')}${o.restaurant.phone ? `<a class="btn ghost sm" href="tel:${e(o.restaurant.phone)}">${PL.icon('phone', 'width="18" height="18"')} Call</a>` : ''}</div>
     <div class="sec">Items</div>${o.items.map((i) => `<div class="kv"><span>${i.qty} × ${e(i.name)}</span></div>`).join('')}
     <div class="sec">Drop-off</div>${o.destination.area_only ? `<b>${e(o.destination.text)}</b><div class="small mute">Exact address, phone number and instructions appear after you accept.</div>`
-      : `<b>${e(o.customer.name || 'Customer')}</b><div class="small">${e(o.destination.text)}</div>${o.destination.lat != null ? `<div class="small mute">GPS ${o.destination.lat}, ${o.destination.lng}</div>` : ''}
-    ${o.instructions ? `<div class="banner info mt2" style="margin-bottom:0"><b>Instructions:</b> ${e(o.instructions)}</div>` : ''}<div class="row wrap mt2">${PL.mapsBtn(o.destination.maps_link, 'Map')}${o.customer.phone ? `<a class="btn ghost sm" href="tel:${e(o.customer.phone)}">${PL.icon('phone', 'width="18" height="18"')} Call customer</a>` : ''}</div>`}`;
+      : destCard(o)}`;
+  // Assigned delivery: where exactly to go. Coordinates and the navigation link come only from the server for the assigned rider.
+  function destCard(o) { const d = o.destination, cell = (v, l) => (v ? `<div><b>${e(v)}</b><span>${l}</span></div>` : '');
+    const line = (ic, label, v) => (v ? `<div class="dest-line">${PL.icon(ic, 'width="18" height="18"')}<div><span class="small mute">${label}</span><div>${e(v)}</div></div></div>` : '');
+    const has = d.lat != null && d.lng != null, coords = has ? `${(+d.lat).toFixed(6)},${(+d.lng).toFixed(6)}` : '';
+    return `<div class="dest-card"><div class="small mute">${e(o.customer.name || 'Customer')}${d.label ? ' · ' + e({ home: 'Home', hostel: 'Hostel', pg: 'PG', college: 'College', other: 'Other' }[d.label] || d.label) : ''}</div>
+      <div class="place">${e(d.place_name || d.building || d.text || 'Customer location')}</div>${d.place_name && d.building ? `<div class="small">${e(d.building)}</div>` : ''}
+      ${d.block || d.floor || d.room ? `<div class="dest-grid">${cell(d.block, 'Block')}${cell(d.floor, 'Floor')}${cell(d.room, 'Room')}</div>` : ''}
+      ${line('pin', 'Gate / entrance', d.entrance)}${line('shop', 'Landmark', d.landmark)}${line('bell', 'Instructions', o.instructions)}
+      ${d.nav_url ? `<a class="btn block nav-btn" href="${e(d.nav_url)}" target="_blank" rel="noopener" data-nav>${PL.icon('pin')} NAVIGATE IN GOOGLE MAPS</a>`
+        : '<div class="banner warn mt2" style="margin-bottom:0">This order has no usable GPS point. Call the customer for directions.</div>'}
+      ${has ? `<div class="coords"><span>GPS ${coords}${d.accuracy_m != null ? ` · ±${Math.round(d.accuracy_m)} m` : ''}</span><span class="row" style="gap:4px"><button class="copy" data-act="copy" data-v="${coords}">Copy GPS</button>${d.nav_url ? `<button class="copy" data-act="copy" data-v="${e(d.nav_url)}">Copy link</button>` : ''}</span></div>` : ''}
+      ${o.customer.phone ? `<a class="btn ghost block mt2" href="tel:${e(o.customer.phone)}">${PL.icon('phone', 'width="18" height="18"')} Call customer</a>` : ''}</div>`; }
 
   // ---------- offers: alert layer, 1s poll ----------
   // One offer card at a time, docked above the bottom navigation (same queue layout as the restaurant portal).
