@@ -279,3 +279,13 @@ To add a tester: append `,their@email=+91XXXXXXXXXX` to `EMAIL_OTP_ALLOWLIST` in
 - Rider APK in the Android 15 emulator (local copy pointing at localhost): login, offer pop-up, accept, Android location
   prompt, live GPS received by the server, status updates, pickup and delivery codes, delivered. Screenshots in
   `screenshots-rider-apk/`. Web push is not available inside the APK (in-app alerts only).
+
+## 14. Staging simulated payments (14 Nov 2026)
+
+Approved by the owner for staging only: `PAYMENT_PROVIDER=sandbox`, `SANDBOX_PAYMENT_PHONES=+915000000301,+919876500001`
+(redeployed with the existing build). Live config reports `testPayments: true`, `ridersAvailable: true`.
+Verified locally on the same build: success -> PLACED; failure -> PAYMENT_FAILED (never sent to the restaurant);
+customer not on the list -> refused (NOT_A_TESTER). Production with `PAYMENT_PROVIDER=sandbox` refuses to start.
+Live staging end-to-end (customer -> simulated payment -> restaurant -> rider APK -> pickup code -> delivery code ->
+Delivered) completed by the owner on 14 Nov 2026 (reported; the test passwords and code are only in the private secrets folder).
+To switch ordering off again: set `PAYMENT_PROVIDER=disabled` and redeploy with previous files.
