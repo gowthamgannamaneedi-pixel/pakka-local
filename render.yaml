@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: pakka-local-api
+    runtime: node
+    plan: starter            # persistent disks require a paid instance
+    rootDir: backend
+    buildCommand: npm ci
+    startCommand: node scripts/migrate.js && node src/server.js
+    healthCheckPath: /healthz
+    numInstances: 1          # SQLite: exactly one instance
+    disk:
+      name: pakka-data
+      mountPath: /var/data
+      sizeGB: 5
+    envVars:
+      - { key: NODE_ENV, value: production }
+      - { key: JWT_SECRET, generateValue: true }
+      - { key: ALLOWED_ORIGINS, sync: false }       # your Vercel URL, if the frontend is hosted there
+      - { key: SERVE_FRONTEND, value: 'true' }      # lets this one Render URL serve all four portals too (easiest for testing)
+      - { key: APP_ENV, value: production }
+      - { key: PAYMENT_PROVIDER, value: disabled }  # No payment gateway is integrated yet, so ordering stays closed. 'sandbox' is refused on production.
+      # For a separate TEST deployment only: APP_ENV=staging, PAYMENT_PROVIDER=sandbox, SANDBOX_PAYMENT_PHONES=+91XXXXXXXXXX,+91YYYYYYYYYY
+      - { key: OTP_PROVIDER, value: whatsapp }
+      # For pilot testing before WhatsApp is live, add in the dashboard: OTP_PROVIDER=testcode, TEST_OTP_CODE, TEST_OTP_PHONES, ALLOW_TEST_OTP=1
+      - { key: VAPID_PUBLIC_KEY, sync: false }      # npm run vapid (backend) prints a pair
+      - { key: VAPID_PRIVATE_KEY, sync: false }
+      - { key: VAPID_SUBJECT, sync: false }         # mailto:you@yourdomain.com
+      - { key: PUBLIC_API_URL, sync: false }        # only if the frontend is on Vercel
+      - { key: WHATSAPP_ACCESS_TOKEN, sync: false }
+      - { key: WHATSAPP_PHONE_NUMBER_ID, sync: false }
+      - { key: WHATSAPP_OTP_TEMPLATE_NAME, sync: false }
+      - { key: WHATSAPP_API_VERSION, value: v21.0 }

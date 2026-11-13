@@ -1,0 +1,32 @@
+{
+  "name": "pakka-local-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "migrate": "node scripts/migrate.js",
+    "vapid": "node -e \"const k=require('web-push').generateVAPIDKeys();console.log('VAPID_PUBLIC_KEY='+k.publicKey+'\\nVAPID_PRIVATE_KEY='+k.privateKey)\"",
+    "create-admin": "node scripts/create-admin.js",
+    "seed-demo": "node scripts/seed-demo.js",
+    "test": "NODE_ENV=test UPLOAD_DIR=/tmp/pl-test-uploads node --test \"test/*.test.js\"",
+    "test:browser": "bash test/run-browser.sh",
+    "test:browser:p2": "bash test/run-p2-browser.sh",
+    "vendor:leaflet": "bash ../scripts/vendor-leaflet.sh"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^11.5.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "express-rate-limit": "^7.4.1",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "web-push": "^3.6.7",
+    "zod": "^3.23.8"
+  }
+}
