@@ -82,3 +82,24 @@ test('config: STAGING_TEST_ACCOUNTS refused on production; staging test code is 
   assert.match(run({ APP_ENV: 'staging', OTP_PROVIDER: 'testcode', ALLOW_TEST_OTP: '1', TEST_OTP_PHONES: TEST.customer.phone }).stdout, new RegExp(`CODE ${c}`), 'same code after restart');
   assert.match(run({ APP_ENV: 'staging', OTP_PROVIDER: 'whatsapp', STAGING_TEST_ACCOUNTS: 'yes' }).stderr, /must be 1 or remove/);
 });
+
+test('the TEST rider phone step is pre-verified; other riders and existing accounts are not touched', () => {
+  const db = openDb(':memory:'), sec = tmp();
+  db.prepare("INSERT INTO users (role, phone, name) VALUES ('rider', '+919811111111', 'Real rider')").run();
+  const realId = db.prepare("SELECT id FROM users WHERE phone = '+919811111111'").pluck().get();
+  db.prepare("INSERT INTO riders (user_id, verification_status) VALUES (?, 'draft')").run(realId);
+  seedStagingTestAccounts(db, { secretsDir: sec, appEnv: 'staging' });
+  const v = (p) => db.prepare('SELECT r.phone_verified_at FROM riders r JOIN users u ON u.id = r.user_id WHERE u.phone = ?').pluck().get(p);
+  assert.ok(v(TEST.rider.phone), 'test rider pre-verified'); assert.equal(v('+919811111111'), null, 'real rider untouched');
+  assert.equal(db.prepare("SELECT verification_status FROM riders r JOIN users u ON u.id = r.user_id WHERE u.phone = ?").pluck().get(TEST.rider.phone), 'draft', 'still needs admin approval');
+  // an already-existing TEST rider created by an earlier run is also pre-verified on the next start
+  const db2 = openDb(':memory:'), sec2 = tmp(); seedStagingTestAccounts(db2, { secretsDir: sec2, appEnv: 'staging' });
+  db2.prepare('UPDATE riders SET phone_verified_at = NULL').run(); seedStagingTestAccounts(db2, { secretsDir: sec2, appEnv: 'staging' });
+  assert.ok(db2.prepare('SELECT phone_verified_at FROM riders').pluck().get());
+  // a pre-existing account on the test number that the seeder did not create is left alone
+  const db3 = openDb(':memory:'), sec3 = tmp();
+  const other = db3.prepare("INSERT INTO users (role, phone, name) VALUES ('rider', ?, 'Someone')").run(TEST.rider.phone).lastInsertRowid;
+  db3.prepare("INSERT INTO riders (user_id, verification_status) VALUES (?, 'draft')").run(other);
+  seedStagingTestAccounts(db3, { secretsDir: sec3, appEnv: 'staging' });
+  assert.equal(db3.prepare('SELECT phone_verified_at FROM riders WHERE user_id = ?').pluck().get(other), null);
+});

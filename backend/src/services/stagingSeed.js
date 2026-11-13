@@ -58,7 +58,12 @@ export function seedStagingTestAccounts(db, { secretsDir, appEnv, testOtp, publi
     // test rider: starts as a DRAFT application, exactly like an admin-created agent (no shortcut to approved)
     const rd = newUser('rider', TEST.rider, true);
     if (!rd.existed) db.prepare("INSERT INTO riders (user_id, verification_status) VALUES (?, 'draft')").run(rd.id);
-    if (rd.password) lines.push(['Rider', '/rider/ or the Pakka Rider (Staging) app', TEST.rider.name, TEST.rider.phone, rd.password, 'Mobile + password; application phone step uses the staging test code']);
+    // The TEST rider's synthetic number cannot receive a code, so its phone step is pre-verified (this one account only,
+    // staging only). Every other rider still verifies their own number. Only the account this seeder created is touched.
+    if (!rd.existed || rec.rider === rd.id)
+      db.prepare("UPDATE riders SET phone_verified_at = COALESCE(phone_verified_at, ?) WHERE user_id = ? AND user_id IN (SELECT id FROM users WHERE phone = ? AND role = 'rider')")
+        .run(new Date().toISOString(), rd.id, TEST.rider.phone);
+    if (rd.password) lines.push(['Rider', '/rider/ or the Pakka Rider (Staging) app', TEST.rider.name, TEST.rider.phone, rd.password, 'Mobile + password; mobile number already verified (test account only)']);
     rec.rider = rd.id;
     // test customer: no password (customers sign in with a one-time code)
     const c = newUser('customer', TEST.customer, false);
