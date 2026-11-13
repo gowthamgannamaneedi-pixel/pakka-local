@@ -1,9 +1,32 @@
 import 'dotenv/config';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import fs from 'node:fs';
+import crypto from 'node:crypto';
+import webpush from 'web-push';
 const env = process.env;
 const isProd = env.NODE_ENV === 'production';
 const isTest = env.NODE_ENV === 'test';
+
+// SECRETS_DIR: a private folder (outside the app) where secrets are created on first start and kept, so nobody has to
+// type or paste them anywhere (hosting panels without SSH). Values set in the environment always win.
+const secretsDir = (env.SECRETS_DIR || '').trim();
+// the code folder: replaced on every deployment on hosts such as Hostinger, so data and secrets must never live in it
+const codeRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const inside = (p) => { const r = path.relative(codeRoot, path.resolve(p)); return r === '' || (!r.startsWith('..') && !path.isAbsolute(r)); };
+if (isProd && secretsDir && inside(secretsDir)) throw new Error(`SECRETS_DIR (${secretsDir}) is inside the app folder, which is replaced on every deployment. Point it to a folder outside the app, e.g. /home/USER/pakka-data.`);
+function fileSecret(name, make) {
+  if (!secretsDir) return null;
+  const f = path.join(secretsDir, name);
+  try { return fs.readFileSync(f, 'utf8').trim(); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+  fs.mkdirSync(secretsDir, { recursive: true, mode: 0o700 });
+  const v = make(); fs.writeFileSync(f, v + '\n', { mode: 0o600, flag: 'wx' }); return v;
+}
+if (!env.JWT_SECRET && secretsDir) env.JWT_SECRET = fileSecret('jwt-secret', () => crypto.randomBytes(48).toString('base64'));
+if (!env.VAPID_PUBLIC_KEY && !env.VAPID_PRIVATE_KEY && secretsDir) {
+  const k = JSON.parse(fileSecret('vapid.json', () => JSON.stringify(webpush.generateVAPIDKeys())));
+  env.VAPID_PUBLIC_KEY = k.publicKey; env.VAPID_PRIVATE_KEY = k.privateKey;
+}
 
 function required(name) {
   const v = env[name];
@@ -17,7 +40,7 @@ if (!['production', 'staging', 'development', 'test'].includes(appEnv)) throw ne
 if (appEnv !== 'production' && isProd && appEnv !== 'staging') throw new Error('With NODE_ENV=production, APP_ENV must be production or staging');
 
 export const config = {
-  isProd, isTest, appEnv,
+  isProd, isTest, appEnv, secretsDir,
   port: Number(env.PORT || 8080),
   dbPath: env.DB_PATH || (isProd ? '/var/data/pakka-local.sqlite' : './data/pakka-local.sqlite'),
   backupDir: env.BACKUP_DIR || (isProd ? '/var/data/backups' : './data/backups'),
@@ -61,8 +84,6 @@ config.sandboxPayments = config.paymentProvider === 'sandbox' && appEnv !== 'pro
 
 // Data must live outside the deployed code: hosts such as Hostinger replace the whole app folder on every deployment,
 // which would silently delete the database, uploads and backups. Refused on production/staging; no override.
-const codeRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const inside = (p) => { const r = path.relative(codeRoot, path.resolve(p)); return r === '' || (!r.startsWith('..') && !path.isAbsolute(r)); };
 if (isProd) for (const [k, v] of [['DB_PATH', config.dbPath], ['UPLOAD_DIR', config.uploadDir], ['BACKUP_DIR', config.backupDir]])
   if (inside(v)) throw new Error(`${k} (${v}) is inside the app folder, which is replaced on every deployment. Point it to a folder outside the app, e.g. /home/USER/pakka-data.`);
 // A routing engine on another machine must be reached over HTTPS (coordinates of customers travel in the URL).

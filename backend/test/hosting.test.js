@@ -82,3 +82,57 @@ test('the routing engine key is sent as X-Routing-Key when set', async () => {
     config.routing.apiKey = ''; await roadDistance(openDb(':memory:'), { lat: 17.338, lng: 78.3 }, { lat: 17.3422, lng: 78.3295 }); assert.equal(seen, null);
   } finally { Object.assign(config.routing, old); eng.close(); }
 });
+
+test('SECRETS_DIR: secrets are created once on the server (mode 600), reused on restart, and never placed in the app folder', () => {
+  const out = tmp(), sec = path.join(out, 'secrets');
+  const cfgUrl = JSON.stringify('file://' + path.join(BACKEND, 'src', 'config.js').split(path.sep).join('/'));
+  const code = `import crypto from 'node:crypto'; const { config } = await import(${cfgUrl});
+    console.log(JSON.stringify({ j: config.jwtSecret.length, v: (config.vapid.publicKey || '').length, h: crypto.createHash('sha256').update(config.jwtSecret).digest('hex') }));`;
+  const load = (extra = {}) => spawnSync(process.execPath, ['--input-type=module', '-e', code],
+    { cwd: out, encoding: 'utf8', env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, NODE_ENV: 'production', APP_ENV: 'staging', PAYMENT_PROVIDER: 'disabled', OTP_PROVIDER: 'whatsapp',
+      DB_PATH: path.join(out, 'p.sqlite'), UPLOAD_DIR: path.join(out, 'up'), BACKUP_DIR: path.join(out, 'bk'), SECRETS_DIR: sec, ...extra } });
+  const a = load(); assert.equal(a.status, 0, a.stderr); const A = JSON.parse(a.stdout);
+  assert.ok(A.j >= 60); assert.ok(A.v > 60, 'push keys generated');
+  assert.deepEqual(fs.readdirSync(sec).sort(), ['jwt-secret', 'vapid.json']);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(sec, 'jwt-secret')).mode & 0o777, 0o600);
+  assert.equal(JSON.parse(load().stdout).h, A.h, 'same secret after a restart (logins stay valid)');
+  assert.notEqual(JSON.parse(load({ JWT_SECRET: 'e'.repeat(40) }).stdout).h, A.h, 'an environment value wins');
+  const bad = load({ SECRETS_DIR: path.join(BACKEND, 'data', 'secrets-x') }); assert.notEqual(bad.status, 0); assert.match(bad.stderr, /SECRETS_DIR .*inside the app folder/);
+  assert.ok(!fs.existsSync(path.join(BACKEND, 'data', 'secrets-x')), 'nothing written inside the app folder');
+  assert.equal(load({ SECRETS_DIR: '' }).status === 0, false, 'production without JWT_SECRET or SECRETS_DIR still refuses to start');
+});
+
+test('first admin bootstrap: only while no admin exists; password only in a private file; logs never contain it', async () => {
+  const { bootstrapAdmin, startupFacts, FIRST_LOGIN_FILE } = await import('../src/services/bootstrap.js');
+  const db = openDb(':memory:'), sec = tmp();
+  assert.deepEqual(bootstrapAdmin(db, { phone: '', secretsDir: sec }), { created: false, reason: 'not_requested' });
+  assert.throws(() => bootstrapAdmin(db, { phone: '+919700000099', secretsDir: '' }), /SECRETS_DIR/);
+  assert.throws(() => bootstrapAdmin(db, { phone: '12345', secretsDir: sec }), /\+91/);
+  const r = bootstrapAdmin(db, { phone: '+919700000099', name: 'Staging admin', secretsDir: sec }); assert.ok(r.created);
+  const txt = fs.readFileSync(path.join(sec, FIRST_LOGIN_FILE), 'utf8'), pw = txt.match(/Password: (\S+)/)[1];
+  assert.ok(pw.length >= 24);
+  const srv = createApp(db).listen(0), base = `http://127.0.0.1:${srv.address().port}`;
+  try {
+    const ok = await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ portal: 'admin', phone: '+919700000099', password: pw }) });
+    assert.equal(ok.status, 200); assert.equal((await ok.json()).user.role, 'admin');
+  } finally { srv.close(); }
+  assert.deepEqual(bootstrapAdmin(db, { phone: '+919700000098', secretsDir: sec }), { created: false, reason: 'admin_exists' }, 'never a second bootstrap admin');
+  assert.equal(db.prepare("SELECT COUNT(*) FROM users WHERE role='admin'").pluck().get(), 1);
+  const f = startupFacts(db); assert.match(f.node, /^v\d+/); assert.ok(f.db_created && f.migrations > 0);
+});
+
+test('server start with bootstrap prints facts but never the password', async () => {
+  const out = tmp(), sec = path.join(out, 's'), port = 30000 + Math.floor(Math.random() * 20000);
+  const { spawn } = await import('node:child_process');
+  const p = spawn(process.execPath, [path.join(BACKEND, 'src', 'server.js')], { cwd: out, env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, NODE_ENV: 'production', APP_ENV: 'staging', PORT: String(port),
+    PAYMENT_PROVIDER: 'disabled', OTP_PROVIDER: 'whatsapp', DB_PATH: path.join(out, 'd', 'p.sqlite'), UPLOAD_DIR: path.join(out, 'u'), BACKUP_DIR: path.join(out, 'b'), SECRETS_DIR: sec, BOOTSTRAP_ADMIN_PHONE: '+919700000099', SERVE_FRONTEND: 'true' } });
+  let log = ''; p.stdout.on('data', (d) => { log += d; }); p.stderr.on('data', (d) => { log += d; });
+  try {
+    for (let i = 0; i < 50 && !/listening/.test(log); i++) await new Promise((r) => setTimeout(r, 200));
+    assert.match(log, /First admin created/); assert.match(log, /"app_env":"staging","node":"v\d+.*"db_created":"20/);
+    const pw = fs.readFileSync(path.join(sec, 'ADMIN-FIRST-LOGIN.txt'), 'utf8').match(/Password: (\S+)/)[1];
+    assert.ok(!log.includes(pw), 'password never logged');
+    assert.equal((await fetch(`http://127.0.0.1:${port}/healthz`)).status, 200);
+    assert.equal((await fetch(`http://127.0.0.1:${port}/admin/`)).status, 200);
+  } finally { p.kill(); }
+});

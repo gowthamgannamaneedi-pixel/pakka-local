@@ -221,3 +221,16 @@ backup copy before each deployment).
 10. Real Android GPS, real push delivery and real devices have **not** been tested on Hostinger; only the local
     simulations above.
 11. No deployment has been made, so the first deploy is itself the test of items 1–7 in section 1.
+
+## 10. Staging without SSH and without typing secrets (added for the first deployment)
+
+- `SECRETS_DIR` (outside the app): on first start the app creates `jwt-secret` and `vapid.json` there (mode 600) and
+  reuses them on every restart. Nobody types, pastes or sees a secret; hPanel holds only paths and switches.
+- `BOOTSTRAP_ADMIN_PHONE` (+ optional `BOOTSTRAP_ADMIN_NAME`): while the database has **no admin**, one admin is created
+  with a random 24-character password written only to `SECRETS_DIR/ADMIN-FIRST-LOGIN.txt` (mode 600). Read it once in
+  hPanel File Manager, store it safely, delete the file, and remove the variable. It never appears in logs or the API.
+- The startup log line shows the Node version, the database creation time and memory use: after a redeploy the same
+  `db_created` time proves the database survived.
+- Cron without SSH or an env file: `curl -s -o /dev/null https://TEMPDOMAIN/healthz` every minute keeps the app awake,
+  so the in-app timers (push sending, auto-reopen, payment expiry, cleanup, backups) keep running. A first backup is
+  taken one minute after each start when the last one is older than 24 h.
