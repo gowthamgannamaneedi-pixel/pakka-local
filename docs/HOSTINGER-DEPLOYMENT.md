@@ -251,3 +251,15 @@ backup copy before each deployment).
   password refused; the four existing websites still answer 200.
 - **Found on the host and fixed:** Hostinger can start two app processes for one app (seen after a redeploy). Push
   deliveries are now claimed with a lease so a notification is never sent twice (test: 48 sends before, 12 after).
+
+## 12. Staging-only Email OTP (13 Nov 2026, build ff88e91)
+
+Hostinger e-mail on this account exists only as the existing site's `@nihistudio.com` plan (free trial), so it was not
+used. Codes are sent through **Brevo** (free plan, 300 emails/day; key restricted to "Transactional email" only; sender
+= the verified Gmail address). Staging settings added: `EMAIL_OTP_ENABLED=1`, `EMAIL_OTP_ALLOWLIST` (one tester email
+mapped to placeholder test customer +919876500001), `EMAIL_FROM`, and `BREVO_API_KEY` (pasted into hPanel by the owner;
+never in git, chat or logs). Production refuses to start with `EMAIL_OTP_ENABLED=1`; WhatsApp OTP remains the real login.
+
+Verified on the live staging site: non-approved address refused; approved address -> Brevo accepted the email -> the
+tester typed the emailed code -> signed in as a customer. Staff login unchanged (wrong password refused).
+To add a tester: append `,their@email=+91XXXXXXXXXX` to `EMAIL_OTP_ALLOWLIST` in hPanel and redeploy with previous files.
