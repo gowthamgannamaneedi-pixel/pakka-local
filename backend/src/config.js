@@ -23,6 +23,8 @@ function fileSecret(name, make) {
   const v = make(); fs.writeFileSync(f, v + '\n', { mode: 0o600, flag: 'wx' }); return v;
 }
 if (!env.JWT_SECRET && secretsDir) env.JWT_SECRET = fileSecret('jwt-secret', () => crypto.randomBytes(48).toString('base64'));
+// Staging test code (OTP_PROVIDER=testcode): generated once on the server when not set, so nobody types or sees it in the panel.
+if (env.OTP_PROVIDER === 'testcode' && !env.TEST_OTP_CODE && secretsDir) env.TEST_OTP_CODE = fileSecret('test-otp-code', () => String(crypto.randomInt(0, 1_000_000)).padStart(6, '0'));
 if (!env.VAPID_PUBLIC_KEY && !env.VAPID_PRIVATE_KEY && secretsDir) {
   const k = JSON.parse(fileSecret('vapid.json', () => JSON.stringify(webpush.generateVAPIDKeys())));
   env.VAPID_PUBLIC_KEY = k.publicKey; env.VAPID_PRIVATE_KEY = k.privateKey;
@@ -99,6 +101,10 @@ if (!['disabled', 'sandbox', 'phonepe'].includes(config.paymentProvider)) throw 
 if (appEnv === 'production' && config.paymentProvider === 'sandbox') throw new Error('PAYMENT_PROVIDER=sandbox is not allowed in production. Use PAYMENT_PROVIDER=disabled until a real payment gateway is integrated.');
 if (appEnv === 'staging' && config.paymentProvider === 'sandbox' && !config.sandboxPhones.length) throw new Error('Staging sandbox payments require SANDBOX_PAYMENT_PHONES (comma-separated tester phone numbers).');
 config.sandboxPayments = config.paymentProvider === 'sandbox' && appEnv !== 'production';
+// Dummy test accounts are a staging aid only: no override exists for production.
+config.stagingTestAccounts = (env.STAGING_TEST_ACCOUNTS || '').trim();
+if (config.stagingTestAccounts && !['1', 'remove'].includes(config.stagingTestAccounts)) throw new Error('STAGING_TEST_ACCOUNTS must be 1 or remove.');
+if (appEnv === 'production' && config.stagingTestAccounts) throw new Error('STAGING_TEST_ACCOUNTS is for staging testing only and is refused when APP_ENV=production.');
 // E-mail login is a staging test aid only: no override exists for production.
 if (appEnv === 'production' && config.emailOtp.requested) throw new Error('EMAIL_OTP_ENABLED is for staging testing only and is refused when APP_ENV=production.');
 if (config.emailOtp.requested && !config.emailOtp.allow.size) throw new Error('EMAIL_OTP_ENABLED=1 needs EMAIL_OTP_ALLOWLIST (tester emails).');
