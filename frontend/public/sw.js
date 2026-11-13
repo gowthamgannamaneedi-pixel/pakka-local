@@ -1,12 +1,16 @@
 // Caches only static, non-sensitive assets. API traffic and tokens are never cached.
-const V = 'pl-static-v10';
+const V = 'pl-static-v13';
 const SHELL = ['/assets/logo.png', '/assets/icon-192.png', '/assets/icon-512.png', '/shared/pl.css', '/shared/pl.js'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(V).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== V).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener('fetch', (e) => {
   const u = new URL(e.request.url);
   if (e.request.method !== 'GET' || u.origin !== location.origin || u.pathname.startsWith('/api/')) return;
-  if (/^\/(assets|shared)\//.test(u.pathname)) e.respondWith(caches.match(e.request).then((m) => m || fetch(e.request).then((r) => { const c = r.clone(); caches.open(V).then((x) => x.put(e.request, c)); return r; })));
+  const save = (r) => { if (r.ok) { const c = r.clone(); caches.open(V).then((x) => x.put(e.request, c)); } return r; };
+  // app code (JS/CSS) network-first: a phone never runs a stale or half-updated mix of scripts; the cached copy is only an offline fallback
+  if (/^\/shared\/.*\.(js|css)$/.test(u.pathname)) e.respondWith(fetch(e.request).then(save).catch(() => caches.match(e.request)));
+  // images and sounds cache-first (they rarely change and are large)
+  else if (/^\/(assets|shared)\//.test(u.pathname)) e.respondWith(caches.match(e.request).then((m) => m || fetch(e.request).then(save)));
   else if (e.request.mode === 'navigate') e.respondWith(fetch(e.request).catch(() => caches.match('/assets/logo.png').then(() => new Response('<meta name=viewport content="width=device-width"><body style="font:18px sans-serif;text-align:center;padding:40px">You are offline. Reconnect to use Pakka Local.', { headers: { 'Content-Type': 'text/html' } }))));
 });
 

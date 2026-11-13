@@ -33,7 +33,7 @@
     <div class="small mute">Maps, phone numbers and instructions are on the Deliveries tab.</div>`;
   async function tick() {
     let d; try { d = await PL.api('/api/rider/offers'); } catch { return; }
-    S.last = d; PL.track.sync(d.active.length);      // share location only while a delivery is assigned
+    S.last = d; PL.track?.sync?.(d.active.length);      // share location only while a delivery is assigned
     const offers = d.offers.filter((o) => !S.dismissed.has(o.id)); PL.badge('/jobs', d.active.length + offers.length);
     const box = PL.$('#alerts'); if (!box) return;
     box.classList.add('rq');
@@ -57,7 +57,14 @@
   PL.actions['rq-expand'] = () => { collapsed = false; tick(); };
   addEventListener('resize', () => { const b = PL.$('#alerts'); if (b) setAlertSpace(b); });
   PL.actions['sound-on'] = async () => { await PL.sound.enable(); tick(); };
-  PL.actions.claim = async (el) => { const r = await PL.run(() => PL.post(`/api/rider/orders/${el.dataset.id}/accept`), 'Order accepted'); await tick(); if (r) PL.go('/jobs'); else PL.rerender(); };
+  // one accept request per order at a time: a double tap (or the pop-up and the list together) must not send a second one
+  const claiming = new Set();
+  PL.actions.claim = async (el) => {
+    const id = Number(el.dataset.id); if (claiming.has(id)) return; claiming.add(id);
+    document.querySelectorAll(`[data-act="claim"][data-id="${id}"]`).forEach((b) => { b.disabled = true; b.textContent = 'Accepting…'; });
+    try { const r = await PL.run(() => PL.post(`/api/rider/orders/${id}/accept`), 'Order accepted'); await tick(); if (r) PL.go('/jobs'); else PL.rerender(); }
+    finally { claiming.delete(id); }
+  };
   PL.actions.dismiss = async (el) => { S.dismissed.add(Number(el.dataset.id)); await PL.run(() => PL.post(`/api/rider/orders/${el.dataset.id}/dismiss`)); tick(); };
 
   // ---------- online switch ----------
@@ -72,7 +79,7 @@
       <p class="small mt2">${{ draft: `Finish your application to start delivering.${me.missing_count ? ` ${me.missing_count} item${me.missing_count > 1 ? 's' : ''} still needed.` : ''}`, pending: 'Pakka Local is checking your application. You cannot receive deliveries until it is approved.', corrections_requested: 'Pakka Local asked you to correct some details.', reverification_required: 'Please update your application. You can finish deliveries you already have, but you will not get new ones until it is approved.', rejected: 'Your application was not approved.', suspended: 'Your account is suspended. Contact Pakka Local.' }[vs] || ''}</p>
       ${['draft', 'corrections_requested', 'reverification_required'].includes(vs) ? '<button class="btn sm mt2" data-act="go" data-path="/profile">Continue my application</button>' : vs === 'pending' ? '<button class="btn ghost sm mt2" data-act="go" data-path="/profile">View my application</button>' : ''}</div>` : !me.is_online ? '<div class="banner info">You are offline. Switch Online (top right) to receive delivery offers.</div>' : '';
     const offers = d.offers.filter((o) => !S.dismissed.has(o.id) && !act.find((a) => a.id === o.id));
-    return `${gate}${act.length ? PL.track.card() : ''}${S.push === 'on' ? '' : PL.push.card('rider')}${act.map((o) => `<div class="card" style="border-color:var(--brand)"><div class="row between"><b>Active delivery</b>${PL.chip(o.status)}</div>${detail(o)}
+    return `${gate}${act.length ? (PL.track?.card?.() || '') : ''}${S.push === 'on' ? '' : (PL.push?.card?.('rider') || '')}${act.map((o) => `<div class="card" style="border-color:var(--brand)"><div class="row between"><b>Active delivery</b>${PL.chip(o.status)}</div>${detail(o)}
       ${o.status === 'ACCEPTED' || o.status === 'PREPARING' ? '<div class="banner info mt" style="margin-bottom:0">The restaurant is still preparing. You’ll get the pickup code when it’s ready.</div>' : ''}
       ${o.status === 'READY' ? `<form data-form="pickup" data-id="${o.id}" class="mt"><label>Pickup code from the restaurant</label><input name="otp" inputmode="numeric" maxlength="4" pattern="\\d{4}" required autocomplete="off"><button class="btn block mt2" type="submit">Confirm pickup</button></form>` : ''}
       ${o.status === 'PICKED_UP' ? `<form data-form="deliver" data-id="${o.id}" class="mt"><label>Delivery code from the customer</label><input name="otp" inputmode="numeric" maxlength="8" pattern="\\d{4,8}" required autocomplete="off"><button class="btn block mt2" type="submit">Complete delivery</button></form>` : ''}</div>`).join('')}
@@ -156,7 +163,7 @@
     };
     const hist = d.history.length ? `<div class="sec">History</div><div class="card">${d.history.map((h) => `<div class="hist"><div class="row between wrap">${PL.chip(h.status)}<span class="small mute">${PL.dt(h.created_at)}</span></div>${h.note ? `<div class="small mt2">${e(h.note)}</div>` : ''}</div>`).join('')}</div>` : '';
     return `${head}${A.editable || A.status === 'pending' ? nav : ''}${A.editable || A.status === 'pending' ? `<div class="card app-sec">${pending}${sec[cur]}${A.editable ? `<div class="row between mt"><span class="small mute" id="savest">${A.updated_at ? 'Saved ' + PL.dt(A.updated_at) : ''}</span>${cur !== 'review' ? `<button class="btn ghost sm" data-act="go" data-path="/profile/${STEPS[STEPS.findIndex(([k]) => k === cur) + 1][0]}">Next ›</button>` : ''}</div>` : ''}</div>` : ''}
-      ${hist}${PL.push.card('rider')}<button class="btn ghost block" data-act="logout">Sign out</button>`;
+      ${hist}${(PL.push?.card?.('rider') || '')}<button class="btn ghost block" data-act="logout">Sign out</button>`;
   }
   // autosave: every change in an application form is sent straight away (only the changed field)
   const saveField = async (f, el) => { const st = PL.$('#savest'); if (st) st.textContent = 'Saving…';

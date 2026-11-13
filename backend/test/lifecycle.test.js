@@ -89,6 +89,9 @@ test('Tests 3,5: restaurant accepts; two riders race; exactly one wins', async (
   const res = await Promise.all([call('POST', `/api/rider/orders/${S.oid}/accept`, {}, S.r1), call('POST', `/api/rider/orders/${S.oid}/accept`, {}, S.r2)]);
   assert.deepEqual(res.map(r => r.status).sort(), [200, 409]);
   S.winner = res[0].status === 200 ? S.r1 : S.r2; S.loser = res[0].status === 200 ? S.r2 : S.r1;
+  // a repeated tap by the rider who already holds the order is a success (no "no longer available"); the other rider still gets 409
+  const again = await call('POST', `/api/rider/orders/${S.oid}/accept`, {}, S.winner); assert.equal(again.status, 200); assert.equal(again.body.already, true);
+  assert.equal((await call('POST', `/api/rider/orders/${S.oid}/accept`, {}, S.loser)).status, 409);
   assert.equal((await call('GET', '/api/rider/offers', null, S.loser)).body.offers.length, 0);
   const mine = (await call('GET', '/api/rider/active', null, S.winner)).body.active; assert.equal(mine.length, 1);
   assert.equal(mine[0].instructions, 'Gate 2, call first'); assert.ok(mine[0].customer.phone && mine[0].destination.maps_link);   // after acceptance: full details

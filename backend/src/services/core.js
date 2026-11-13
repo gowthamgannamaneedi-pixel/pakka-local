@@ -269,6 +269,8 @@ const riderRow = (db, id) => db.prepare('SELECT r.*, u.active FROM riders r JOIN
 export function claimOrder(db, riderId, orderId) {
   return db.transaction(() => {
     const r = riderRow(db, riderId);
+    // a repeated accept (double tap, or the pop-up after accepting from the list) for an order this rider already holds is a success, not an error
+    if (db.prepare("SELECT 1 FROM orders WHERE id=? AND rider_id=? AND status IN ('ACCEPTED','PREPARING','READY','PICKED_UP')").get(orderId, riderId)) return { ok: true, already: true };
     if (!r || !r.active || r.verification_status !== 'approved' || !r.is_online) return { error: 'You must be online and approved to accept deliveries.', status: 403 };
     const active = db.prepare("SELECT COUNT(*) FROM orders WHERE rider_id=? AND status IN ('ACCEPTED','PREPARING','READY','PICKED_UP')").pluck().get(riderId);
     if (active >= Number(getSetting(db, 'max_active_per_rider'))) return { error: 'Finish your current deliveries first.', status: 409 };

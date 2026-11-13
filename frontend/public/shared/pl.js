@@ -137,16 +137,31 @@
 
   // ---------- sound & alerts ----------
   const audio = new Audio('/assets/ringing_sound.mp3'); audio.loop = true; audio.preload = 'auto';
-  let want = false;
+  let want = false, probing = false;
+  // Unlock test: play once (muted) and stop. While it runs, the once-a-second alert refresh must not pause the element,
+  // or the browser aborts the play and sound looks "blocked" although it is allowed.
+  const probe = async (muted) => {
+    probing = true; audio.muted = muted;
+    try { await audio.play(); audio.pause(); audio.currentTime = 0; PL.sound.unlocked = true; return true; }
+    catch { return false; } finally { audio.muted = false; probing = false; }
+  };
   PL.sound = {
     enabled: () => localStorage.getItem('pl.sound') === '1',
     unlocked: false, playing: () => !audio.paused,
-    async enable() { try { await audio.play(); audio.pause(); audio.currentTime = 0; PL.sound.unlocked = true; localStorage.setItem('pl.sound', '1'); PL.sound.sync(want); return true; } catch { PL.toast('Your browser blocked sound. Tap again.', true); return false; } },
+    async enable() { if (await probe(false)) { localStorage.setItem('pl.sound', '1'); PL.sound.sync(want, true); return true; } PL.toast('Your browser blocked sound. Tap again.', true); return false; },
     disable() { localStorage.setItem('pl.sound', '0'); PL.sound.sync(false, true); },
     // one loop for ALL outstanding alerts; stops the moment nothing needs action
-    sync(active, keep) { if (!keep) want = active; if (active && PL.sound.enabled() && PL.sound.unlocked && !document.hidden) audio.play().catch(() => {}); else { audio.pause(); audio.currentTime = 0; } }
+    sync(active, keep) { if (!keep) want = active; if (probing) return; if (active && PL.sound.enabled() && PL.sound.unlocked && !document.hidden) audio.play().catch(() => {}); else { audio.pause(); audio.currentTime = 0; } }
   };
   document.addEventListener('visibilitychange', () => PL.sound.sync(want, true));
+  // "Sound on" is remembered, but the browser's permission to play is not. Re-unlock quietly: right away (works in the
+  // Android app, which allows playback without a tap) and on the first touch (normal browsers need a tap).
+  const quietUnlock = async () => {
+    if (PL.sound.unlocked || probing || !PL.sound.enabled()) return;
+    if (await probe(true)) PL.sound.sync(want, true);
+  };
+  quietUnlock();
+  ['pointerdown', 'keydown'].forEach((t) => document.addEventListener(t, quietUnlock, { passive: true }));
 
   // ---------- PWA install ----------
   let deferred;
