@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Pakka Rider (Staging)</string>
+    <string name="title_activity_main">Pakka Rider (Staging)</string>
+    <string name="package_name">com.pakkalocal.rider.staging</string>
+    <string name="custom_url_scheme">com.pakkalocal.rider.staging</string>
+</resources>

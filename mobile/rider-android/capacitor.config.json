@@ -1,0 +1,14 @@
+{
+  "appId": "com.pakkalocal.rider.staging",
+  "appName": "Pakka Rider (Staging)",
+  "webDir": "www",
+  "server": {
+    "url": "https://mediumpurple-barracuda-979163.hostingersite.com/rider/",
+    "cleartext": false,
+    "errorPath": "offline.html"
+  },
+  "android": {
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": true
+  }
+}
