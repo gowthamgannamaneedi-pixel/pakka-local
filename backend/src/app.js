@@ -23,7 +23,7 @@ const tileSrc = (() => { try { const u = new URL(config.map.tileUrl.replace('{s}
 
 export function createApp(db) {
   const app = express();
-  app.set('trust proxy', 1);
+  app.set('trust proxy', config.trustProxy);
   app.disable('x-powered-by');
   app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' }, contentSecurityPolicy: { directives: {
     defaultSrc: ["'self'"], scriptSrc: ["'self'"], styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'], fontSrc: ["'self'", 'https://fonts.gstatic.com'],
@@ -32,6 +32,8 @@ export function createApp(db) {
   if (!config.isTest) app.use('/api', rateLimit({ windowMs: 60_000, max: 600, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Please slow down.' } }));
   app.use((req, res, next) => (req.method !== 'GET' && BIG.test(req.path + (req.baseUrl || '') ) ? big : small)(req, res, next));
 
+  // API replies are personal and live: never stored by browsers, the host's CDN or any proxy (routes may override, e.g. public images)
+  app.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store, private'); next(); });
   app.get('/healthz', (req, res) => { db.prepare('SELECT 1').get(); res.json({ ok: true }); });
   app.use('/api/auth', authRoutes(db));
   app.use('/api/public', publicRoutes(db));

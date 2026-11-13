@@ -1,4 +1,6 @@
 import 'dotenv/config';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 const env = process.env;
 const isProd = env.NODE_ENV === 'production';
 const isTest = env.NODE_ENV === 'test';
@@ -19,6 +21,9 @@ export const config = {
   port: Number(env.PORT || 8080),
   dbPath: env.DB_PATH || (isProd ? '/var/data/pakka-local.sqlite' : './data/pakka-local.sqlite'),
   backupDir: env.BACKUP_DIR || (isProd ? '/var/data/backups' : './data/backups'),
+  backupKeep: Math.max(1, Number(env.BACKUP_KEEP || 14)),
+  // proxies in front of the app (Hostinger: its web server; add 1 if a CDN sits in front). Used for client IPs in rate limits.
+  trustProxy: env.TRUST_PROXY === undefined ? 1 : /^\d+$/.test(env.TRUST_PROXY) ? Number(env.TRUST_PROXY) : env.TRUST_PROXY,
   jwtSecret: required('JWT_SECRET') || (isTest ? 'test-secret-test-secret-test-secret!' : (() => { throw new Error('JWT_SECRET required'); })()),
   allowedOrigins: (env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean),
   staffTokenTtl: '12h',
@@ -32,7 +37,8 @@ export const config = {
   // MAP_TILE_URL=none turns the map off on any environment (status text only), e.g. to check the no-provider fallback locally.
   map: { tileUrl: env.MAP_TILE_URL === 'none' ? '' : env.MAP_TILE_URL || (isProd ? '' : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'), attribution: env.MAP_TILE_ATTRIBUTION || '&copy; OpenStreetMap contributors' },
   // Road distance for distance-based delivery charges: a self-hosted OSRM engine (see docs/DISTANCE-PRICING.md). Empty = not set up.
-  routing: { osrmUrl: (env.OSRM_URL || '').trim(), profile: env.OSRM_PROFILE || 'driving', timeoutMs: Number(env.OSRM_TIMEOUT_MS || 3000) },
+  // OSRM_API_KEY: sent as X-Routing-Key when the engine sits behind a reverse proxy on another server (OSRM itself has no login).
+  routing: { osrmUrl: (env.OSRM_URL || '').trim(), profile: env.OSRM_PROFILE || 'driving', timeoutMs: Number(env.OSRM_TIMEOUT_MS || 3000), apiKey: (env.OSRM_API_KEY || '').trim() },
   serveFrontend: env.SERVE_FRONTEND === 'true' || (!isProd && !isTest),
   vapid: { publicKey: env.VAPID_PUBLIC_KEY, privateKey: env.VAPID_PRIVATE_KEY, subject: env.VAPID_SUBJECT || 'mailto:admin@pakkalocal.example' },
   publicApiUrl: (env.PUBLIC_API_URL || '').replace(/\/$/, ''),
@@ -52,3 +58,13 @@ if (!['disabled', 'sandbox', 'phonepe'].includes(config.paymentProvider)) throw 
 if (appEnv === 'production' && config.paymentProvider === 'sandbox') throw new Error('PAYMENT_PROVIDER=sandbox is not allowed in production. Use PAYMENT_PROVIDER=disabled until a real payment gateway is integrated.');
 if (appEnv === 'staging' && config.paymentProvider === 'sandbox' && !config.sandboxPhones.length) throw new Error('Staging sandbox payments require SANDBOX_PAYMENT_PHONES (comma-separated tester phone numbers).');
 config.sandboxPayments = config.paymentProvider === 'sandbox' && appEnv !== 'production';
+
+// Data must live outside the deployed code: hosts such as Hostinger replace the whole app folder on every deployment,
+// which would silently delete the database, uploads and backups. Refused on production/staging; no override.
+const codeRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const inside = (p) => { const r = path.relative(codeRoot, path.resolve(p)); return r === '' || (!r.startsWith('..') && !path.isAbsolute(r)); };
+if (isProd) for (const [k, v] of [['DB_PATH', config.dbPath], ['UPLOAD_DIR', config.uploadDir], ['BACKUP_DIR', config.backupDir]])
+  if (inside(v)) throw new Error(`${k} (${v}) is inside the app folder, which is replaced on every deployment. Point it to a folder outside the app, e.g. /home/USER/pakka-data.`);
+// A routing engine on another machine must be reached over HTTPS (coordinates of customers travel in the URL).
+if (isProd && config.routing.osrmUrl && !/^https:\/\//.test(config.routing.osrmUrl) && !/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?(\/|$)/.test(config.routing.osrmUrl))
+  throw new Error('OSRM_URL must use https:// unless the engine runs on the same machine (127.0.0.1).');

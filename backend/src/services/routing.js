@@ -14,7 +14,7 @@ async function osrm(from, to) {
   const url = `${config.routing.osrmUrl.replace(/\/$/, '')}/route/v1/${config.routing.profile}/${from.lng},${from.lat};${to.lng},${to.lat}?overview=false&alternatives=false&steps=false`;
   const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), config.routing.timeoutMs);
   try {
-    const r = await fetch(url, { signal: ctl.signal, headers: { Accept: 'application/json' } });
+    const r = await fetch(url, { signal: ctl.signal, headers: { Accept: 'application/json', ...(config.routing.apiKey && { 'X-Routing-Key': config.routing.apiKey }) } });
     const j = await r.json().catch(() => null);
     if (!r.ok || !j || j.code !== 'Ok' || !j.routes?.length) return { error: j?.code === 'NoRoute' ? 'no_route' : `router_error_${r.status}` };
     const d = Number(j.routes[0].distance); if (!Number.isFinite(d) || d < 0) return { error: 'bad_response' };
