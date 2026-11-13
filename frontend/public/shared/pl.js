@@ -33,7 +33,7 @@
       res = await fetch(API + path, { method: opts.method || 'GET', headers: { 'Content-Type': 'application/json', ...(s ? { Authorization: 'Bearer ' + s.token } : {}) }, body: opts.body ? JSON.stringify(opts.body) : undefined });
     } catch { throw new Error('No connection. Please check your internet.'); }
     const data = await res.json().catch(() => ({}));
-    if (res.status === 401 && s && !path.startsWith('/api/auth/')) { PL.clearSession(); PL.stopAll(); PL.boot(); throw new Error('Your session has expired. Please sign in again.'); }
+    if (res.status === 401 && s && !path.startsWith('/api/auth/') && !/^REAUTH/.test(data.code || ''))   /* a wrong confirmation password is not a lost session */ { PL.clearSession(); PL.stopAll(); PL.boot(); throw new Error('Your session has expired. Please sign in again.'); }
     if (!res.ok) throw Object.assign(new Error(data.error || 'Something went wrong.'), { status: res.status, code: data.code });
     return data;
   };
@@ -94,6 +94,8 @@
   // Idempotent: a second close request while history.back() is still in flight must not pop another real page.
   let closing = false;
   PL.closeModal = () => { if (!modals.length || closing) return; if (history.state && history.state.modal) { closing = true; history.back(); setTimeout(() => { closing = false; }, 500); } else dropTop(); };
+  // close the top modal and wait until it is really gone (closing goes through history.back, which is asynchronous)
+  PL.closeModalAsync = () => new Promise((done) => { const n = modals.length; if (!n) return done(); PL.closeModal(); const t0 = Date.now(), iv = setInterval(() => { if (modals.length < n || Date.now() - t0 > 1000) { clearInterval(iv); setTimeout(done, 30); } }, 20); });
   PL.confirm = (msg, label = 'Confirm') => new Promise((ok) => { let done = false; const ov = PL.modal(`<h3>${e(msg)}</h3><div class="row mt"><button class="btn ghost grow" data-x="0">Cancel</button><button class="btn grow" data-x="1">${e(label)}</button></div>`, { onClose: () => !done && ok(false) });
     ov.addEventListener('click', (ev) => { const b = ev.target.closest('[data-x]'); if (b) { done = true; ok(b.dataset.x === '1'); PL.closeModal(); } }); });
   window.addEventListener('popstate', (ev) => {

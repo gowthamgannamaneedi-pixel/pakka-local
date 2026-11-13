@@ -16,7 +16,7 @@ const BASE = process.env.BASE || `http://localhost:${config.port}`;
 if (!/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(BASE)) { console.error('Refusing: BASE must be a localhost URL.'); process.exit(1); }
 const logins = readFileSync(new URL('../data/LOCAL-TEST-LOGINS.txt', import.meta.url), 'utf8');
 const PW = logins.match(/password: (\S+)/)[1], OTP = logins.match(/OTP code: (\d{6})/)[1];
-const CUST = '+919700000001', REST = '+919000010001', RIDER = '+919000020001';
+const CUST = '+919700000001', REST = '+919000010001', RIDER = process.env.RIDER_PHONE || '+919000020002';   // must be an approved agent
 
 const call = async (method, path, body, token) => {
   const r = await fetch(BASE + path, { method, headers: { 'Content-Type': 'application/json', Origin: BASE, ...(token && { Authorization: `Bearer ${token}` }) }, body: body == null ? undefined : JSON.stringify(body) });

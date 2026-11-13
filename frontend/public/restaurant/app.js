@@ -36,7 +36,7 @@
   }
   // Response timer. The limit is the admin setting "restaurant_accept_timeout_min"; with no setting only the waiting time is shown.
   // Only the text is updated each second (the card itself is not redrawn, so buttons never move under a finger).
-  const mmss = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  const mmss = (s) => (s >= 3600 ? `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min` : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`);
   function paintTimers() { const now = Date.now() + (S.skew || 0);
     document.querySelectorAll('[data-placed]').forEach((el) => { const waited = Math.max(0, Math.floor((now - Date.parse(el.dataset.placed)) / 1000));
       if (!S.timeout) { el.className = 'timer'; el.innerHTML = `${PL.icon('clock', 'width="16" height="16"')} Waiting ${waited < 60 ? 'less than a minute' : Math.floor(waited / 60) + ' min'}`; return; }
