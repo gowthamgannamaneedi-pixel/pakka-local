@@ -5,6 +5,7 @@ import bcrypt from 'bcryptjs';
 import { openDb } from '../src/db/index.js';
 import { createApp } from '../src/app.js';
 import { testOutbox } from '../src/otpProviders.js';
+import { purgeLocations } from '../src/services/tracking.js';
 import { PNG, PDF, fullApplication, completeApplication } from './helpers/rider-application.js';
 
 const db = openDb(':memory:'); const server = createApp(db).listen(0); const base = `http://127.0.0.1:${server.address().port}`;
@@ -171,6 +172,7 @@ test('re-verification: an agent keeps and finishes a delivery already assigned, 
   db.prepare("UPDATE orders SET status='PICKED_UP' WHERE id=?").run(o1);
   const loc = await call('POST', '/api/tracking/rider/location', { lat: 17.39, lng: 78.47, recorded_at: Date.now() }, S.a);
   assert.equal(loc.status, 200, JSON.stringify(loc.body));                                       // can still share location for the delivery it holds
+  purgeLocations(db); assert.equal(db.prepare('SELECT COUNT(*) FROM rider_locations WHERE rider_id=?').pluck().get(S.aid), 1);   // the background clean-up keeps it too
   assert.equal((await call('GET', '/api/rider/active', null, S.a)).body.active.length, 1);
 });
 

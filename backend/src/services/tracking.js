@@ -9,7 +9,7 @@ export const freshness = (row, now = Date.now()) => { if (!row) return { state: 
   const age = Math.max(0, Math.round((now - Date.parse(row.received_at)) / 1000)); return { state: age <= LIVE_SEC ? 'live' : age <= STALE_SEC ? 'stale' : 'offline', age_sec: age }; };
 // Backstop for the database trigger (migration p2_002): also forgets riders who were deactivated or lost approval. Run by a background job.
 export const purgeLocations = (db) => db.prepare(`DELETE FROM rider_locations WHERE rider_id NOT IN (SELECT rider_id FROM orders WHERE rider_id IS NOT NULL AND status IN ${ACTIVE})
-  OR rider_id NOT IN (SELECT r.user_id FROM riders r JOIN users u ON u.id=r.user_id WHERE u.active=1 AND r.verification_status='approved')`).run().changes;
+  OR rider_id NOT IN (SELECT r.user_id FROM riders r JOIN users u ON u.id=r.user_id WHERE u.active=1 AND r.verification_status NOT IN ('suspended','rejected'))`).run().changes;
 const purge = purgeLocations;
 // The rider's own "stop sharing". The rider id always comes from the session, so one rider can never remove another's position.
 export function stopSharing(db, riderId) {

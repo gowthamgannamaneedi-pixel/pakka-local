@@ -112,7 +112,7 @@ input:disabled,select:disabled,textarea:disabled{background:var(--soft);color:va
 /* ---------- design layer shared by all four portals ---------- */
 .shell{background:#f7f5f1}
 .shell main>h2:first-child,.shell main>.row:first-child h2{margin-top:2px}
-button.card{display:block;width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer}
+button.card{width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer}button.card:not(.row){display:block}.card.row svg{flex:none}.card.row>span>svg{width:24px;height:24px;display:block}
 .card{transition:box-shadow .15s,border-color .15s}
 @media(hover:hover){button.card:hover,.card[data-act]:hover{border-color:#d9d3c8;box-shadow:0 2px 4px rgba(20,30,25,.06),0 10px 24px rgba(20,30,25,.08)}.btn:hover{filter:brightness(.97)}.btn.ghost:hover,.btn.danger:hover{background:var(--soft)}}
 :focus-visible{outline:3px solid #f2a46c;outline-offset:2px}
