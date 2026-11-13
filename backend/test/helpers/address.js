@@ -13,7 +13,8 @@ export function withAddresses(call) {
       const key = `${token}|${location_id ?? ''}|${lat ?? ''}|${lng ?? ''}`;
       if (!cache.has(key)) {
         const okCoords = Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
-        const a = await call('POST', '/api/customer/addresses', FIX({ delivery_location_id: location_id ?? null, ...(okCoords ? { lat, lng } : {}) }), token);
+        // a cart naming a listed area becomes a 'listed' address (that area's charge); otherwise a GPS address (fixed GPS charge)
+        const a = await call('POST', '/api/customer/addresses', location_id != null ? FIX({ kind: 'listed', delivery_location_id: location_id, ...(okCoords ? { lat, lng } : {}) }) : FIX(okCoords ? { lat, lng } : {}), token);
         if (a.status !== 201) return a;
         cache.set(key, a.body.address.id);
       }

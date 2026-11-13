@@ -12,7 +12,7 @@ const cartSchema = z.object({ restaurant_id: z.number().int(), items: z.array(z.
   address_id: z.number({ required_error: 'Choose a delivery address.', invalid_type_error: 'Choose a delivery address.' }).int().positive(),
   confirm_destination: z.boolean().optional(), instructions: z.string().max(300).optional() });   // unknown fields (e.g. a client-sent total) are ignored; prices come from the server
 const qIn = (d, address) => ({ restaurantId: d.restaurant_id, items: d.items, address, instructions: d.instructions });
-const breakdown = (q) => ({ items_base_paise: q.base, markup_paise: q.markup, delivery_paise: q.delivery, surge_paise: q.surge, tax_paise: q.tax, total_paise: q.total, prep_min: q.prepMin, delivery_min: q.deliveryMin,
+const breakdown = (q) => ({ delivery_type: q.feeSource, delivery_location: q.dest.locationName, delivery_fee_before_offers_paise: q.baseDeliveryFee, items_base_paise: q.base, markup_paise: q.markup, delivery_paise: q.delivery, surge_paise: q.surge, tax_paise: q.tax, total_paise: q.total, prep_min: q.prepMin, delivery_min: q.deliveryMin,
   lines: q.lines.map(l => ({ name: l.name, qty: l.qty, price_paise: l.price })) });
 
 export function publicRoutes(db) {
@@ -73,7 +73,7 @@ export function customerRoutes(db) {
     const o = db.prepare('SELECT o.*, r.name AS restaurant_name FROM orders o JOIN restaurants r ON r.id=o.restaurant_id WHERE o.order_code=? AND o.customer_id=?').get(req.params.code, req.user.id);
     if (!o) return res.status(404).json({ error: 'Order not found.' });
     const out = { order_code: o.order_code, status: o.status, restaurant: o.restaurant_name, dest_text: o.dest_text, instructions: o.instructions, eta_at: o.eta_at, created_at: o.created_at,
-      destination: { label: o.dest_label, place_name: o.dest_place_name, building: o.dest_building, block: o.dest_block, floor: o.dest_floor, room: o.dest_room, entrance: o.dest_entrance, landmark: o.dest_landmark,
+      destination: { kind: o.dest_kind, location_name: o.dest_location_name, coord_source: o.dest_coord_source, label: o.dest_label, place_name: o.dest_place_name, building: o.dest_building, block: o.dest_block, floor: o.dest_floor, room: o.dest_room, entrance: o.dest_entrance, landmark: o.dest_landmark,
         lat: o.dest_lat, lng: o.dest_lng, accuracy_m: o.dest_accuracy_m, captured_at: o.dest_captured_at },          // the customer's own order only
       items_base_paise: o.items_base_paise, markup_paise: o.markup_paise, delivery_paise: o.delivery_paise, surge_paise: o.surge_paise, tax_paise: o.tax_paise, total_paise: o.total_paise, rejection_reason: o.rejection_reason };
     out.items = db.prepare('SELECT name,qty,customer_price_paise AS price_paise FROM order_items WHERE order_id=?').all(o.id);

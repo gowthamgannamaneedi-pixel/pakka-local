@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { authenticate, requireRole, audit, requireFreshAuth } from '../auth.js';
 import { adminView, decide, revealPayout, missing, DOC_LABEL, ID_TYPES } from '../services/riderApplication.js';
+import * as Locs from '../services/locations.js';
 import { allSettings, setSetting, SETTING_KEYS, adminCashout, balances, settleRefund, eligibleRiderCount, getSetting, iso, adminCancel, adminUnassign } from '../services/core.js';
 import { send, parse, wrap, money } from './util.js';
 import { newSecret, encrypt, decrypt, verifyTotp, otpauthUri } from '../totp.js';
@@ -139,16 +140,21 @@ export function adminRoutes(db) {
     audit(db, req, 'restaurant.update', 'restaurant', c.id, d); res.json({ ok: true }); }));
   r.get('/restaurants/:id/menu', (req, res) => res.json({ items: db.prepare('SELECT id,name,base_price_paise,prep_time_min,available FROM food_items WHERE restaurant_id=? AND deleted=0').all(req.params.id) }));
 
-  // delivery locations
-  const loc = z.object({ name: z.string().trim().min(1).max(80), kind: z.string().max(30).optional(), address: z.string().trim().min(3).max(200), area: z.string().max(60).optional(), contact: z.string().max(40).optional(),
-    delivery_fee_paise: money.max(100000), distance_km: z.number().min(0).max(50).nullish(), maps_link: z.string().url().max(300).optional().or(z.literal('')), lat: z.number().nullish(), lng: z.number().nullish(), active: z.boolean().optional() });
-  r.get('/locations', (req, res) => res.json({ locations: db.prepare('SELECT * FROM delivery_locations ORDER BY name').all() }));
-  r.post('/locations', wrap((req, res) => { const d = parse(loc, req, res); if (!d) return;
-    const id = db.prepare('INSERT INTO delivery_locations (name,kind,address,area,contact,delivery_fee_paise,distance_km,maps_link,lat,lng,active) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(d.name, d.kind ?? null, d.address, d.area ?? null, d.contact ?? null, d.delivery_fee_paise, d.distance_km ?? null, d.maps_link || null, d.lat ?? null, d.lng ?? null, d.active === false ? 0 : 1).lastInsertRowid;
-    audit(db, req, 'location.create', 'location', id); res.status(201).json({ id }); }));
-  r.put('/locations/:id', wrap((req, res) => { const d = parse(loc, req, res); if (!d) return;
-    const c = db.prepare('UPDATE delivery_locations SET name=?,kind=?,address=?,area=?,contact=?,delivery_fee_paise=?,distance_km=?,maps_link=?,lat=?,lng=?,active=? WHERE id=?').run(d.name, d.kind ?? null, d.address, d.area ?? null, d.contact ?? null, d.delivery_fee_paise, d.distance_km ?? null, d.maps_link || null, d.lat ?? null, d.lng ?? null, d.active === false ? 0 : 1, req.params.id).changes;
-    c ? res.json({ ok: true }) : res.status(404).json({ error: 'Location not found.' }); }));
+  // ---------- delivery locations (PGs, hostels, colleges...) with their own delivery charges ----------
+  // Every change is audited with the exact old and new values. Orders keep the charge they were placed with.
+  r.get('/locations', (req, res) => res.json({ locations: Locs.list(db, { q: req.query.q, status: req.query.status }), gps_fee_paise: Number(getSetting(db, 'gps_delivery_fee_paise')), max_fee_paise: Locs.MAX_FEE_PAISE }));
+  r.post('/locations', wrap((req, res) => { const out = Locs.create(db, req.body); if (out.error) return send(res, out);
+    audit(db, req, 'location.create', 'location', out.id, { after: out.after }); res.status(201).json({ id: out.id }); }));
+  r.put('/locations/:id(\\d+)', wrap((req, res) => { const out = Locs.update(db, Number(req.params.id), req.body); if (out.error) return send(res, out);
+    if (Object.keys(out.changed).length) audit(db, req, out.changed.delivery_fee_paise ? 'location.fee_change' : 'location.update', 'location', req.params.id, { changed: out.changed });
+    res.json({ ok: true, changed: out.changed }); }));
+  r.get('/locations/:id(\\d+)/history', (req, res) => res.json({ history: db.prepare("SELECT a.action, a.metadata, a.created_at, u.name AS admin FROM audit_logs a LEFT JOIN users u ON u.id=a.actor_user_id WHERE a.target_type='location' AND a.target_id=? ORDER BY a.id DESC LIMIT 50").all(String(req.params.id)).map((x) => ({ ...x, metadata: x.metadata ? JSON.parse(x.metadata) : null })) }));
+  // CSV import of the owner's sheet. dry_run (default) only previews; the admin chooses the charge column.
+  r.post('/locations/import', wrap((req, res) => { const d = parse(z.object({ csv: z.string().min(10).max(2_000_000), fee_column: z.string().max(60), update_fees: z.boolean().optional(), activate: z.boolean().optional(), dry_run: z.boolean().optional() }), req, res); if (!d) return;
+    const out = Locs.importCsv(db, d.csv, { feeColumn: d.fee_column, updateFees: !!d.update_fees, activate: d.activate !== false, dryRun: d.dry_run !== false }); if (out.error) return send(res, out);
+    if (!out.dry_run) { audit(db, req, 'location.import', 'location', null, { fee_column: d.fee_column, created: out.created, updated: out.updated, fee_changes: out.fee_changes, errors: out.errors.length });
+      for (const c of out.changes) audit(db, req, c.created ? 'location.create' : c.changed.delivery_fee_paise ? 'location.fee_change' : 'location.update', 'location', c.id, c.created ? { import_ref: c.ref } : { import_ref: c.ref, changed: c.changed }); }
+    res.json({ ...out, changes: undefined }); }));
 
   // ---------- delivery-agent verification queue ----------
   r.get('/riders', (req, res) => {
@@ -250,7 +256,10 @@ export function adminRoutes(db) {
       if (k === 'gps_capture_timeout_sec' && !(/^\d{1,3}$/.test(String(v)) && +v >= 5 && +v <= 120)) return res.status(400).json({ error: 'GPS timeout must be 5 to 120 seconds.' });
       if (k === 'gps_fix_max_age_min' && !(/^\d{1,3}$/.test(String(v)) && +v >= 1 && +v <= 120)) return res.status(400).json({ error: 'GPS reading age must be 1 to 120 minutes.' });
       if (!['delivery_otp_mode', 'fixed_delivery_otp', 'payout_methods', 'restaurant_accept_timeout_min', 'gps_accuracy_warn_m'].includes(k) && !/^\d{1,9}$/.test(String(v))) return res.status(400).json({ error: `${k} must be a whole number.` }); }
-    for (const [k, v] of Object.entries(s)) setSetting(db, k, v); audit(db, req, 'settings.update', 'settings', null, { keys: Object.keys(s) }); res.json({ ok: true }); }));
+    const changed = Object.fromEntries(Object.entries(s).filter(([k, v]) => String(getSetting(db, k)) !== String(v)).map(([k, v]) => [k, { from: getSetting(db, k), to: String(v) }]));
+    for (const [k, v] of Object.entries(s)) setSetting(db, k, v);
+    if (Object.keys(changed).length) audit(db, req, changed.gps_delivery_fee_paise ? 'settings.gps_fee_change' : 'settings.update', 'settings', null, { changed });      // exact old -> new values
+    res.json({ ok: true, changed }); }));
   r.get('/audit', (req, res) => res.json({ logs: db.prepare('SELECT a.action,a.target_type,a.target_id,a.actor_role,a.created_at,u.name AS actor FROM audit_logs a LEFT JOIN users u ON u.id=a.actor_user_id ORDER BY a.id DESC LIMIT 100').all() }));
   return r;
 }

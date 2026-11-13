@@ -21,8 +21,11 @@ const gps = z.object({
   captured_at: z.union([z.string(), z.number()]),
   accuracy_acknowledged: z.boolean().optional()
 });
-export const addressSchema = base.merge(gps).extend({ confirm: z.literal(true, { errorMap: () => ({ message: 'Confirm that you are standing at the delivery location.' }) }), make_default: z.boolean().optional() }).strict();
-export const addressEditSchema = base.partial().merge(gps.partial()).extend({ confirm: z.boolean().optional(), make_default: z.boolean().optional() }).strict();
+export const addressSchema = base.merge(gps).extend({ kind: z.literal('gps').optional(), confirm: z.literal(true, { errorMap: () => ({ message: 'Confirm that you are standing at the delivery location.' }) }), make_default: z.boolean().optional() }).strict();
+// a place chosen from Pakka Local's list: the customer's own GPS point is optional (sent only together with a confirmation)
+export const listedSchema = base.extend({ kind: z.literal('listed'), delivery_location_id: z.number({ required_error: 'Choose your PG, hostel or college from the list.', invalid_type_error: 'Choose your PG, hostel or college from the list.' }).int().positive() })
+  .merge(gps.partial()).extend({ confirm: z.boolean().optional(), make_default: z.boolean().optional() }).strict();
+export const addressEditSchema = base.partial().merge(gps.partial()).extend({ kind: z.enum(['gps', 'listed']).optional(), confirm: z.boolean().optional(), make_default: z.boolean().optional() }).strict();
 
 const fail = (error, status = 400, code) => ({ error, status, code });
 export const gpsPolicy = (db) => ({ warn_m: Number(getSetting(db, 'gps_accuracy_warn_m')) || null, timeout_sec: Number(getSetting(db, 'gps_capture_timeout_sec')) || 20,
@@ -47,23 +50,32 @@ function checkDetails(d) {
   return null;
 }
 const own = (db, customerId, id) => db.prepare('SELECT * FROM customer_addresses WHERE id=? AND customer_id=? AND active=1').get(id, customerId);
-const area = (db, id) => (id == null ? true : !!db.prepare('SELECT 1 FROM delivery_locations WHERE id=? AND active=1').get(id));
-export const publicAddress = (a) => a && ({ id: a.id, label: a.label, place_name: a.place_name, building: a.building, block: a.block, floor: a.floor, room: a.room, entrance: a.entrance,
+const listedPlace = (db, id) => db.prepare('SELECT * FROM delivery_locations WHERE id=? AND active=1').get(id);
+const gpsKeys = ['lat', 'lng', 'accuracy_m', 'captured_at'];
+export const publicAddress = (a) => a && ({ id: a.id, kind: a.kind, label: a.label, place_name: a.place_name, building: a.building, block: a.block, floor: a.floor, room: a.room, entrance: a.entrance,
   landmark: a.landmark, instructions: a.instructions, delivery_location_id: a.delivery_location_id, lat: a.lat, lng: a.lng, accuracy_m: a.accuracy_m, captured_at: a.captured_at,
   is_default: !!a.is_default, created_at: a.created_at, updated_at: a.updated_at });
 export const list = (db, customerId) => db.prepare('SELECT * FROM customer_addresses WHERE customer_id=? AND active=1 ORDER BY is_default DESC, updated_at DESC').all(customerId).map(publicAddress);
 
 export function create(db, customerId, body) {
-  const p = addressSchema.safeParse(body ?? {}); if (!p.success) return fail(p.error.issues[0].message);
-  const d = p.data, g = checkGps(db, d); if (g.error) return g;
-  const bad = checkDetails(d); if (bad) return bad;
-  if (!area(db, d.delivery_location_id)) return fail('That delivery area is not available.');
+  const listed = body?.kind === 'listed';
+  if (!listed && body?.delivery_location_id != null) return fail('A GPS address cannot be linked to a listed place. Choose “Select from list” instead.', 400, 'USE_LIST');
+  const p = (listed ? listedSchema : addressSchema).safeParse(body ?? {}); if (!p.success) return fail(p.error.issues[0].message);
+  const d = { ...p.data, kind: listed ? 'listed' : 'gps' };
+  let g = { lat: null, lng: null, accuracy_m: null, captured_at: null, accuracy_acknowledged: 0 };
+  if (listed) {
+    const place = listedPlace(db, d.delivery_location_id); if (!place) return fail('That place is not on the list any more. Choose another or use your GPS location.', 400, 'LOCATION_UNAVAILABLE');
+    d.place_name = place.name;                                           // the list name, not free text
+    const sent = gpsKeys.filter((k) => d[k] != null);
+    if (sent.length) { if (sent.length !== 4) return fail('Send the full GPS reading (latitude, longitude, accuracy and time).'); if (d.confirm !== true) return fail('Confirm that you are standing at the delivery location.'); g = checkGps(db, d); if (g.error) return g; }
+    if (!(d.room || d.entrance || d.landmark)) return fail('Add your room number, the gate or a nearby landmark.');
+  } else { g = checkGps(db, d); if (g.error) return g; const bad = checkDetails(d); if (bad) return bad; d.delivery_location_id = null; }
   if (db.prepare('SELECT COUNT(*) FROM customer_addresses WHERE customer_id=? AND active=1').pluck().get(customerId) >= MAX_ADDRESSES) return fail(`You can save up to ${MAX_ADDRESSES} addresses. Remove one first.`, 409);
   const id = db.transaction(() => {
     const first = !db.prepare('SELECT 1 FROM customer_addresses WHERE customer_id=? AND active=1').get(customerId);
     if (d.make_default || first) db.prepare('UPDATE customer_addresses SET is_default=0 WHERE customer_id=?').run(customerId);
-    return db.prepare(`INSERT INTO customer_addresses (customer_id,label,place_name,building,block,floor,room,entrance,landmark,instructions,delivery_location_id,lat,lng,accuracy_m,captured_at,accuracy_acknowledged,is_default)
-      VALUES (@c,@label,@place_name,@building,@block,@floor,@room,@entrance,@landmark,@instructions,@delivery_location_id,@lat,@lng,@accuracy_m,@captured_at,@accuracy_acknowledged,@def)`)
+    return db.prepare(`INSERT INTO customer_addresses (customer_id,kind,label,place_name,building,block,floor,room,entrance,landmark,instructions,delivery_location_id,lat,lng,accuracy_m,captured_at,accuracy_acknowledged,is_default)
+      VALUES (@c,@kind,@label,@place_name,@building,@block,@floor,@room,@entrance,@landmark,@instructions,@delivery_location_id,@lat,@lng,@accuracy_m,@captured_at,@accuracy_acknowledged,@def)`)
       .run({ c: customerId, place_name: null, building: null, block: null, floor: null, room: null, entrance: null, landmark: null, instructions: null, delivery_location_id: null, ...d, ...g, def: d.make_default || first ? 1 : 0 }).lastInsertRowid;
   })();
   return { ok: true, address: publicAddress(own(db, customerId, id)) };
@@ -73,15 +85,18 @@ export function create(db, customerId, body) {
 export function update(db, customerId, id, body) {
   const cur = own(db, customerId, id); if (!cur) return fail('Address not found.', 404);
   const p = addressEditSchema.safeParse(body ?? {}); if (!p.success) return fail(p.error.issues[0].message);
-  const d = p.data, next = { ...cur }, gpsSent = ['lat', 'lng', 'accuracy_m', 'captured_at'].filter((k) => k in d);
+  const d = p.data, next = { ...cur }, gpsSent = gpsKeys.filter((k) => k in d);
+  if (d.kind && d.kind !== cur.kind) return fail('An address cannot switch between “from the list” and “GPS”. Add a new address instead.');
+  if (cur.kind === 'gps' && d.delivery_location_id != null) return fail('A GPS address cannot be linked to a listed place. Add it with “Select from list” instead.', 400, 'USE_LIST');
+  if (cur.kind === 'listed' && 'delivery_location_id' in d && d.delivery_location_id == null) return fail('Choose a place from the list, or add a GPS address instead.');
   for (const k of ['label', 'place_name', 'building', 'block', 'floor', 'room', 'entrance', 'landmark', 'instructions', 'delivery_location_id']) if (k in d) next[k] = d[k] ?? null;
+  if (cur.kind === 'listed') { const place = listedPlace(db, next.delivery_location_id); if (!place) return fail('That place is not on the list any more. Choose another.', 400, 'LOCATION_UNAVAILABLE'); next.place_name = place.name; }
   if (gpsSent.length) {
     if (gpsSent.length !== 4) return fail('Send the full new location (latitude, longitude, accuracy and time).');
     if (d.confirm !== true) return fail('Confirm that you are standing at the delivery location.');
     const g = checkGps(db, d); if (g.error) return g; Object.assign(next, g);
   }
-  const bad = checkDetails(next); if (bad) return bad;
-  if (!area(db, next.delivery_location_id)) return fail('That delivery area is not available.');
+  const bad = cur.kind === 'listed' ? (next.room || next.entrance || next.landmark ? null : fail('Add your room number, the gate or a nearby landmark.')) : checkDetails(next); if (bad) return bad;
   db.transaction(() => {
     if (d.make_default) db.prepare('UPDATE customer_addresses SET is_default=0 WHERE customer_id=?').run(customerId);
     db.prepare(`UPDATE customer_addresses SET label=@label,place_name=@place_name,building=@building,block=@block,floor=@floor,room=@room,entrance=@entrance,landmark=@landmark,instructions=@instructions,

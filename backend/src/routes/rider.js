@@ -26,7 +26,7 @@ export function riderRoutes(db) {
       restaurant: db.prepare('SELECT name,address,phone,maps_link FROM restaurants WHERE id=?').get(o.restaurant_id),
       customer: mine ? { name: o.customer_name, phone: o.customer_phone } : { name: null, phone: null },
       destination: mine ? { text: o.dest_text, lat: o.dest_lat, lng: o.dest_lng, maps_link: o.dest_maps_link, nav_url: navUrl(o.dest_lat, o.dest_lng),
-          label: o.dest_label, place_name: o.dest_place_name, building: o.dest_building, block: o.dest_block, floor: o.dest_floor, room: o.dest_room,
+          kind: o.dest_kind, location_name: o.dest_location_name, coord_source: o.dest_coord_source, label: o.dest_label, place_name: o.dest_place_name, building: o.dest_building, block: o.dest_block, floor: o.dest_floor, room: o.dest_room,
           entrance: o.dest_entrance, landmark: o.dest_landmark, accuracy_m: o.dest_accuracy_m, captured_at: o.dest_captured_at }
         : { text: loc ? [loc.name, loc.area].filter(Boolean).join(', ') : 'Customer pinned location', area_only: true, lat: null, lng: null, maps_link: null },
       instructions: mine ? o.instructions : null, distance_km: loc?.distance_km ?? null,

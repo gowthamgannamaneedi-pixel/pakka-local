@@ -79,14 +79,15 @@ test('multiple addresses, edit, default, deactivate; another customer can never 
   assert.equal((await call('POST', '/api/customer/quote', { restaurant_id: S.rid, items: [{ id: S.item, qty: 1 }], address_id: S.addrA2 }, S.a)).status, 404);
 });
 
-test('orders need a saved GPS address and a confirmation; fees are unchanged (GPS fee, or the linked area fee)', async () => {
+test('orders need a saved address and a confirmation; fees: GPS address = fixed GPS charge, listed place = its own charge', async () => {
   const cart = (o = {}) => ({ restaurant_id: S.rid, items: [{ id: S.item, qty: 1 }], ...o });
   assert.equal((await call('POST', '/api/customer/orders', cart(), S.a)).status, 400);                                      // no address
   assert.equal((await call('POST', '/api/customer/orders', cart({ lat: 17.4, lng: 78.5 }), S.a)).status, 400);              // raw coordinates no longer accepted
   assert.equal((await call('POST', '/api/customer/orders', cart({ location_id: S.area }), S.a)).status, 400);               // an area alone has no customer GPS
   const nc = await call('POST', '/api/customer/orders', cart({ address_id: S.addrA }), S.a); assert.equal(nc.status, 400); assert.equal(nc.body.code, 'CONFIRM_DESTINATION');
   assert.equal((await call('POST', '/api/customer/quote', cart({ address_id: S.addrA }), S.a)).body.delivery_paise, 4000);   // gps_delivery_fee_paise default
-  const linked = (await call('POST', '/api/customer/addresses', FIX({ delivery_location_id: S.area, room: '12' }), S.a)).body.address.id;
+  assert.equal((await call('POST', '/api/customer/addresses', FIX({ delivery_location_id: S.area, room: '12' }), S.a)).body.code, 'USE_LIST');   // a GPS address cannot borrow a listed place's charge
+  const linked = (await call('POST', '/api/customer/addresses', FIX({ kind: 'listed', delivery_location_id: S.area, room: '12' }), S.a)).body.address.id;
   assert.equal((await call('POST', '/api/customer/quote', cart({ address_id: linked }), S.a)).body.delivery_paise, 2500);     // the area's own fee
   assert.equal((await call('POST', '/api/customer/addresses', FIX({ delivery_location_id: 99999 }), S.a)).status, 400);
 });

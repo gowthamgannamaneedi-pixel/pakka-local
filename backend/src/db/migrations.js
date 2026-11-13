@@ -502,5 +502,60 @@ CREATE TABLE reference_places (
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );`
+  },
+  {
+    // Two ways to choose where food goes:
+    //   listed  = a PG, hostel or college from the admin-managed list (delivery_locations); its own delivery charge applies.
+    //             The customer's own GPS point is optional (if missing, the location's map point is used).
+    //   gps     = the existing GPS flow for places not on the list; the configurable fixed GPS charge applies.
+    //             A gps address can never carry a list location, so it is never charged as a listed place.
+    // customer_addresses is rebuilt only to allow lat/lng to be empty for listed addresses; every row is copied.
+    id: 'p5_001_listed_locations_and_charges',
+    sql: `
+CREATE TABLE customer_addresses_new (
+  id INTEGER PRIMARY KEY,
+  customer_id INTEGER NOT NULL REFERENCES users(id),
+  kind TEXT NOT NULL DEFAULT 'gps' CHECK (kind IN ('gps','listed')),
+  label TEXT NOT NULL CHECK (label IN ('home','hostel','pg','college','other')),
+  place_name TEXT, building TEXT, block TEXT, floor TEXT, room TEXT, entrance TEXT, landmark TEXT, instructions TEXT,
+  delivery_location_id INTEGER REFERENCES delivery_locations(id),
+  lat REAL CHECK (lat IS NULL OR lat BETWEEN -90 AND 90),
+  lng REAL CHECK (lng IS NULL OR lng BETWEEN -180 AND 180),
+  accuracy_m REAL CHECK (accuracy_m IS NULL OR accuracy_m >= 0),
+  captured_at TEXT,
+  accuracy_acknowledged INTEGER NOT NULL DEFAULT 0,
+  is_default INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  CHECK (kind <> 'gps' OR (lat IS NOT NULL AND lng IS NOT NULL AND captured_at IS NOT NULL AND delivery_location_id IS NULL)),
+  CHECK (kind <> 'listed' OR delivery_location_id IS NOT NULL),
+  CHECK ((lat IS NULL) = (lng IS NULL))
+);
+INSERT INTO customer_addresses_new (id, customer_id, kind, label, place_name, building, block, floor, room, entrance, landmark, instructions, delivery_location_id,
+  lat, lng, accuracy_m, captured_at, accuracy_acknowledged, is_default, active, created_at, updated_at)
+SELECT id, customer_id, CASE WHEN delivery_location_id IS NULL THEN 'gps' ELSE 'listed' END, label, place_name, building, block, floor, room, entrance, landmark, instructions,
+  delivery_location_id, lat, lng, accuracy_m, captured_at, accuracy_acknowledged, is_default, active, created_at, updated_at FROM customer_addresses;
+DROP TABLE customer_addresses;
+ALTER TABLE customer_addresses_new RENAME TO customer_addresses;
+CREATE INDEX idx_caddr_customer ON customer_addresses(customer_id, active);
+
+-- managed list: stable reference from the owner's sheet (e.g. LOC_001) so re-imports update instead of duplicating
+ALTER TABLE delivery_locations ADD COLUMN external_ref TEXT;
+ALTER TABLE delivery_locations ADD COLUMN updated_at TEXT;
+CREATE UNIQUE INDEX uq_delivery_locations_ref ON delivery_locations(external_ref) WHERE external_ref IS NOT NULL;
+
+-- order snapshot additions: how the place was chosen, the list name at the time, and where the map point came from
+ALTER TABLE orders ADD COLUMN dest_kind TEXT;
+ALTER TABLE orders ADD COLUMN dest_location_name TEXT;
+ALTER TABLE orders ADD COLUMN dest_coord_source TEXT;
+DROP TRIGGER trg_order_destination_frozen;
+-- earlier orders: the type is derived exactly from what they already store (nothing else is rewritten)
+UPDATE orders SET dest_kind = CASE WHEN delivery_location_id IS NOT NULL THEN 'listed' WHEN dest_address_id IS NOT NULL THEN 'gps' END WHERE dest_kind IS NULL;
+CREATE TRIGGER trg_order_destination_frozen BEFORE UPDATE OF dest_text, dest_lat, dest_lng, dest_maps_link, instructions, dest_address_id, dest_label,
+  dest_place_name, dest_building, dest_block, dest_floor, dest_room, dest_entrance, dest_landmark, dest_accuracy_m, dest_captured_at, dest_confirmed_at, delivery_location_id,
+  dest_kind, dest_location_name, dest_coord_source, delivery_paise ON orders
+  WHEN OLD.status <> 'PAYMENT_PENDING'
+BEGIN SELECT RAISE(ABORT, 'order destination is fixed once payment has started'); END;`
   }
 ];
