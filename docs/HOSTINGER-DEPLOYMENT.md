@@ -263,3 +263,19 @@ never in git, chat or logs). Production refuses to start with `EMAIL_OTP_ENABLED
 Verified on the live staging site: non-approved address refused; approved address -> Brevo accepted the email -> the
 tester typed the emailed code -> signed in as a customer. Staff login unchanged (wrong password refused).
 To add a tester: append `,their@email=+91XXXXXXXXXX` to `EMAIL_OTP_ALLOWLIST` in hPanel and redeploy with previous files.
+
+## 13. Staging dummy accounts and rider APK test (13 Nov 2026, build 6fb975a)
+
+- `STAGING_TEST_ACCOUNTS=1` (refused on production) created on staging: TEST Pakka Admin (+915000000001), TEST Restaurant
+  (staging) with 2 test menu items and owner login (+915000000101), TEST Rider (+915000000201, draft application),
+  TEST Customer (+915000000301), delivery place "TEST Staging Hostel". +91 5xxxxxxxxx numbers are not issued to mobiles.
+  Passwords and the test code are generated on the server into `pakka-local-data/secrets/TEST-ACCOUNTS.txt` and
+  `test-otp-code` only. Existing accounts (first admin, email-login customer) were not touched. Cleanup:
+  set `STAGING_TEST_ACCOUNTS=remove` and redeploy with previous files.
+- Staging now uses `OTP_PROVIDER=testcode` (`ALLOW_TEST_OTP=1`, `TEST_OTP_PHONES` = test rider + test customer only);
+  email login unchanged; payments stay disabled on staging, so customers can browse but not order there.
+- Verified locally (same build, fresh database, simulated payments for the test customer only): 34/34 end-to-end checks,
+  all four logins, restaurant visibility, rider application + admin approval, full order to DELIVERED.
+- Rider APK in the Android 15 emulator (local copy pointing at localhost): login, offer pop-up, accept, Android location
+  prompt, live GPS received by the server, status updates, pickup and delivery codes, delivered. Screenshots in
+  `screenshots-rider-apk/`. Web push is not available inside the APK (in-app alerts only).
