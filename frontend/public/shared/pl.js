@@ -193,7 +193,7 @@
 
   // ---------- shell ----------
   // cfg: { portal, name, home, tabs:[{path,label,icon,badge?}], routes:{path:{title,render,after,poll,noNav}}, loginView(), onReady(), right() }
-  PL.start = (c) => { cfg = c; PL.portal = c.portal; if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {}); PL.boot(); setTimeout(showInstall, 1500); };
+  PL.start = (c) => { cfg = c; PL.portal = c.portal; document.body.classList.add("p-" + c.portal); if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {}); PL.boot(); setTimeout(showInstall, 1500); };
   PL.boot = () => {
     document.title = `${cfg.name} · Pakka Local`;
     const root = PL.$('#root'); modals.splice(0).forEach((m) => m.ov.remove());
