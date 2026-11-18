@@ -1,0 +1,8 @@
+lottie_light.min.js: lottie-web 5.12.2 (Airbnb), MIT licence. https://github.com/airbnb/lottie-web
+anim/*.json: free animations from LottieFiles under the Lottie Simple License (free for commercial use, no attribution required).
+  placed.json     "Order confirmed" by Mahendra Bhunwal
+  preparing.json  "Chef making pizza" by Angelo Uccelli Reyes
+  ready.json      "Pizza box order" by MD Abdur Rahim
+  onway.json      "Food delivery driver" by Angelo Uccelli Reyes
+  delivered.json  "Food courier deliver order to client" by Wildan Syakir
+Converted from .lottie (zip) to plain JSON with embedded images; no other changes.

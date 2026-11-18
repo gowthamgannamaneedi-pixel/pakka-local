@@ -27,7 +27,7 @@ final class Gates {
     static final int REQ_LOCATION = 4711, REQ_NOTIFY = 4712;
     private final Activity a;
     private AlertDialog blocking, optional;
-    private boolean askedNotify, askedOverlay, askedBattery, locationRequested;
+    private boolean askedNotify, askedOverlay, askedBattery, locationRequested, explainedRestricted;
 
     Gates(Activity a) { this.a = a; }
 
@@ -77,10 +77,19 @@ final class Gates {
             return;
         }
         if (!askedOverlay && !canOverlay(a)) {
-            askedOverlay = true;
+            askedOverlay = true; explainedRestricted = false;
             ask("Show the Pakka Rider bubble",
                 "When you switch to Maps or another app, a small Pakka Rider icon stays on the side of your screen. Tap it to come back, and it flashes when a new delivery offer arrives.\n\nOn the next screen, choose Pakka Rider (if a list of apps appears), then turn on “Allow display over other apps”.",
                 "Allow", () -> a.startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + a.getPackageName()))));
+            return;
+        }
+        if (askedOverlay && !explainedRestricted && !canOverlay(a) && Build.VERSION.SDK_INT >= 33) {
+            explainedRestricted = true;
+            ask("If Android said “App was denied access”",
+                "Android protects this setting for apps installed from a file (not from Play Store). To allow the floating icon:\n\n"
+                + "1. Tap “Open App info” below.\n2. Tap ⋮ in the top-right corner.\n3. Tap “Allow restricted settings” and confirm.\n"
+                + "4. Come back here and allow “Display over other apps” again.",
+                "Open App info", () -> openAppInfo(a));
             return;
         }
         if (!askedBattery && !batteryFree(a)) {
@@ -109,6 +118,10 @@ final class Gates {
             .setPositiveButton(btn, (d, w) -> go.run()).setNegativeButton("Not now", null).create();
         optional.setOnDismissListener((d) -> a.getWindow().getDecorView().post(this::check));
         optional.show();
+    }
+    static void openAppInfo(Context c) {
+        Intent i = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + c.getPackageName())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        c.startActivity(i);
     }
     void dismissAll() { unblock(); if (optional != null) optional.dismiss(); }
 }

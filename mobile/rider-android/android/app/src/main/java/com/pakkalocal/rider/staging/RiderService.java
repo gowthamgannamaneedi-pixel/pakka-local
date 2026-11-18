@@ -50,7 +50,7 @@ public class RiderService extends Service {
     private static final String CH_STATUS = "rider_status", CH_OFFERS = "rider_offers_v1";
     private static final int ID_STATUS = 1, ID_OFFER = 2;
     private static volatile RiderService inst;
-    private static volatile boolean foreground = true;
+    private static volatile boolean foreground = false;      // a restarted service runs without the app on screen; MainActivity sets true when it is visible
 
     private volatile String token = "", api = "";
     private volatile boolean online;
@@ -71,8 +71,9 @@ public class RiderService extends Service {
     static void sync(Context c, boolean online, String token, String api, int active) {
         Intent i = new Intent(c, RiderService.class).putExtra("online", online).putExtra("token", token).putExtra("api", api).putExtra("active", active);
         boolean run = !token.isEmpty() && !api.isEmpty() && (online || active > 0);
-        if (run) ContextCompat.startForegroundService(c, i);
-        else if (inst != null) c.stopService(new Intent(c, RiderService.class));
+        android.content.SharedPreferences sp = c.getSharedPreferences("rider_bg", MODE_PRIVATE);
+        if (run) { sp.edit().putString("token", token).putString("api", api).putBoolean("online", online).putInt("active", active).apply(); ContextCompat.startForegroundService(c, i); }
+        else { sp.edit().clear().apply(); if (inst != null) c.stopService(new Intent(c, RiderService.class)); }
     }
 
     /** MainActivity tells us when the rider screen is in front (hide the bubble) or not (show it). */
@@ -98,21 +99,28 @@ public class RiderService extends Service {
 
     @Override
     public int onStartCommand(Intent i, int flags, int startId) {
-        if (i != null) {
+        if (i != null && i.hasExtra("token")) {
             token = str(i.getStringExtra("token")); api = str(i.getStringExtra("api"));
             online = i.getBooleanExtra("online", false); active = i.getIntExtra("active", 0);
+        } else {      // restarted by Android after the phone stopped it: continue with the saved sign-in (cleared on offline / sign-out)
+            android.content.SharedPreferences sp = getSharedPreferences("rider_bg", MODE_PRIVATE);
+            token = str(sp.getString("token", "")); api = str(sp.getString("api", "")); online = sp.getBoolean("online", false); active = sp.getInt("active", 0);
         }
         Notification n = statusNotification();
         try {
             if (Build.VERSION.SDK_INT >= 29) startForeground(ID_STATUS, n, hasLocation() ? ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION : ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
             else startForeground(ID_STATUS, n);
-        } catch (Exception e) { stopSelf(); return START_NOT_STICKY; }
+        } catch (Exception e) {
+            // Android may refuse the location type when the service is restarted in the background: keep offers and alerts running
+            try { if (Build.VERSION.SDK_INT >= 29) startForeground(ID_STATUS, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC); else throw e; }
+            catch (Exception e2) { stopSelf(); return START_NOT_STICKY; }
+        }
         if (token.isEmpty() || api.isEmpty()) { stopSelf(); return START_NOT_STICKY; }
         if (wake != null && !wake.isHeld()) wake.acquire();
         if (ex == null) { ex = Executors.newSingleThreadScheduledExecutor(); ex.scheduleWithFixedDelay(this::poll, 0, 8, TimeUnit.SECONDS); }
         startLocation();
         updateBubble();
-        return START_NOT_STICKY;      // after a crash or swipe-away the rider opens the app again; we never run with an old sign-in
+        return START_STICKY;      // if the phone stops it, Android starts it again with the saved sign-in
     }
 
     @Override
@@ -131,7 +139,7 @@ public class RiderService extends Service {
         try {
             String[] r = http("GET", "/api/rider/offers", null);
             int code = Integer.parseInt(r[0]);
-            if (code == 401) { main.post(this::stopSelf); return; }        // signed out or session expired
+            if (code == 401) { getSharedPreferences("rider_bg", MODE_PRIVATE).edit().clear().apply(); main.post(this::stopSelf); return; }        // signed out or session expired
             if (code != 200) return;
             JSONObject j = new JSONObject(r[1]);
             JSONArray offers = j.optJSONArray("offers"), act = j.optJSONArray("active");

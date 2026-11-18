@@ -6,6 +6,28 @@
   // In a normal browser there is no native side and nothing happens.
   const RN = () => (window.Capacitor?.isNativePlatform?.() && window.Capacitor.Plugins?.RiderNative) || null;
   let nsig = '';
+  // "Background check" (app only): what the phone allows, with a button to fix each item. Read from Android, nothing is guessed.
+  const MAKERS = { xiaomi: 'Xiaomi / Redmi / POCO', redmi: 'Redmi', poco: 'POCO', oppo: 'OPPO', realme: 'realme', oneplus: 'OnePlus', vivo: 'vivo', iqoo: 'iQOO', huawei: 'Huawei', honor: 'Honor', samsung: 'Samsung', motorola: 'Motorola', infinix: 'Infinix', tecno: 'TECNO' };
+  let bgAt = 0;
+  const bgCheck = async (force) => { const p = RN(); if (!p || (!force && Date.now() - bgAt < 5000)) return; bgAt = Date.now();
+    let s; try { s = await p.getStatus(); } catch { return; }
+    if (s.notifications === undefined) { const h = '<div class="card flat small"><b>Update Pakka Rider</b><div class="mute mt2">Install the latest Pakka Rider app (1.3 or newer) for the background check and more reliable background alerts.</div></div>'; S.bgHtml = h; const el = PL.$('#bgcheck'); if (el && el.innerHTML !== h) el.innerHTML = h; return; }
+    const online = !!S.me?.is_online, active = S.last?.active?.length || 0;
+    const rows = [[s.locationOn && s.locationPermission, 'Location', s.locationOn ? 'Allow location for Pakka Rider' : 'Turn on your phone’s Location', 'location'],
+      [s.notifications, 'Notifications', 'Needed to ring for new offers', 'notifications'],
+      [s.battery, 'Background running', 'Allow Pakka Rider to run without battery restrictions', 'battery'],
+      [s.overlay, 'Floating icon', s.sdk >= 33 ? 'If Android says “App was denied access”: App info → ⋮ → Allow restricted settings, then allow again' : 'Allow “Display over other apps”', 'overlay'],
+      [!(online || active) || s.running, 'Running in background', 'Not running. Tap Restart.', 'restart']];
+    const bad = rows.filter((r) => !r[0]); const maker = Object.keys(MAKERS).find((k) => (s.maker || '').includes(k));
+    const tip = maker ? `<div class="small mute mt2">${MAKERS[maker]} phones can also stop apps on their own: open <b>App info → Battery</b> and turn on <b>Allow background activity</b> / <b>Auto-launch</b> for Pakka Rider.</div><button class="btn ghost sm mt2" data-act="bg-fix" data-w="app">Open App info</button>` : '';
+    const html = !bad.length
+      ? `<div class="card flat row" style="gap:10px"><span style="color:var(--ok)">${PL.icon('check')}</span><div class="grow"><b>Background alerts ready</b><div class="small mute">${online ? 'Offers ring and your location updates even when you switch apps or lock the phone.' : 'Go online to start receiving offers in the background.'}</div>${tip ? `<details class="small mt2"><summary>${MAKERS[maker]} phone tips</summary>${tip}</details>` : ''}</div></div>`
+      : `<div class="card" style="border-color:#f3cbc7"><b>Background check</b><div class="small mute">Fix these so offers keep ringing when you use other apps or lock the phone.</div>${rows.map(([ok, t, why, w]) => `<div class="row between mt2" style="align-items:flex-start;gap:10px"><div class="grow"><b class="small" style="color:${ok ? 'var(--ok)' : 'var(--bad)'}">${ok ? '✓' : '✗'} ${t}</b>${ok ? '' : `<div class="small mute">${why}</div>`}</div>${ok ? '' : `<button class="btn sm" data-act="bg-fix" data-w="${w}">${w === 'restart' ? 'Restart' : 'Fix'}</button>`}</div>`).join('')}${tip}</div>`;
+    S.bgHtml = html; const el = PL.$('#bgcheck'); if (el && el.innerHTML !== html) el.innerHTML = html; };
+  PL.actions['bg-fix'] = async (el) => { const p = RN(); if (!p) return; const w = el.dataset.w;
+    if (w === 'restart') { nativeSync(true); setTimeout(() => bgCheck(true), 1500); return; }
+    await p.openSettings({ what: w }).catch(() => {}); };
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) setTimeout(() => bgCheck(true), 600); });
   const nativeSync = (force) => { const p = RN(); if (!p) return; const s = PL.session(); const online = !!S.me?.is_online, active = S.last?.active?.length || 0, tok = s?.token || '';
     const sig = [online, active, tok].join('|'); if (sig === nsig && !force) return; nsig = sig;
     p.sync({ online, active, token: tok, api: location.origin }).catch(() => {}); };
@@ -42,7 +64,7 @@
     <div class="small mute">Maps, phone numbers and instructions are on the Deliveries tab.</div>`;
   async function tick() {
     let d; try { d = await PL.api('/api/rider/offers'); } catch { return; }
-    S.last = d; PL.track?.sync?.(d.active.length); nativeSync();      // share location only while a delivery is assigned
+    S.last = d; PL.track?.sync?.(d.active.length); nativeSync(); bgCheck();      // share location only while a delivery is assigned
     const offers = d.offers.filter((o) => !S.dismissed.has(o.id)); PL.badge('/jobs', d.active.length + offers.length);
     if (S.prevN != null && offers.length > S.prevN) { try { navigator.vibrate?.([250, 120, 250, 120, 250]); } catch {} } S.prevN = offers.length;
     const box = PL.$('#alerts'); if (!box) return;
@@ -96,7 +118,7 @@
       <div class="d-kpis"><div><b>${today ? rs(today.today_paise) : '–'}</b><span>Earned today</span></div><div><b>${today ? rs(today.week_paise) : '–'}</b><span>Last 7 days</span></div><div><b>${act.length}</b><span>Active now</span></div></div>` : '';
     const stepOf = (st) => (st === 'PICKED_UP' ? 2 : st === 'READY' ? 1 : 0);
     const track = (o) => `<ol class="d-steps">${['Go to restaurant', 'Collect order', 'Deliver to customer'].map((l, i) => `<li class="${i < stepOf(o.status) ? 'done' : i === stepOf(o.status) ? 'cur' : ''}"><span>${i < stepOf(o.status) ? PL.icon('check') : i + 1}</span>${l}</li>`).join('')}</ol>`;
-    return `${gate}${hero}${act.length ? (PL.track?.card?.() || '') : ''}${S.push === 'on' || RN() ? '' : (PL.push?.card?.('rider') || '')}${act.map((o) => `<div class="card d-active"><div class="row between"><b class="d-title">Active delivery</b>${PL.chip(o.status)}</div>${track(o)}${detail(o)}
+    return `${gate}${hero}${RN() ? `<div id="bgcheck">${S.bgHtml || ''}</div>` : ''}${act.length ? (PL.track?.card?.() || '') : ''}${S.push === 'on' || RN() ? '' : (PL.push?.card?.('rider') || '')}${act.map((o) => `<div class="card d-active"><div class="row between"><b class="d-title">Active delivery</b>${PL.chip(o.status)}</div>${track(o)}${detail(o)}
       ${o.status === 'ACCEPTED' || o.status === 'PREPARING' ? '<div class="banner info mt" style="margin-bottom:0">The restaurant is still preparing. You’ll get the pickup code when it’s ready.</div>' : ''}
       ${o.status === 'READY' ? `<form data-form="pickup" data-id="${o.id}" class="mt d-code"><label>Pickup code from the restaurant</label><input class="otp-in" name="otp" inputmode="numeric" maxlength="4" pattern="\\d{4}" placeholder="••••" required autocomplete="off"><button class="btn block lg mt2" type="submit">${PL.icon('box')} Confirm pickup</button></form>` : ''}
       ${o.status === 'PICKED_UP' ? `<form data-form="deliver" data-id="${o.id}" class="mt d-code"><label>Delivery code from the customer</label><input class="otp-in" name="otp" inputmode="numeric" maxlength="8" pattern="\\d{4,8}" placeholder="••••" required autocomplete="off"><button class="btn green block lg mt2" type="submit">${PL.icon('check')} Complete delivery</button></form>` : ''}</div>`).join('')}

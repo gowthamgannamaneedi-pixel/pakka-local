@@ -34,6 +34,24 @@ public class RiderNativePlugin extends Plugin {
     public void getStatus(PluginCall call) { call.resolve(status()); }
 
     @PluginMethod
+    public void openSettings(PluginCall call) {
+        String what = call.getString("what", "app");
+        Intent i;
+        switch (what) {
+            case "location": i = new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS); break;
+            case "notifications":
+                i = Build.VERSION.SDK_INT >= 26 ? new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, getContext().getPackageName())
+                    : new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getContext().getPackageName())); break;
+            case "overlay": i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getContext().getPackageName())); break;
+            case "battery": i = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + getContext().getPackageName())); break;
+            default: i = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getContext().getPackageName()));
+        }
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try { getContext().startActivity(i); } catch (Exception e) { Gates.openAppInfo(getContext()); }
+        call.resolve();
+    }
+
+    @PluginMethod
     public void openOverlaySettings(PluginCall call) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getContext().getPackageName()));
@@ -49,6 +67,11 @@ public class RiderNativePlugin extends Plugin {
         o.put("overlay", Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(getContext()));
         o.put("locationOn", Gates.locationOn(getContext()));
         o.put("running", RiderService.isRunning());
+        o.put("notifications", androidx.core.app.NotificationManagerCompat.from(getContext()).areNotificationsEnabled());
+        o.put("battery", Gates.batteryFree(getContext()));
+        o.put("locationPermission", Gates.hasLocationPermission(getContext()));
+        o.put("maker", Build.MANUFACTURER == null ? "" : Build.MANUFACTURER.toLowerCase());
+        o.put("sdk", Build.VERSION.SDK_INT);
         return o;
     }
 }
