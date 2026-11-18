@@ -177,7 +177,10 @@
     if (!soft) { lastHtml = ''; view.innerHTML = `<div class="loading" aria-busy="true" aria-label="Loading">${PL.skel(r.def.skel)}</div>`; window.scrollTo(0, 0); }
     cur = r; await paint(true);
     if (token !== PL.state.rtoken) return;          // superseded while loading: never start a poll for a stale route
-    if (r.def.poll) pollT = setInterval(() => { const a = document.activeElement; if (document.hidden || modals.length || (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName) && view.contains(a)) || [...view.querySelectorAll('form[data-form] input[type=text],form[data-form] input:not([type])')].some((i) => i.value)) return; paint(false); }, r.def.poll);
+    // timed refresh; skipped while hidden, while a dialog is open, or while the user is typing / has typed into a form
+    const tick = () => { const a = document.activeElement; if (document.hidden || modals.length || (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName) && view.contains(a)) || [...view.querySelectorAll('form[data-form] input[type=text],form[data-form] input:not([type])')].some((i) => i.value)) return; paint(false); };
+    PL.state.tick = r.def.poll ? tick : null;
+    if (r.def.poll) pollT = setInterval(tick, r.def.poll);
   }
   PL.state.sig = 0; PL.state.rtoken = 0;
   PL.stopAll = () => { clearInterval(pollT); (PL.hooks.stop || []).forEach((f) => f()); PL.sound.sync(false); PL.inbox?.stop(); };
@@ -202,6 +205,8 @@
     sync(active, keep) { if (!keep) want = active; if (probing) return; if (active && PL.sound.enabled() && PL.sound.unlocked && !document.hidden) audio.play().catch(() => {}); else { audio.pause(); audio.currentTime = 0; } }
   };
   document.addEventListener('visibilitychange', () => PL.sound.sync(want, true));
+  // back to the app (phone unlocked, tab reopened): refresh the live screen now instead of on the next timed tick
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && PL.state.tick && PL.session()) PL.state.tick(); });
   // "Sound on" is remembered, but the browser's permission to play is not. Re-unlock quietly: right away (works in the
   // Android app, which allows playback without a tap) and on the first touch (normal browsers need a tap).
   const quietUnlock = async () => {
