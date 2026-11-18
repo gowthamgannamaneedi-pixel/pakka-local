@@ -78,9 +78,9 @@ export function customerRoutes(db) {
       (SELECT group_concat(qty || ' × ' || name, ', ') FROM order_items i WHERE i.order_id=o.id) AS summary FROM orders o JOIN restaurants r ON r.id=o.restaurant_id
     WHERE o.customer_id=? ORDER BY o.id DESC LIMIT 50`).all(req.user.id) }));
   r.get('/orders/:code', (req, res) => {
-    const o = db.prepare('SELECT o.*, r.name AS restaurant_name FROM orders o JOIN restaurants r ON r.id=o.restaurant_id WHERE o.order_code=? AND o.customer_id=?').get(req.params.code, req.user.id);
+    const o = db.prepare('SELECT o.*, r.name AS restaurant_name, r.image_path AS restaurant_image FROM orders o JOIN restaurants r ON r.id=o.restaurant_id WHERE o.order_code=? AND o.customer_id=?').get(req.params.code, req.user.id);
     if (!o) return res.status(404).json({ error: 'Order not found.' });
-    const out = { order_code: o.order_code, status: o.status, restaurant: o.restaurant_name, dest_text: o.dest_text, instructions: o.instructions, eta_at: o.eta_at, created_at: o.created_at,
+    const out = { order_code: o.order_code, status: o.status, restaurant: o.restaurant_name, restaurant_image: o.restaurant_image, dest_text: o.dest_text, instructions: o.instructions, eta_at: o.eta_at, created_at: o.created_at,
       destination: { kind: o.dest_kind, location_name: o.dest_location_name, coord_source: o.dest_coord_source, label: o.dest_label, place_name: o.dest_place_name, building: o.dest_building, block: o.dest_block, floor: o.dest_floor, room: o.dest_room, entrance: o.dest_entrance, landmark: o.dest_landmark,
         lat: o.dest_lat, lng: o.dest_lng, accuracy_m: o.dest_accuracy_m, captured_at: o.dest_captured_at },          // the customer's own order only
       items_base_paise: o.items_base_paise, markup_paise: o.markup_paise, delivery_paise: o.delivery_paise, surge_paise: o.surge_paise, tax_paise: o.tax_paise, total_paise: o.total_paise, rejection_reason: o.rejection_reason };
