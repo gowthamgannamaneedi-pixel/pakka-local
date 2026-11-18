@@ -1,5 +1,14 @@
 (function () {
   const e = PL.esc, rs = PL.rs, S = PL.state; S.dismissed = new Set(); S.me = null;
+  try { localStorage.setItem('pl.sound', '1'); } catch {}      // riders always get the new-offer sound (no mute button)
+  // Pakka Rider Android app: tell the native side when the rider is online / on a delivery, so offers, ringing,
+  // the floating side icon and delivery location keep working while the app is in the background.
+  // In a normal browser there is no native side and nothing happens.
+  const RN = () => (window.Capacitor?.isNativePlatform?.() && window.Capacitor.Plugins?.RiderNative) || null;
+  let nsig = '';
+  const nativeSync = (force) => { const p = RN(); if (!p) return; const s = PL.session(); const online = !!S.me?.is_online, active = S.last?.active?.length || 0, tok = s?.token || '';
+    const sig = [online, active, tok].join('|'); if (sig === nsig && !force) return; nsig = sig;
+    p.sync({ online, active, token: tok, api: location.origin }).catch(() => {}); };
 
   const detail = (o, full) => `<div class="row between"><div>${PL.code(o.order_code)}</div><span class="d-fee">${rs(o.fee_paise)}<small>you earn</small></span></div>
     <div class="small mute">${o.distance_km ? o.distance_km + ' km · ' : ''}${o.eta_at ? 'Customer expects ~' + PL.time(o.eta_at) : ''}</div>
@@ -33,7 +42,7 @@
     <div class="small mute">Maps, phone numbers and instructions are on the Deliveries tab.</div>`;
   async function tick() {
     let d; try { d = await PL.api('/api/rider/offers'); } catch { return; }
-    S.last = d; PL.track?.sync?.(d.active.length);      // share location only while a delivery is assigned
+    S.last = d; PL.track?.sync?.(d.active.length); nativeSync();      // share location only while a delivery is assigned
     const offers = d.offers.filter((o) => !S.dismissed.has(o.id)); PL.badge('/jobs', d.active.length + offers.length);
     if (S.prevN != null && offers.length > S.prevN) { try { navigator.vibrate?.([250, 120, 250, 120, 250]); } catch {} } S.prevN = offers.length;
     const box = PL.$('#alerts'); if (!box) return;
@@ -70,7 +79,7 @@
 
   // ---------- online switch ----------
   const sw = () => (S.me && !S.me.can_take_orders ? '' : `<button class="sw ${S.me?.is_online ? 'on' : ''}" id="onl" data-act="online" aria-label="Online or offline"><span>${S.me?.is_online ? 'Online' : 'Offline'}</span><i></i></button>`);
-  async function refreshMe() { try { S.me = (await PL.api('/api/rider/me')).rider; const s = PL.$('#side'); if (s) s.innerHTML = sw() + `<button class="iconbtn" data-act="sound-toggle" aria-label="Alert sound">${PL.icon(PL.sound.enabled() && PL.sound.unlocked ? 'sound' : 'mute')}</button>`; } catch {} }
+  async function refreshMe() { try { S.me = (await PL.api('/api/rider/me')).rider; const s = PL.$('#side'); if (s) s.innerHTML = sw(); nativeSync(); } catch {} }
   PL.actions.online = async (el) => { el?.classList.add('busy'); const on = !S.me?.is_online; if (on && !PL.sound.unlocked) await PL.sound.enable(); const r = await PL.run(() => PL.post('/api/rider/online', { online: on }), on ? 'You are online' : 'You are offline'); await refreshMe(); if (r) PL.rerender(); };
 
   // ---------- deliveries ----------
@@ -87,7 +96,7 @@
       <div class="d-kpis"><div><b>${today ? rs(today.today_paise) : '–'}</b><span>Earned today</span></div><div><b>${today ? rs(today.week_paise) : '–'}</b><span>Last 7 days</span></div><div><b>${act.length}</b><span>Active now</span></div></div>` : '';
     const stepOf = (st) => (st === 'PICKED_UP' ? 2 : st === 'READY' ? 1 : 0);
     const track = (o) => `<ol class="d-steps">${['Go to restaurant', 'Collect order', 'Deliver to customer'].map((l, i) => `<li class="${i < stepOf(o.status) ? 'done' : i === stepOf(o.status) ? 'cur' : ''}"><span>${i < stepOf(o.status) ? PL.icon('check') : i + 1}</span>${l}</li>`).join('')}</ol>`;
-    return `${gate}${hero}${act.length ? (PL.track?.card?.() || '') : ''}${S.push === 'on' ? '' : (PL.push?.card?.('rider') || '')}${act.map((o) => `<div class="card d-active"><div class="row between"><b class="d-title">Active delivery</b>${PL.chip(o.status)}</div>${track(o)}${detail(o)}
+    return `${gate}${hero}${act.length ? (PL.track?.card?.() || '') : ''}${S.push === 'on' || RN() ? '' : (PL.push?.card?.('rider') || '')}${act.map((o) => `<div class="card d-active"><div class="row between"><b class="d-title">Active delivery</b>${PL.chip(o.status)}</div>${track(o)}${detail(o)}
       ${o.status === 'ACCEPTED' || o.status === 'PREPARING' ? '<div class="banner info mt" style="margin-bottom:0">The restaurant is still preparing. You’ll get the pickup code when it’s ready.</div>' : ''}
       ${o.status === 'READY' ? `<form data-form="pickup" data-id="${o.id}" class="mt d-code"><label>Pickup code from the restaurant</label><input class="otp-in" name="otp" inputmode="numeric" maxlength="4" pattern="\\d{4}" placeholder="••••" required autocomplete="off"><button class="btn block lg mt2" type="submit">${PL.icon('box')} Confirm pickup</button></form>` : ''}
       ${o.status === 'PICKED_UP' ? `<form data-form="deliver" data-id="${o.id}" class="mt d-code"><label>Delivery code from the customer</label><input class="otp-in" name="otp" inputmode="numeric" maxlength="8" pattern="\\d{4,8}" placeholder="••••" required autocomplete="off"><button class="btn green block lg mt2" type="submit">${PL.icon('check')} Complete delivery</button></form>` : ''}</div>`).join('')}
@@ -176,7 +185,7 @@
     };
     const hist = d.history.length ? `<div class="sec">History</div><div class="card">${d.history.map((h) => `<div class="hist"><div class="row between wrap">${PL.chip(h.status)}<span class="small mute">${PL.dt(h.created_at)}</span></div>${h.note ? `<div class="small mt2">${e(h.note)}</div>` : ''}</div>`).join('')}</div>` : '';
     return `${head}${A.editable || A.status === 'pending' ? nav : ''}${A.editable || A.status === 'pending' ? `<div class="card app-sec">${pending}${sec[cur]}${A.editable ? `<div class="row between mt"><span class="small mute" id="savest">${A.updated_at ? 'Saved ' + PL.dt(A.updated_at) : ''}</span>${cur !== 'review' ? `<button class="btn ghost sm" data-act="go" data-path="/profile/${STEPS[STEPS.findIndex(([k]) => k === cur) + 1][0]}">Next ›</button>` : ''}</div>` : ''}</div>` : ''}
-      ${hist}${(PL.push?.card?.('rider') || '')}<button class="btn ghost block" data-act="logout">Sign out</button>`;
+      ${hist}${RN() ? '<div class="card flat small"><b>Alerts in the Pakka Rider app</b><div class="mute mt2">While you are online, new offers ring and show a notification even when you use other apps or the screen is off. The round Pakka Rider icon on the side of the screen brings you back.</div></div>' : (PL.push?.card?.('rider') || '')}<button class="btn ghost block" data-act="logout">Sign out</button>`;
   }
   // autosave: every change in an application form is sent straight away (only the changed field)
   const saveField = async (f, el) => { const st = PL.$('#savest'); if (st) st.textContent = 'Saving…';
@@ -198,6 +207,6 @@
   PL.start({ portal: 'rider', name: 'Rider', home: '/jobs', loginView: (root) => PL.staffLogin(root, { title: 'Delivery partner', blurb: 'Sign in with the account Pakka Local created for you.' }),
     right: () => '',
     tabs: [{ path: '/jobs', label: 'Deliveries', icon: 'bike' }, { path: '/earnings', label: 'Earnings', icon: 'wallet' }, { path: '/profile', label: 'Account', icon: 'user' }],
-    onReady: () => { refreshMe(); tick(); const a = setInterval(tick, 1000), b = setInterval(refreshMe, 15000); PL.hooks.stop = [() => { PL.track.stop(); clearInterval(a); clearInterval(b); const x = PL.$('#alerts'); if (x) { x.innerHTML = ''; x.dataset.h = ''; x.classList.add('hide'); setAlertSpace(x); } }]; },
+    onReady: () => { refreshMe(); tick(); const a = setInterval(tick, 1000), b = setInterval(refreshMe, 15000); PL.hooks.stop = [() => { nsig = ''; RN()?.sync({ online: false, active: 0, token: '', api: '' }).catch(() => {}); PL.track.stop(); clearInterval(a); clearInterval(b); const x = PL.$('#alerts'); if (x) { x.innerHTML = ''; x.dataset.h = ''; x.classList.add('hide'); setAlertSpace(x); } }]; },
     routes: { '/jobs': { title: 'Deliveries', render: jobs, poll: 2000, skel: 'dash' }, '/job/:id': { title: 'Delivery', render: oneJob, poll: 2000 }, '/earnings': { title: 'Earnings', render: earnings, poll: 6000, skel: 'dash' }, '/profile': { title: 'My application', render: profile }, '/profile/:step': { title: 'My application', render: profile } } });
 })();

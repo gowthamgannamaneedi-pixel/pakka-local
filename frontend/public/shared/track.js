@@ -29,11 +29,13 @@
   // called by the rider portal with the number of assigned, unfinished deliveries
   T.sync = (active) => { if (active > 0) { if (watchId === null && T.state !== 'denied' && T.state !== 'unsupported') T.start(); } else if (watchId !== null || T.state === 'denied') { T.stop(); } };
   let hiddenAt = 0;
+  // inside the Pakka Rider Android app (1.2+) a native service keeps sharing while the app is in the background
+  const nativeBg = () => !!(window.Capacitor?.isNativePlatform?.() && window.Capacitor.Plugins?.RiderNative);
   document.addEventListener('visibilitychange', () => { if (watchId === null) return; if (document.hidden) { hiddenAt = Date.now(); return; }
-    if (hiddenAt && Date.now() - hiddenAt > 20000) PL.toast('Location sharing was paused while this screen was off or in the background. Keep the app open during deliveries.', true);      /* never pretend it kept running */
+    if (hiddenAt && Date.now() - hiddenAt > 20000 && !nativeBg()) PL.toast('Location sharing was paused while this screen was off or in the background. Keep the app open during deliveries.', true);      /* never pretend it kept running */
     hiddenAt = 0; wakeOn(); flush(); });
   T.card = () => ({ off: '', starting: `<div class="banner info">Getting your location…</div>`,
-    sharing: `<div class="card flat row"><span style="color:var(--ok)">${PL.icon('pin')}</span><div class="grow"><b>Sharing live location</b><div class="small mute">Only during this delivery, and only while this screen is open and switched on. If you lock the phone, switch apps or close Chrome, sharing pauses and the customer sees your last position marked as old.</div></div></div>`,
+    sharing: `<div class="card flat row"><span style="color:var(--ok)">${PL.icon('pin')}</span><div class="grow"><b>Sharing live location</b><div class="small mute">${nativeBg() ? 'Only during this delivery. It keeps updating while you use Maps or lock the phone, as long as you stay online in Pakka Rider.' : 'Only during this delivery, and only while this screen is open and switched on. If you lock the phone, switch apps or close Chrome, sharing pauses and the customer sees your last position marked as old.'}</div></div></div>`,
     nofix: `<div class="banner warn">No GPS signal yet. Move to open sky and keep this screen on.</div>`, retrying: `<div class="banner warn">Can’t reach the server. Your location will resume when the connection is back.</div>`,
     denied: `<div class="banner bad">Location is blocked, so the customer can’t see where you are. Allow location for this site in Chrome settings, then tap <button class="btn sm" data-act="track-retry">Try again</button></div>`,
     unsupported: `<div class="banner bad">This browser cannot share location.</div>` }[T.state] || '');

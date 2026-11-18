@@ -24,6 +24,12 @@
 
         </activity>
 
+        <!-- Keeps offers, alerts and delivery location working while the rider is online and uses other apps -->
+        <service
+            android:name=".RiderService"
+            android:exported="false"
+            android:foregroundServiceType="location|dataSync" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -38,8 +44,18 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- Rider live location while the app is open (the rider portal shares GPS during deliveries). No background location. -->
+    <!-- Rider location: asked "while using the app". It keeps working in the background only through the visible
+         foreground service started while the app is open (no "allow all the time" permission is requested). -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- floating side icon over other apps (rider grants it in settings; optional) -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 </manifest>
