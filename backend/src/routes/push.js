@@ -33,7 +33,12 @@ export function pushRoutes(db) {
     db.prepare("INSERT INTO notifications (event_id,user_id,category,title,body,deep_link,kind) VALUES (?,?,'transactional','Pakka Local test','Notifications are working on this device.',?,'test')").run(`test:${req.user.id}:${Date.now()}`, req.user.id, link);
     res.status(202).json({ queued: true, devices });
   });
-  r.get('/devices', auth, (req, res) => res.json({ devices: db.prepare('SELECT id,device_label,created_at FROM push_subscriptions WHERE user_id=?').all(req.user.id) }));
+  // In-app notification centre for every portal: the caller's own notifications only (read-only, plus "mark all read").
+  r.get('/inbox', auth, (req, res) => res.json({
+    notifications: db.prepare('SELECT id,title,body,deep_link,kind,created_at,read_at FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 40').all(req.user.id),
+    unread: db.prepare('SELECT COUNT(*) FROM notifications WHERE user_id=? AND read_at IS NULL').pluck().get(req.user.id) }));
+  r.post('/inbox/read', lim, auth, (req, res) => { db.prepare('UPDATE notifications SET read_at=? WHERE user_id=? AND read_at IS NULL').run(new Date().toISOString(), req.user.id); res.json({ ok: true }); });
+  r.get('/devices', auth,(req, res) => res.json({ devices: db.prepare('SELECT id,device_label,created_at FROM push_subscriptions WHERE user_id=?').all(req.user.id) }));
   // click tracking: called by the service worker, authenticated by a signed per-notification token
   r.post('/click', lim, (req, res) => {
     const nid = Number(req.body?.nid);

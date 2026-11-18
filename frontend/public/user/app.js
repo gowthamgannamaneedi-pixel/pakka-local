@@ -17,7 +17,7 @@
   }
   PL.actions['to-login'] = () => {
     PL.$('#root').innerHTML = `<div class="loginbox"><img class="logo" src="/assets/logo.png" alt="Pakka Local"><h1 style="text-align:center">Welcome</h1><p class="mute" style="text-align:center">Sign in with your mobile number. We’ll send a one-time code on WhatsApp.</p>
-      <form data-form="otp-request"><label>Mobile number</label><input name="phone" inputmode="tel" autocomplete="tel" placeholder="98765 43210" required><button class="btn block mt" type="submit">Send code</button></form><div id="email-login"></div></div>`;
+      <form data-form="otp-request"><label for="c-ph">Mobile number</label><div class="field pre"><span>+91</span><input id="c-ph" name="phone" inputmode="tel" autocomplete="tel" placeholder="98765 43210" required></div><button class="btn block lg mt" type="submit">Send code</button></form><div id="email-login"></div></div>`;
     // STAGING ONLY: the server says whether allow-listed testers may sign in by e-mail (never on production)
     PL.api('/api/public/config').then((c) => { const el = PL.$('#email-login'); if (el && c?.emailLogin) el.innerHTML = `<div class="banner info small mt">Staging test login: approved testers can get the code by email instead.</div><button class="btn ghost block mt2" data-act="to-email-login">Use a test email</button>`; }).catch(() => {});
   };
@@ -30,8 +30,8 @@
   PL.forms['email-otp-request'] = async (f) => { const email = PL.form(f).email.trim().toLowerCase(); const r = await PL.run(() => PL.post('/api/auth/customer/email-otp/request', { email })); if (r) emailOtpView(email, r.resendAfterSec); };
   function emailOtpView(email, wait) {
     PL.$('#root').innerHTML = `<div class="loginbox"><img class="logo" src="/assets/logo.png" alt=""><h1 style="text-align:center">Check your email</h1><p class="mute" style="text-align:center">Code sent to ${e(email)}. Check spam too. It expires in 5 minutes.</p>
-      <form data-form="email-otp-verify" data-email="${e(email)}"><label>6-digit code</label><input name="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="\\d{6}" required>
-      <label>Your name (optional)</label><input name="name" autocomplete="name" maxlength="80"><button class="btn block mt" type="submit">Verify and continue</button></form>
+      <form data-form="email-otp-verify" data-email="${e(email)}"><label>6-digit code</label><input class="otp-in" placeholder="••••••" name="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="\\d{6}" required>
+      <label>Your name (optional)</label><input name="name" autocomplete="name" maxlength="80"><button class="btn block lg mt" type="submit">Verify and continue</button></form>
       <button class="btn ghost block mt" id="resend" data-act="email-resend" data-email="${e(email)}" disabled>Resend in ${wait}s</button><button class="btn ghost block mt2" data-act="to-email-login">Change email</button></div>`;
     let t = wait; const iv = setInterval(() => { const b = PL.$('#resend'); if (!b) return clearInterval(iv); t--; if (t <= 0) { b.disabled = false; b.textContent = 'Resend code'; clearInterval(iv); } else b.textContent = `Resend in ${t}s`; }, 1000);
   }
@@ -42,8 +42,8 @@
   PL.forms['otp-request'] = async (f) => { const phone = normPhone(PL.form(f).phone); const r = await PL.run(() => PL.post('/api/auth/customer/otp/request', { phone })); if (r) otpView(phone, r.resendAfterSec); };
   function otpView(phone, wait) {
     PL.$('#root').innerHTML = `<div class="loginbox"><img class="logo" src="/assets/logo.png" alt=""><h1 style="text-align:center">Enter your code</h1><p class="mute" style="text-align:center">Sent to ${e(phone)}</p>
-      <form data-form="otp-verify" data-phone="${e(phone)}"><label>6-digit code</label><input name="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="\\d{6}" required>
-      <label>Your name (optional)</label><input name="name" autocomplete="name" maxlength="80"><button class="btn block mt" type="submit">Verify and continue</button></form>
+      <form data-form="otp-verify" data-phone="${e(phone)}"><label>6-digit code</label><input class="otp-in" placeholder="••••••" name="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="\\d{6}" required>
+      <label>Your name (optional)</label><input name="name" autocomplete="name" maxlength="80"><button class="btn block lg mt" type="submit">Verify and continue</button></form>
       <button class="btn ghost block mt" id="resend" data-act="resend" data-phone="${e(phone)}" disabled>Resend in ${wait}s</button><button class="btn ghost block mt2" data-act="to-login">Change number</button></div>`;
     let t = wait; const iv = setInterval(() => { const b = PL.$('#resend'); if (!b) return clearInterval(iv); t--; if (t <= 0) { b.disabled = false; b.textContent = 'Resend code'; clearInterval(iv); } else b.textContent = `Resend in ${t}s`; }, 1000);
   }
@@ -74,7 +74,7 @@
   const noRiders = (c) => (c.ridersAvailable ? '' : `<div class="c-strip warn">${PL.icon('bike', 'width="18" height="18"')}<span>${e(c.noRiderMessage)}</span></div>`);
   // Home has its own orange header: hide the plain title bar there
   const homeMode = () => document.body.classList.toggle('c-home', /^#\/home(\?|$)|^#?$/.test(location.hash)); window.addEventListener('hashchange', homeMode); homeMode();
-  const restCard = (x) => `<button class="c-rest" data-act="go" data-path="/r/${x.id}" data-s="${e([x.name, x.cuisine].join(' ').toLowerCase())}" data-cu="${e((x.cuisine || '').toLowerCase())}">
+  const restCard = (x) => `<button class="c-rest" data-act="go" data-path="/r/${x.id}" data-s="${e([x.name, x.cuisine].join(' ').toLowerCase())}" data-cu="${e((x.cuisine || '').toLowerCase())}" data-open="${x.is_open ? 1 : 0}" data-r="${x.rating || 0}" data-eta="${parseInt(etaOf(x)) || 999}">
       <div class="c-cover" style="${x.image_path ? '' : tint(x.name)}">${x.image_path ? PL.img(x.image_path, '') : `<span class="em">${emo(x.cuisine, x.name)}</span>`}${etaOf(x) && x.is_open ? `<span class="c-eta">${etaOf(x)}</span>` : ''}${x.is_open ? '' : `<div class="c-closed"><span>Closed${x.reopen_at ? ` · opens ${PL.time(x.reopen_at)}` : ''}</span></div>`}</div>
       <div class="c-rb"><div class="nm"><h3>${e(x.name)}</h3>${rating(x)}</div>
         <div class="c-meta"><span>${e(x.cuisine || 'Local favourites')}</span>${x.rating_count ? `<span class="dot"></span><span>${x.rating_count} rating${x.rating_count > 1 ? 's' : ''}</span>` : ''}</div>
@@ -89,7 +89,7 @@
     const notes = [c.testPayments ? '<span class="c-note info"><i></i>Test mode · payments are simulated</span>' : '', c.paymentsAvailable === false ? '<span class="c-note warn"><i></i>Ordering opens soon · browse menus</span>' : '', !c.ridersAvailable ? '<span class="c-note warn"><i></i>No delivery partners online right now</span>' : ''].filter(Boolean).join('');
     const banners = [['b1', 'Hot food from kitchens next door', 'Order from local restaurants near your PG, hostel or college.', '🍲'], ['b2', 'Track your rider live', 'Watch your delivery partner on the map, right to your door.', '🛵'], ['b3', 'Pay online. No cash needed.', 'Simple checkout, clear bill. Every rupee shown upfront.', '🧾']];
     return `<div class="c-head"><div class="row" style="gap:10px"><button class="c-loc" data-act="go" data-path="/addresses"><span class="ic">${PL.icon('pin')}</span><span class="t"><b>${cur ? e(cur.kind === 'listed' ? cur.place_name || 'Selected place' : LBL[cur.label] || 'Home') : 'Set delivery location'}</b><span>${cur ? e(addrLine(cur)) : 'Choose your PG, hostel or college'}</span></span></button>
-        <button class="c-av" data-act="go" data-path="/me" aria-label="Account">${e((name || 'P').charAt(0).toUpperCase())}</button></div>
+        ${PL.inbox.btn()}<button class="c-av" data-act="go" data-path="/me" aria-label="Account">${e((name || 'P').charAt(0).toUpperCase())}</button></div>
         <label class="c-search">${PL.icon('search')}<input id="c-q" type="search" value="${e(S.q || '')}" placeholder="Search restaurants or cuisines" autocomplete="off" aria-label="Search restaurants or cuisines"></label>
         ${notes ? `<div class="c-notes">${notes}</div>` : ''}</div>
       ${active.length ? `<div class="${active.length > 1 ? 'c-chips c-lives' : ''}">` : ''}${active.map((o) => `<button class="c-live" data-act="go" data-path="/orders/${e(o.order_code)}"><span class="pulse">${PL.icon('bike')}</span><span class="t"><b>${e(SAY[o.status]?.[0] || o.status)}</b><span>${e(o.restaurant)}${o.eta_at ? ` · arriving by ${PL.time(o.eta_at)}` : ''}</span></span><span class="go">Track ›</span></button>`).join('')}${active.length ? '</div>' : ''}
@@ -98,20 +98,22 @@
       ${cuisines.length ? `<div class="c-sec lined"><h2>What’s on your mind?</h2></div><div class="c-chips" id="c-cu" style="gap:14px"><button class="c-cuis ${S.cu ? '' : 'on'}" data-act="cu" data-cu=""><span class="em">🍽️</span><span>All</span></button>${cuisines.map((x) => `<button class="c-cuis ${S.cu === x.toLowerCase() ? 'on' : ''}" data-act="cu" data-cu="${e(x.toLowerCase())}"><span class="em">${emo(x)}</span><span>${e(x)}</span></button>`).join('')}</div>` : ''}
       ${recent.length ? `<div class="c-sec"><h2>Order again</h2></div><div class="c-chips">${recent.map((o) => `<button class="c-again" data-act="go" data-path="/orders/${e(o.order_code)}"><span class="em" style="${tint(o.restaurant)}">${emo(o.summary, o.restaurant)}</span><span style="min-width:0"><b>${e(o.restaurant)}</b><span>${e(o.summary || '')}</span><span>${PL.dt(o.created_at)} · ${rs(o.total_paise)}</span></span></button>`).join('')}</div>` : ''}
       ${picks.length > 1 ? `<div class="c-sec"><h2>Top picks near you</h2></div><div class="c-chips">${picks.map((x) => `<button class="c-pick" data-act="go" data-path="/r/${x.id}"><span class="pc" style="${x.image_path ? '' : tint(x.name)}">${x.image_path ? PL.img(x.image_path, '') : emo(x.cuisine, x.name)}${etaOf(x) ? `<span class="c-eta">${etaOf(x)}</span>` : ''}</span><b>${e(x.name)}</b><span>${x.rating ? `★ ${Number(x.rating).toFixed(1)} · ` : ''}${e(x.cuisine || 'Local favourites')}</span></button>`).join('')}</div>` : ''}
-      <div class="c-sec lined"><h2>${r.restaurants.length} restaurant${r.restaurants.length === 1 ? '' : 's'} to explore</h2></div>
+      <div class="c-sec lined"><h2 id="c-count">${r.restaurants.length} restaurant${r.restaurants.length === 1 ? '' : 's'} to explore</h2></div>
+      ${r.restaurants.length > 1 ? `<div class="c-filters" id="c-fl" role="group" aria-label="Filter restaurants">${[['open', 'Open now'], ['r4', 'Rated 4.0+'], ['fast', 'Under 35 min']].map(([k, l]) => `<button class="c-fchip ${S.fl?.[k] ? 'on' : ''}" data-act="fl" data-k="${k}" aria-pressed="${!!S.fl?.[k]}">${l}</button>`).join('')}</div>` : ''}
       ${r.restaurants.length ? `<div class="c-rgrid" id="c-list">${r.restaurants.map(restCard).join('')}</div><div id="c-none" class="c-empty hide"><div class="em">🔍</div><b>No match</b>Try another name or cuisine.</div>` : '<div class="c-empty"><div class="em">🍽️</div><b>No restaurants yet</b>Kitchens near you will appear here soon.</div>'}`;
   }
   // search and cuisine filter work on the cards already on screen (no re-render, so typing never loses focus)
-  const filterHome = () => { const q = (PL.$('#c-q')?.value || '').trim().toLowerCase(), cu = S.cu || ''; let n = 0;
-    document.querySelectorAll('#c-list .c-rest').forEach((c) => { const ok = (!q || c.dataset.s.includes(q)) && (!cu || c.dataset.cu === cu); c.classList.toggle('hide', !ok); n += ok; });
-    PL.$('#c-none')?.classList.toggle('hide', n > 0); };
+  const filterHome = () => { const q = (PL.$('#c-q')?.value || '').trim().toLowerCase(), cu = S.cu || '', f = S.fl || {}; let n = 0, all = 0;
+    document.querySelectorAll('#c-list .c-rest').forEach((c) => { all++; const d = c.dataset; const ok = (!q || d.s.includes(q)) && (!cu || d.cu === cu) && (!f.open || d.open === '1') && (!f.r4 || Number(d.r) >= 4) && (!f.fast || Number(d.eta) <= 35); c.classList.toggle('hide', !ok); n += ok; });
+    PL.$('#c-none')?.classList.toggle('hide', n > 0); const h = PL.$('#c-count'); if (h) h.textContent = n === all ? `${all} restaurant${all === 1 ? '' : 's'} to explore` : `${n} of ${all} restaurant${all === 1 ? '' : 's'}`; };
+  PL.actions.fl = (el) => { S.fl = { ...(S.fl || {}), [el.dataset.k]: !S.fl?.[el.dataset.k] }; el.classList.toggle('on', S.fl[el.dataset.k]); el.setAttribute('aria-pressed', S.fl[el.dataset.k]); filterHome(); };
   document.addEventListener('input', (ev) => { if (ev.target.id === 'c-q') { S.q = ev.target.value; filterHome(); } });
   PL.actions.cu = (el) => { S.cu = el.dataset.cu; document.querySelectorAll('#c-cu .c-cuis').forEach((b) => b.classList.toggle('on', b === el)); filterHome(); };
   // ---------- menu ----------
   async function menu({ id }) {
     const [c, m] = await Promise.all([PL.api('/api/public/config'), PL.api(`/api/public/restaurants/${id}/menu`)]); const r = m.restaurant, inCart = (i) => (S.cart.rid === r.id && S.cart.items[i]?.qty) || 0;
     const addAttrs = (i) => `data-id="${i.id}" data-rid="${r.id}" data-rn="${e(r.name)}" data-n="${e(i.name)}" data-p="${i.price_paise}"`;
-    const dish = (i) => `<div class="c-dish ${i.available ? '' : 'na'}"><div class="tx"><h4>${e(i.name)}</h4><div class="pr">${rs(i.price_paise)}</div>
+    const dish = (i) => `<div class="c-dish ${i.available ? '' : 'na'}" data-s="${e([i.name, i.description].join(' ').toLowerCase())}"><div class="tx"><h4>${e(i.name)}</h4><div class="pr">${rs(i.price_paise)}</div>
         ${i.description ? `<div class="ds">${e(i.description)}</div>` : ''}<div class="fine">~${i.prep_time_min} min · restaurant ${rs(i.restaurant_price_paise)} + platform ${rs(i.price_paise - i.restaurant_price_paise)}</div></div>
       <div class="side"><div class="ph" style="${i.image_path ? '' : tint(i.name)}">${i.image_path ? PL.img(i.image_path, '') : emo(i.name, r.cuisine)}</div>
         ${!i.available ? '<span class="so">Sold out</span>' : !r.is_open ? '' : inCart(i.id) ? `<div class="c-step"><button data-act="dec" data-id="${i.id}" aria-label="Remove one">−</button><span>${inCart(i.id)}</span><button data-act="inc" ${addAttrs(i)} aria-label="Add one">+</button></div>` : `<button class="c-add" data-act="inc" ${addAttrs(i)}>ADD</button>`}</div></div>`;
@@ -125,9 +127,15 @@
         <div class="c-rstats"><div><b class="g">${r.rating ? '★ ' + Number(r.rating).toFixed(1) : 'New'}</b><span>${r.rating_count ? `${r.rating_count} rating${r.rating_count > 1 ? 's' : ''}` : 'No ratings yet'}</span></div>
           <div><b>${prep ? `${prep + (r.packing_buffer_min || 0)} min` : '–'}</b><span>Prep time</span></div><div><b>${r.is_open ? 'Open' : 'Closed'}</b><span>${r.is_open ? 'Ordering now' : 'Opens later'}</span></div></div>
         ${r.operating_info ? `<div class="c-meta" style="margin-top:10px">${e(r.operating_info)}</div>` : ''}${rules.length ? `<div class="c-rules">${rules.map((x) => `<span>${e(x)}</span>`).join('')}</div>` : ''}</div>
-      ${groups.map(([n, list]) => `<div class="c-cat">${e(n)}<span>${list.length} item${list.length > 1 ? 's' : ''}</span></div><div class="c-dishes">${list.map(dish).join('')}</div>`).join('') || '<div class="c-empty"><div class="em">📋</div><b>Menu coming soon</b>This kitchen hasn’t added dishes yet.</div>'}
+      ${m.items.length > 4 ? `<div class="c-mtools"><label class="c-search">${PL.icon('search')}<input id="m-q" type="search" value="${e(S.mq || '')}" placeholder="Search in ${e(r.name)}" autocomplete="off" aria-label="Search dishes"></label>${groups.length > 1 ? `<div class="c-jump">${groups.map(([n], gi) => `<button data-act="jump" data-i="${gi}">${e(n)}</button>`).join('')}</div>` : ''}</div>` : ''}
+      ${groups.map(([n, list], gi) => `<div class="c-cat" id="cat-${gi}">${e(n)}<span>${list.length} item${list.length > 1 ? 's' : ''}</span></div><div class="c-dishes" data-g="${gi}">${list.map(dish).join('')}</div>`).join('') || '<div class="c-empty"><div class="em">📋</div><b>Menu coming soon</b>This kitchen hasn’t added dishes yet.</div>'}
       ${inThis ? `<button class="c-bar" data-act="go" data-path="/cart"><span class="l"><b>${cartCount()} item${cartCount() > 1 ? 's' : ''} | ${rs(cartTotal())}</b><span>Extra charges may apply</span></span><span class="r">View cart ${PL.icon('cart', 'width="20" height="20"')}</span></button>` : ''}`;
   }
+  const filterMenu = () => { const q = (S.mq || '').trim().toLowerCase(); let n = 0;
+    document.querySelectorAll('.c-dishes').forEach((g) => { let k = 0; g.querySelectorAll('.c-dish').forEach((d) => { const ok = !q || d.dataset.s.includes(q); d.classList.toggle('hide', !ok); k += ok; }); g.classList.toggle('hide', !k); PL.$('#cat-' + g.dataset.g)?.classList.toggle('hide', !k); n += k; });
+    let none = PL.$('#m-none'); if (!q || n) none?.remove(); else if (!none) { none = document.createElement('div'); none.id = 'm-none'; none.className = 'c-empty mt'; none.innerHTML = '<div class="em">🔍</div><b>No dish matches</b>Try another name.'; PL.$('.c-mtools')?.after(none); } };
+  document.addEventListener('input', (ev) => { if (ev.target.id === 'm-q') { S.mq = ev.target.value; filterMenu(); } });
+  PL.actions.jump = (el) => { const t = PL.$('#cat-' + el.dataset.i); if (!t) return; const y = t.getBoundingClientRect().top + scrollY - 130; scrollTo({ top: y, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); };
   PL.actions.inc = async (el) => { const d = el.dataset, id = d.id;
     if (d.rid && S.cart.rid !== Number(d.rid) && cartCount() && !(await PL.confirm(`Start a new cart? Your cart has items from ${S.cart.rname}.`, 'Start new'))) return;
     if (d.rid && S.cart.rid !== Number(d.rid)) S.cart = { rid: Number(d.rid), rname: d.rn, items: {} };
@@ -193,7 +201,7 @@
   document.addEventListener('change', (ev) => { const t = ev.target;
     if (t.name === 'addr' && t.closest('.addr-pick')) { S.addrId = Number(t.value); save('pl.addr', S.addrId); S.confirmed = false; PL.rerender(); }      // picking an address keeps its method
     if (t.id === 'confirm-dest') { S.confirmed = t.checked; PL.rerender(); } });
-  PL.actions.place = async (el) => { if (!S.confirmed) return PL.toast('Confirm the delivery point first.', true); el.disabled = true;
+  PL.actions.place = async (el) => { if (!S.confirmed) return PL.toast('Confirm the delivery point first.', true); el.disabled = true; el.classList.add('busy');
     const r = await PL.run(() => PL.post('/api/customer/orders', { ...body(), confirm_destination: true })); if (r) { S.confirmed = false; PL.go('/pay/' + r.order_code, true); } else el.disabled = false; };
 
   // ---------- delivery addresses (GPS-first) ----------
@@ -278,11 +286,18 @@
   async function pay({ code }) {
     const o = await PL.api('/api/customer/orders/' + code); const c = await PL.api('/api/public/config');
     if (o.status !== 'PAYMENT_PENDING') return `<div class="empty">This order is already ${e(o.status.toLowerCase().replace('_', ' '))}.<br><button class="btn mt" data-act="go" data-path="/orders/${e(code)}">View order</button></div>`;
-    return `<div class="card"><h2>Complete payment</h2><p class="mute">Order ${e(code)}</p><div class="kv tot"><span>Amount</span><span class="num">${rs(o.total_paise)}</span></div></div>
-      ${c.testPayments ? `<div class="banner info">Test mode. This screen simulates the payment gateway. When PhonePe is connected, you’ll be redirected to PhonePe instead.</div><button class="btn green block" data-act="sbx" data-code="${e(code)}" data-ok="success">Simulate successful payment</button><button class="btn danger block mt2" data-act="sbx" data-code="${e(code)}" data-ok="fail">Simulate failed payment</button>` : '<div class="banner warn">Online payments are not available yet.</div>'}`;
+    return `<div class="c-pay"><span class="c-pay-ic">${PL.icon('shield')}</span><div class="small mute">Amount to pay</div><div class="c-pay-amt">${rs(o.total_paise)}</div><div class="small mute">${e(o.restaurant || '')} · Order ${e(code)}</div>
+        <div class="c-pay-lines">${o.items.map((i) => `<div class="kv small"><span>${i.qty} × ${e(i.name)}</span><span>${rs(i.price_paise * i.qty)}</span></div>`).join('')}<div class="kv small"><span>Delivery</span><span>${rs(o.delivery_paise)}</span></div></div></div>
+      ${c.testPayments ? `<div class="banner info">${PL.icon('info', 'width="16" height="16" style="vertical-align:-3px"')} Test mode. This screen stands in for the payment gateway; no real money moves. When PhonePe is connected you’ll go to PhonePe instead.</div><button class="btn green block lg" data-act="sbx" data-code="${e(code)}" data-ok="success">Simulate successful payment</button><button class="btn danger block mt2" data-act="sbx" data-code="${e(code)}" data-ok="fail">Simulate failed payment</button>` : '<div class="banner warn">Online payments are not available yet.</div>'}
+      <p class="small mute center mt">${PL.icon('shield', 'width="14" height="14" style="vertical-align:-2px"')} Online payment only. Cash on delivery is not available.</p>`;
   }
-  PL.actions.sbx = async (el) => { const ok = el.dataset.ok === 'success'; const r = await PL.run(() => PL.post(`/api/customer/payments/sandbox/${el.dataset.code}/complete`, { outcome: ok ? 'success' : 'fail' }));
-    if (!r) return; if (ok) { S.cart = { rid: null, rname: '', items: {} }; saveCart(); S.instr = ''; PL.toast('Payment confirmed'); PL.go('/orders/' + el.dataset.code, true); } else { PL.toast('Payment failed. Your cart is saved.', true); PL.go('/cart', true); } };
+  PL.actions.sbx = async (el) => { const ok = el.dataset.ok === 'success'; document.querySelectorAll('[data-act=sbx]').forEach((b) => { b.disabled = true; }); el.classList.add('busy');
+    const r = await PL.run(() => PL.post(`/api/customer/payments/sandbox/${el.dataset.code}/complete`, { outcome: ok ? 'success' : 'fail' }));
+    if (!r) { document.querySelectorAll('[data-act=sbx]').forEach((b) => { b.disabled = false; b.classList.remove('busy'); }); return; }
+    // the animation follows the server's answer, never the button pressed
+    const st = (await PL.api('/api/customer/orders/' + el.dataset.code).catch(() => ({}))).status, paid = !!st && !['PAYMENT_PENDING', 'PAYMENT_FAILED', 'EXPIRED'].includes(st);
+    if (paid) { S.cart = { rid: null, rname: '', items: {} }; saveCart(); S.instr = ''; S.seen[el.dataset.code] = st; await PL.celebrate({ title: 'Payment successful', sub: 'Order placed. We’ve sent it to the restaurant.' }); PL.go('/orders/' + el.dataset.code, true); }
+    else { await PL.celebrate({ ok: false, title: 'Payment failed', sub: 'No order was placed. Your cart is saved, so you can try again.', ms: 2600 }); PL.go('/cart', true); } };
 
   // ---------- orders ----------
   async function orders() { const { orders } = await PL.api('/api/customer/orders'); const act = orders.filter((o) => ACTIVE.includes(o.status)), past = orders.filter((o) => !ACTIVE.includes(o.status));
@@ -292,13 +307,16 @@
     return `${act.length ? `<div class="c-sec" style="margin-top:4px"><h2>On the way</h2></div>${act.map((o) => `<button class="c-live" style="margin:0 0 12px" data-act="go" data-path="/orders/${e(o.order_code)}"><span class="pulse">${PL.icon('bike')}</span><span class="t"><b>${e(SAY[o.status]?.[0] || o.status)}</b><span>${e(o.restaurant)}${o.eta_at ? ` · arriving by ${PL.time(o.eta_at)}` : ''}</span></span><span class="go">Track ›</span></button>`).join('')}` : ''}
       ${past.length ? `<div class="c-sec"${act.length ? '' : ' style="margin-top:4px"'}><h2>Past orders</h2><span>${past.length}</span></div>${past.map(row).join('')}` : ''}`; }
   const STAGES = [['PAYMENT_SUCCESS', 'Order Placed'], ['RESTAURANT_ACCEPTED', 'Restaurant Accepted'], ['PREPARING_STARTED', 'Preparing'], ['FOOD_READY', 'Ready for Pickup'], ['PICKED_UP', 'Rider Picked Up'], ['DELIVERED', 'Delivered']];
+  const STEM = { PAYMENT_PENDING: '💳', PLACED: '🧾', ACCEPTED: '👍', PREPARING: '👨‍🍳', READY: '📦', PICKED_UP: '🛵', DELIVERED: '✅', REJECTED: '😕', CANCELLED: '✖️', PAYMENT_FAILED: '⚠️', EXPIRED: '⌛' };
+  S.seen = {};
   const IDX = { PLACED: 0, ACCEPTED: 1, PREPARING: 2, READY: 3, PICKED_UP: 4, DELIVERED: 5 };
   async function track({ code }) {
     const o = await PL.api('/api/customer/orders/' + code); const at = Object.fromEntries(o.events.map((x) => [x.event_type, x.created_at])); const cur = IDX[o.status] ?? -1; const dead = ['REJECTED', 'CANCELLED', 'PAYMENT_FAILED', 'EXPIRED', 'PAYMENT_PENDING'].includes(o.status);
     const tl = dead ? '' : `<ul class="tl">${STAGES.map(([ev, label], i) => { const done = i < cur || (i === cur && o.status === 'DELIVERED'); return `<li class="${done ? 'done' : i === cur ? 'cur' : ''}"><span class="dot">${done ? PL.icon('check') : ''}</span><b>${label}</b><span class="small mute">${at[ev] ? PL.time(at[ev]) : done ? '' : i === cur ? 'In progress' : ''}</span></li>`; }).join('')}</ul>`;
     const banner = o.status === 'CANCELLED' ? `<div class="banner bad">This order was cancelled. ${e(o.rejection_reason || '')} ${o.refund ? 'Refund: ' : ''}${o.refund ? PL.chip(o.refund) : ''}</div>` : o.status === 'REJECTED' ? `<div class="banner bad">The restaurant couldn’t take this order: ${e(o.rejection_reason || '')}. ${o.refund ? 'Refund: ' + PL.chip(o.refund) : ''}</div>` : o.status === 'PAYMENT_PENDING' ? `<div class="banner warn">Payment is pending.<br><button class="btn sm mt2" data-act="go" data-path="/pay/${e(code)}">Complete payment</button></div>` : o.status === 'PAYMENT_FAILED' || o.status === 'EXPIRED' ? '<div class="banner bad">Payment was not completed. No order was placed.</div>' : '';
-    const say = SAY[o.status] || [o.status, ''];
-    return `<div class="card hero st-${e(o.status)}"><div class="row between"><div class="grow"><div class="small">${e(o.restaurant)}</div><h2>${e(say[0])}</h2><div class="small">${e(say[1])}</div></div>${o.eta_at && !dead && o.status !== 'DELIVERED' ? `<div class="eta-box"><div class="small">Arriving by</div><b>${PL.time(o.eta_at)}</b></div>` : ''}</div>${dead ? '' : steps(o.status)}<div class="small mt2 row between"><span>Order ${PL.code(o.order_code)}</span></div></div>${banner}
+    const say = SAY[o.status] || [o.status, ''], prev = S.seen[code], changed = prev && prev !== o.status; S.seen[code] = o.status;
+    if (changed) { PL.inbox.load(); if (o.status === 'DELIVERED') setTimeout(() => PL.celebrate({ title: 'Order delivered', sub: 'Enjoy your meal! Tap the stars below to rate it.', ms: 2400 }), 50); }
+    return `<div class="card hero st-${e(o.status)} ${changed ? 'just' : ''}"><div class="row between"><span class="hero-em" aria-hidden="true">${STEM[o.status] || '🧾'}</span><div class="grow"><div class="small">${e(o.restaurant)}</div><h2>${e(say[0])}</h2><div class="small">${e(say[1])}</div></div>${o.eta_at && !dead && o.status !== 'DELIVERED' ? `<div class="eta-box"><div class="small">Arriving by</div><b>${PL.time(o.eta_at)}</b></div>` : ''}</div>${dead ? '' : steps(o.status)}<div class="small mt2 row between"><span>Order ${PL.code(o.order_code)}</span></div></div>${banner}
       ${o.delivery_otp ? `<div class="card"><div class="small mute">Share this code with your delivery partner at your door</div><div class="otp mt2">${e(o.delivery_otp)}</div></div>` : ''}
       ${PL.track.customerCard(o)}
       ${o.rider ? `<div class="card"><div class="sec" style="margin-top:0">Your delivery partner</div><div class="row"><img class="thumb" style="border-radius:50%" alt="" data-authimg="/api/files/order-rider-photo/${e(code)}"><div class="grow"><b>${e(o.rider.name)}</b><div class="small mute">${e(o.rider.vehicle_category || '')} ${e([o.rider.vehicle_make, o.rider.vehicle_model].filter(Boolean).join(' '))}</div><div class="code" style="font-size:1.1rem">${e(o.rider.vehicle_reg_no || '')}</div></div><a class="btn sm" href="tel:${e(o.rider.phone)}">${PL.icon('phone', 'width="18" height="18"')} Call</a></div></div>` : ''}
@@ -325,6 +343,6 @@
   PL.start({ portal: 'user', name: 'Pakka Local', home: '/home', loginView,
     tabs: [{ path: '/home', label: 'Home', icon: 'home' }, { path: '/orders', label: 'Orders', icon: 'orders' }, { path: '/me', label: 'Account', icon: 'user' }],
     onReady: () => { const tick = async () => { try { const { orders } = await PL.api('/api/customer/orders'); PL.badge('/orders', orders.filter((o) => ACTIVE.includes(o.status)).length); } catch {} }; tick(); const iv = setInterval(tick, 10000); PL.hooks.stop = [() => clearInterval(iv)]; },
-    routes: { '/home': { title: 'Pakka Local', render: home, poll: 6000, after: () => filterHome() }, '/r/:id': { title: 'Menu', render: menu, poll: 8000 }, '/cart': { title: 'Your cart', render: cart, poll: 8000 }, '/pay/:code': { title: 'Payment', render: pay, noNav: true },
-      '/orders': { title: 'My orders', render: orders, poll: 5000 }, '/orders/:code': { title: 'Order', render: track, poll: 2000, after: () => PL.track.customerMount() }, '/me': { title: 'Account', render: account }, '/addresses': { title: 'Delivery addresses', render: addresses }, '/places': { title: 'Find your place', render: placesView }, '/addresses/:id': { title: 'Delivery address', render: addressForm } } });
+    routes: { '/home': { title: 'Pakka Local', render: home, poll: 6000, after: () => filterHome(), skel: 'cards' }, '/r/:id': { title: 'Menu', render: menu, poll: 8000, after: () => filterMenu(), skel: 'menu' }, '/cart': { title: 'Your cart', render: cart, poll: 8000, skel: 'detail' }, '/pay/:code': { title: 'Payment', render: pay, noNav: true, skel: 'detail' },
+      '/orders': { title: 'My orders', render: orders, poll: 5000 }, '/orders/:code': { title: 'Order', render: track, poll: 2000, skel: 'detail', after: () => PL.track.customerMount() }, '/me': { title: 'Account', render: account }, '/addresses': { title: 'Delivery addresses', render: addresses }, '/places': { title: 'Find your place', render: placesView }, '/addresses/:id': { title: 'Delivery address', render: addressForm } } });
 })();
