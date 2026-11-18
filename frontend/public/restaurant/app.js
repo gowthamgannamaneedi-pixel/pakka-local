@@ -41,7 +41,8 @@
   const mmss = (s) => (s >= 3600 ? `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min` : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`);
   function paintTimers() { const now = Date.now() + (S.skew || 0);
     document.querySelectorAll('[data-placed]').forEach((el) => { const waited = Math.max(0, Math.floor((now - Date.parse(el.dataset.placed)) / 1000));
-      if (!S.timeout) { el.className = 'timer'; el.innerHTML = `${PL.icon('clock', 'width="16" height="16"')} Waiting ${waited < 60 ? 'less than a minute' : Math.floor(waited / 60) + ' min'}`; return; }
+      if (!S.timeout) { el.className = 'timer'; const m = Math.floor(waited / 60), long = m >= 1440 ? `${Math.floor(m / 1440)} d ${Math.floor((m % 1440) / 60)} h` : m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`;
+        el.innerHTML = `${PL.icon('clock', 'width="16" height="16"')} Waiting ${waited < 60 ? 'less than a minute' : long}`; el.classList.toggle('over', m >= 30); return; }
       const left = S.timeout - waited, pct = Math.max(0, Math.min(100, (left / S.timeout) * 100));
       el.className = 'timer ' + (left <= 0 ? 'over' : left <= 60 ? 'soon' : '');
       el.innerHTML = left > 0 ? `<span>${PL.icon('clock', 'width="16" height="16"')} Respond within <b>${mmss(left)}</b></span><i style="width:${pct}%"></i>` : `<span>${PL.icon('clock', 'width="16" height="16"')} Response time passed ${mmss(-left)} ago. Accept or reject now.</span>`; }); }
