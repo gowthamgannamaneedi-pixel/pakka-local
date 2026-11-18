@@ -609,5 +609,10 @@ CREATE TABLE email_otp_challenges (
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 CREATE INDEX idx_email_otp ON email_otp_challenges(email, created_at);`
+  },
+  {
+    // Optional diet mark per dish, set by the restaurant (veg / nonveg / egg). NULL = not set, so no mark is shown. Display only.
+    id: 'p8_001_food_diet',
+    sql: `ALTER TABLE food_items ADD COLUMN diet TEXT CHECK (diet IS NULL OR diet IN ('veg','nonveg','egg'));`
   }
 ];

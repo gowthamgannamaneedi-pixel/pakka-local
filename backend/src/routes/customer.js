@@ -24,12 +24,14 @@ export function publicRoutes(db) {
   r.get('/locations', (req, res) => res.json({ locations: db.prepare('SELECT id,name,kind,address,area,delivery_fee_paise,distance_km FROM delivery_locations WHERE active=1 ORDER BY name').all() }));
   r.get('/restaurants', (req, res) => { reopenDue(db);
     res.json({ restaurants: db.prepare(`SELECT r.id,r.name,r.description,r.cuisine,r.logo_path,r.image_path,r.rating,r.packing_buffer_min, COALESCE(s.is_open,0) AS is_open, s.reopen_at, s.reopen_mode,
-      (SELECT MIN(prep_time_min) FROM food_items f WHERE f.restaurant_id=r.id AND f.deleted=0) AS min_prep, (SELECT CAST(AVG(prep_time_min) AS INTEGER) FROM food_items f WHERE f.restaurant_id=r.id AND f.deleted=0 AND f.available=1) AS avg_prep, r.rating_count, r.operating_info, r.min_order_paise, r.free_delivery_above_paise FROM restaurants r LEFT JOIN restaurant_operating_status s ON s.restaurant_id=r.id
+      (SELECT MIN(prep_time_min) FROM food_items f WHERE f.restaurant_id=r.id AND f.deleted=0) AS min_prep, (SELECT CAST(AVG(prep_time_min) AS INTEGER) FROM food_items f WHERE f.restaurant_id=r.id AND f.deleted=0 AND f.available=1) AS avg_prep, r.rating_count, r.operating_info, r.min_order_paise, r.free_delivery_above_paise,
+      (SELECT substr(group_concat(f.name, ' | '), 1, 600) FROM food_items f WHERE f.restaurant_id=r.id AND f.deleted=0 AND f.available=1) AS dish_names,
+      (SELECT COUNT(*) > 0 AND SUM(f.diet = 'veg') = COUNT(*) FROM food_items f WHERE f.restaurant_id=r.id AND f.deleted=0 AND f.available=1) AS veg_only FROM restaurants r LEFT JOIN restaurant_operating_status s ON s.restaurant_id=r.id
       WHERE r.approved=1 AND r.admin_visible=1 ORDER BY is_open DESC, r.name`).all().map((x) => ({ ...x, eta_min: x.avg_prep ? x.avg_prep + x.packing_buffer_min + Number(getSetting(db, 'rider_to_restaurant_min')) + Number(getSetting(db, 'default_delivery_min')) : null })) }); });
   r.get('/restaurants/:id/menu', (req, res) => {
     const rest = db.prepare('SELECT r.id,r.name,r.description,r.cuisine,r.logo_path,r.image_path,r.markup_paise,r.operating_info,r.min_order_paise,r.free_delivery_above_paise,r.rating,r.rating_count,COALESCE(s.is_open,0) AS is_open FROM restaurants r LEFT JOIN restaurant_operating_status s ON s.restaurant_id=r.id WHERE r.id=? AND r.approved=1 AND r.admin_visible=1').get(req.params.id);
     if (!rest) return res.status(404).json({ error: 'Restaurant not found.' });
-    const items = db.prepare('SELECT id,name,description,image_path,base_price_paise,prep_time_min,available,category_id FROM food_items WHERE restaurant_id=? AND deleted=0 AND NOT (available=0 AND image_path IS NULL) ORDER BY name').all(rest.id)
+    const items = db.prepare('SELECT id,name,description,image_path,base_price_paise,prep_time_min,available,category_id,diet FROM food_items WHERE restaurant_id=? AND deleted=0 AND NOT (available=0 AND image_path IS NULL) ORDER BY name').all(rest.id)
       .map(i => ({ ...i, restaurant_price_paise: i.base_price_paise, price_paise: i.base_price_paise + rest.markup_paise, base_price_paise: undefined }));
     const categories = db.prepare('SELECT id,name FROM food_categories WHERE restaurant_id=? ORDER BY sort_order, name').all(rest.id);
     res.json({ restaurant: { ...rest, markup_paise: undefined }, items, categories });
@@ -72,7 +74,7 @@ export function customerRoutes(db) {
     const ok = req.body?.outcome === 'success';
     send(res, settlePayment(db, o.order_code, ok ? 'SUCCESS' : 'FAILED', `SBX-${Date.now()}`, { sandbox: true }));
   }));
-  r.get('/orders', (req, res) => res.json({ orders: db.prepare(`SELECT o.order_code,o.status,o.total_paise,o.created_at,o.eta_at,r.name AS restaurant,r.logo_path,
+  r.get('/orders', (req, res) => res.json({ orders: db.prepare(`SELECT o.order_code,o.status,o.total_paise,o.created_at,o.eta_at,r.name AS restaurant,r.logo_path,r.image_path AS restaurant_image,
       (SELECT group_concat(qty || ' × ' || name, ', ') FROM order_items i WHERE i.order_id=o.id) AS summary FROM orders o JOIN restaurants r ON r.id=o.restaurant_id
     WHERE o.customer_id=? ORDER BY o.id DESC LIMIT 50`).all(req.user.id) }));
   r.get('/orders/:code', (req, res) => {
@@ -83,7 +85,7 @@ export function customerRoutes(db) {
         lat: o.dest_lat, lng: o.dest_lng, accuracy_m: o.dest_accuracy_m, captured_at: o.dest_captured_at },          // the customer's own order only
       items_base_paise: o.items_base_paise, markup_paise: o.markup_paise, delivery_paise: o.delivery_paise, surge_paise: o.surge_paise, tax_paise: o.tax_paise, total_paise: o.total_paise, rejection_reason: o.rejection_reason };
     out.items = db.prepare('SELECT name,qty,customer_price_paise AS price_paise FROM order_items WHERE order_id=?').all(o.id);
-    out.events = db.prepare("SELECT event_type,created_at FROM order_events WHERE order_id=? AND event_type IN ('PAYMENT_SUCCESS','RESTAURANT_ACCEPTED','PREPARING_STARTED','FOOD_READY','PICKED_UP','DELIVERED','RESTAURANT_REJECTED') ORDER BY id").all(o.id);
+    out.events = db.prepare("SELECT event_type,created_at FROM order_events WHERE order_id=? AND event_type IN ('PAYMENT_SUCCESS','RESTAURANT_ACCEPTED','PREPARING_STARTED','FOOD_READY','PICKED_UP','DELIVERED','RESTAURANT_REJECTED','RIDER_ACCEPTED') ORDER BY id").all(o.id);
     out.payment = db.prepare('SELECT status FROM payments WHERE order_id=?').pluck().get(o.id);
     out.refund = db.prepare('SELECT status FROM refunds WHERE order_id=?').pluck().get(o.id) || null;
     out.rating = db.prepare('SELECT stars FROM order_ratings WHERE order_id=?').pluck().get(o.id) || null;
