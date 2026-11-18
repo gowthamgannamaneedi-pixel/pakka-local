@@ -5,13 +5,14 @@
   const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
   const u8 = (b64) => { const p = '='.repeat((4 - (b64.length % 4)) % 4), r = atob((b64 + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from([...r].map((c) => c.charCodeAt(0))); };
   const label = () => (/Android/.test(navigator.userAgent) ? 'Android' : ios ? 'iPhone/iPad' : /Windows/.test(navigator.userAgent) ? 'Windows' : /Mac/.test(navigator.userAgent) ? 'Mac' : 'Browser') + (standalone ? ' app' : '');
-  const reg = () => navigator.serviceWorker.ready;
+  // never wait forever: if the service worker can't start (blocked, private mode, some WebViews), fail after 4 s instead of hanging sign-out
+  const reg = () => Promise.race([navigator.serviceWorker.ready, new Promise((_, no) => setTimeout(() => no(new Error('Notifications are not available in this browser right now.')), 4000))]);
   const P = (PL.push = {
     async refresh() {
       if (!supported) S.push = ios && !standalone ? 'ios-install' : 'unsupported';
       else if (ios && !standalone) S.push = 'ios-install';
       else if (Notification.permission === 'denied') S.push = 'denied';
-      else { const sub = await (await reg()).pushManager.getSubscription(); S.push = sub && Notification.permission === 'granted' ? 'on' : 'off'; }
+      else { try { const sub = await (await reg()).pushManager.getSubscription(); S.push = sub && Notification.permission === 'granted' ? 'on' : 'off'; } catch { S.push = 'unsupported'; } }
       return S.push;
     },
     async enable() {
