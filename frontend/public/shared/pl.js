@@ -287,13 +287,13 @@
     const s = PL.session(), who = s?.user?.name || '';
     root.innerHTML = `<header class="top" id="top"><button class="back" data-act="back" aria-label="Back">${PL.icon('chev', 'class="flip"')}<span>Back</span></button><div class="title"></div><div class="side"><div class="row" id="side" style="gap:4px">${cfg.right ? cfg.right() : ''}</div>${PL.inbox.btn()}</div></header>
       <div class="shell"><main id="view"></main></div>
-      <nav class="bottom" id="nav" aria-label="Main">${cfg.tabs.map((t) => `<button data-act="nav" data-path="${t.path}">${PL.icon(t.icon)}<span>${e(t.label)}</span><i class="badge hide" id="bd-${t.path.slice(1)}"></i></button>`).join('')}
+      <nav class="bottom" id="nav" aria-label="Main">${cfg.tabs.map((t) => `${t.group ? `<span class="nav-h">${e(t.group)}</span>` : ''}<button data-act="nav" data-path="${t.path}" class="${t.desk ? 'desk' : t.mobile ? 'mob' : ''}">${PL.icon(t.icon)}<span>${e(t.label)}</span><i class="badge hide" id="bd-${t.path.slice(1)}"></i></button>`).join('')}
         <div class="nav-foot"><span class="nav-av">${e((who || cfg.name).trim().charAt(0).toUpperCase())}</span><span class="grow"><b>${e(who || cfg.name)}</b><small>${e(cfg.name)} portal</small></span><button class="iconbtn" data-act="logout" aria-label="Sign out" title="Sign out">${PL.icon('logout')}</button></div></nav>`;
     view = PL.$('#view'); idx = (history.state && history.state.idx) || 0;
     history.replaceState({ idx }, '', location.hash || '#' + cfg.home);
     cfg.onReady && cfg.onReady(); render(); PL.push && PL.push.boot(); PL.inbox.start();
   };
-  PL.badge = (path, n) => { const b = PL.$('#bd-' + path.slice(1)); if (b) { b.textContent = n; b.classList.toggle('hide', !n); } };
+  PL.badge = (path, n) => { const b = PL.$('#bd-' + path.slice(1)); if (b) { if (b.textContent !== String(n)) { b.textContent = n; b.style.animation = 'none'; void b.offsetWidth; b.style.animation = ''; } b.classList.toggle('hide', !n); } };
 
   // Staff login (restaurant / rider / admin): accounts are created by an admin, no sign-up.
   PL.staffLogin = (root, { title, blurb }) => {

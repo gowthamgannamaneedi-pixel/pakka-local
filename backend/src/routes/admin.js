@@ -97,6 +97,17 @@ export function adminRoutes(db) {
   // orders
   r.get('/orders', (req, res) => res.json({ orders: db.prepare(`SELECT o.order_code,o.status,o.total_paise,o.created_at,r.name AS restaurant,o.customer_name FROM orders o JOIN restaurants r ON r.id=o.restaurant_id
     ${req.query.status ? 'WHERE o.status=?' : 'WHERE o.status NOT IN (\'PAYMENT_PENDING\')'} ORDER BY o.id DESC LIMIT 100`).all(...(req.query.status ? [String(req.query.status)] : [])) }));
+  // Read-only customer directory for the admin portal (no actions; order totals count delivered orders only).
+  r.get('/customers', (req, res) => {
+    const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 60) : '';
+    res.json({ total: db.prepare("SELECT COUNT(*) FROM users WHERE role='customer'").pluck().get(),
+      customers: db.prepare(`SELECT u.id,u.name,u.phone,u.active,u.created_at,
+        (SELECT COUNT(*) FROM orders o WHERE o.customer_id=u.id AND o.status NOT IN ('PAYMENT_PENDING','PAYMENT_FAILED','EXPIRED')) AS orders,
+        (SELECT COUNT(*) FROM orders o WHERE o.customer_id=u.id AND o.status='DELIVERED') AS delivered,
+        (SELECT COALESCE(SUM(o.total_paise),0) FROM orders o WHERE o.customer_id=u.id AND o.status='DELIVERED') AS spent_paise,
+        (SELECT MAX(o.created_at) FROM orders o WHERE o.customer_id=u.id) AS last_order_at
+        FROM users u WHERE u.role='customer' ${q ? 'AND (u.name LIKE ? OR u.phone LIKE ?)' : ''} ORDER BY u.id DESC LIMIT 200`).all(...(q ? [`%${q}%`, `%${q}%`] : [])) });
+  });
   r.get('/orders/search/:code', (req, res) => {
     const o = db.prepare('SELECT * FROM orders WHERE order_code=?').get(String(req.params.code).trim().toUpperCase());
     if (!o) return res.status(404).json({ error: 'No order found with that ID.' });

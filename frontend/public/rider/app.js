@@ -1,7 +1,7 @@
 (function () {
   const e = PL.esc, rs = PL.rs, S = PL.state; S.dismissed = new Set(); S.me = null;
 
-  const detail = (o, full) => `<div class="row between"><div>${PL.code(o.order_code)}</div><span class="price" style="color:var(--ok)">${rs(o.fee_paise)}</span></div>
+  const detail = (o, full) => `<div class="row between"><div>${PL.code(o.order_code)}</div><span class="d-fee">${rs(o.fee_paise)}<small>you earn</small></span></div>
     <div class="small mute">${o.distance_km ? o.distance_km + ' km · ' : ''}${o.eta_at ? 'Customer expects ~' + PL.time(o.eta_at) : ''}</div>
     <div class="sec">Pickup</div><b>${e(o.restaurant.name)}</b><div class="small">${e(o.restaurant.address || '')}</div><div class="row wrap mt2">${PL.mapsBtn(o.restaurant.maps_link, 'Map')}${o.restaurant.phone ? `<a class="btn ghost sm" href="tel:${e(o.restaurant.phone)}">${PL.icon('phone', 'width="18" height="18"')} Call</a>` : ''}</div>
     <div class="sec">Items</div>${o.items.map((i) => `<div class="kv"><span>${i.qty} × ${e(i.name)}</span></div>`).join('')}
@@ -25,7 +25,7 @@
   // Every open offer stays in the queue and in "Available offers" on the Deliveries tab; the queue only changes which one is shown.
   let curId = null, collapsed = false;
   const setAlertSpace = (box) => document.documentElement.style.setProperty('--alert-h', box.classList.contains('hide') ? '0px' : box.offsetHeight + 'px');
-  const brief = (o) => `<div class="row between mt2 wrap">${PL.code(o.order_code)}<b class="price" style="color:var(--ok)">${rs(o.fee_paise)}</b></div>
+  const brief = (o) => `<div class="row between mt2 wrap">${PL.code(o.order_code)}<span class="d-fee">${rs(o.fee_paise)}<small>you earn</small></span></div>
     <div class="small mute">${o.distance_km ? o.distance_km + ' km · ' : ''}${o.eta_at ? 'Customer expects ~' + PL.time(o.eta_at) : ''}</div>
     <div class="rq-items"><div class="kv"><span class="mute small">Pickup</span><span class="right"><b>${e(o.restaurant.name)}</b><br><span class="small">${e(o.restaurant.address || '')}</span></span></div>
     <div class="kv"><span class="mute small">Drop-off</span><span class="right small">${e(o.destination.text || '')}</span></div>
@@ -35,6 +35,7 @@
     let d; try { d = await PL.api('/api/rider/offers'); } catch { return; }
     S.last = d; PL.track?.sync?.(d.active.length);      // share location only while a delivery is assigned
     const offers = d.offers.filter((o) => !S.dismissed.has(o.id)); PL.badge('/jobs', d.active.length + offers.length);
+    if (S.prevN != null && offers.length > S.prevN) { try { navigator.vibrate?.([250, 120, 250, 120, 250]); } catch {} } S.prevN = offers.length;
     const box = PL.$('#alerts'); if (!box) return;
     box.classList.add('rq');
     let i = offers.findIndex((o) => o.id === curId); if (i < 0) i = 0;
@@ -70,7 +71,7 @@
   // ---------- online switch ----------
   const sw = () => (S.me && !S.me.can_take_orders ? '' : `<button class="sw ${S.me?.is_online ? 'on' : ''}" id="onl" data-act="online" aria-label="Online or offline"><span>${S.me?.is_online ? 'Online' : 'Offline'}</span><i></i></button>`);
   async function refreshMe() { try { S.me = (await PL.api('/api/rider/me')).rider; const s = PL.$('#side'); if (s) s.innerHTML = sw() + `<button class="iconbtn" data-act="sound-toggle" aria-label="Alert sound">${PL.icon(PL.sound.enabled() && PL.sound.unlocked ? 'sound' : 'mute')}</button>`; } catch {} }
-  PL.actions.online = async () => { const on = !S.me?.is_online; if (on && !PL.sound.unlocked) await PL.sound.enable(); const r = await PL.run(() => PL.post('/api/rider/online', { online: on }), on ? 'You are online' : 'You are offline'); await refreshMe(); if (r) PL.rerender(); };
+  PL.actions.online = async (el) => { el?.classList.add('busy'); const on = !S.me?.is_online; if (on && !PL.sound.unlocked) await PL.sound.enable(); const r = await PL.run(() => PL.post('/api/rider/online', { online: on }), on ? 'You are online' : 'You are offline'); await refreshMe(); if (r) PL.rerender(); };
 
   // ---------- deliveries ----------
   async function jobs() {
@@ -79,15 +80,25 @@
       <p class="small mt2">${{ draft: `Finish your application to start delivering.${me.missing_count ? ` ${me.missing_count} item${me.missing_count > 1 ? 's' : ''} still needed.` : ''}`, pending: 'Pakka Local is checking your application. You cannot receive deliveries until it is approved.', corrections_requested: 'Pakka Local asked you to correct some details.', reverification_required: 'Please update your application. You can finish deliveries you already have, but you will not get new ones until it is approved.', rejected: 'Your application was not approved.', suspended: 'Your account is suspended. Contact Pakka Local.' }[vs] || ''}</p>
       ${['draft', 'corrections_requested', 'reverification_required'].includes(vs) ? '<button class="btn sm mt2" data-act="go" data-path="/profile">Continue my application</button>' : vs === 'pending' ? '<button class="btn ghost sm mt2" data-act="go" data-path="/profile">View my application</button>' : ''}</div>` : !me.is_online ? '<div class="banner info">You are offline. Switch Online (top right) to receive delivery offers.</div>' : '';
     const offers = d.offers.filter((o) => !S.dismissed.has(o.id) && !act.find((a) => a.id === o.id));
-    return `${gate}${act.length ? (PL.track?.card?.() || '') : ''}${S.push === 'on' ? '' : (PL.push?.card?.('rider') || '')}${act.map((o) => `<div class="card" style="border-color:var(--brand)"><div class="row between"><b>Active delivery</b>${PL.chip(o.status)}</div>${detail(o)}
+    act.forEach((o) => { S.fee[o.id] = o.fee_paise; });
+    const today = await earnToday(), can = me.can_take_orders !== false && vs === 'approved';
+    const hero = can ? `<div class="d-hero ${me.is_online ? 'on' : ''}"><div class="grow"><span class="d-state"><i></i>${me.is_online ? 'You’re online' : 'You’re offline'}</span><div class="small">${me.is_online ? (act.length ? 'Finish your delivery. New offers keep arriving.' : 'Waiting for delivery offers near you.') : 'Go online to start receiving delivery offers.'}</div></div>
+        <button class="d-go" data-act="online" aria-pressed="${!!me.is_online}">${me.is_online ? 'Go offline' : 'Go online'}</button></div>
+      <div class="d-kpis"><div><b>${today ? rs(today.today_paise) : '–'}</b><span>Earned today</span></div><div><b>${today ? rs(today.week_paise) : '–'}</b><span>Last 7 days</span></div><div><b>${act.length}</b><span>Active now</span></div></div>` : '';
+    const stepOf = (st) => (st === 'PICKED_UP' ? 2 : st === 'READY' ? 1 : 0);
+    const track = (o) => `<ol class="d-steps">${['Go to restaurant', 'Collect order', 'Deliver to customer'].map((l, i) => `<li class="${i < stepOf(o.status) ? 'done' : i === stepOf(o.status) ? 'cur' : ''}"><span>${i < stepOf(o.status) ? PL.icon('check') : i + 1}</span>${l}</li>`).join('')}</ol>`;
+    return `${gate}${hero}${act.length ? (PL.track?.card?.() || '') : ''}${S.push === 'on' ? '' : (PL.push?.card?.('rider') || '')}${act.map((o) => `<div class="card d-active"><div class="row between"><b class="d-title">Active delivery</b>${PL.chip(o.status)}</div>${track(o)}${detail(o)}
       ${o.status === 'ACCEPTED' || o.status === 'PREPARING' ? '<div class="banner info mt" style="margin-bottom:0">The restaurant is still preparing. You’ll get the pickup code when it’s ready.</div>' : ''}
-      ${o.status === 'READY' ? `<form data-form="pickup" data-id="${o.id}" class="mt"><label>Pickup code from the restaurant</label><input name="otp" inputmode="numeric" maxlength="4" pattern="\\d{4}" required autocomplete="off"><button class="btn block mt2" type="submit">Confirm pickup</button></form>` : ''}
-      ${o.status === 'PICKED_UP' ? `<form data-form="deliver" data-id="${o.id}" class="mt"><label>Delivery code from the customer</label><input name="otp" inputmode="numeric" maxlength="8" pattern="\\d{4,8}" required autocomplete="off"><button class="btn block mt2" type="submit">Complete delivery</button></form>` : ''}</div>`).join('')}
+      ${o.status === 'READY' ? `<form data-form="pickup" data-id="${o.id}" class="mt d-code"><label>Pickup code from the restaurant</label><input class="otp-in" name="otp" inputmode="numeric" maxlength="4" pattern="\\d{4}" placeholder="••••" required autocomplete="off"><button class="btn block lg mt2" type="submit">${PL.icon('box')} Confirm pickup</button></form>` : ''}
+      ${o.status === 'PICKED_UP' ? `<form data-form="deliver" data-id="${o.id}" class="mt d-code"><label>Delivery code from the customer</label><input class="otp-in" name="otp" inputmode="numeric" maxlength="8" pattern="\\d{4,8}" placeholder="••••" required autocomplete="off"><button class="btn green block lg mt2" type="submit">${PL.icon('check')} Complete delivery</button></form>` : ''}</div>`).join('')}
       ${offers.length ? `<div class="sec">Available offers</div>${offers.map((o) => `<div class="card">${detail(o)}<div class="row mt2"><button class="btn ghost grow" data-act="dismiss" data-id="${o.id}">Not now</button><button class="btn grow" data-act="claim" data-id="${o.id}">Accept</button></div></div>`).join('')}` : ''}
-      ${!act.length && !offers.length ? `<div class="empty">${me.is_online ? 'Waiting for delivery offers…<br><span class="small">Keep this screen open for alerts.</span>' : 'No active deliveries.'}</div>` : ''}`;
+      ${!act.length && !offers.length ? `<div class="empty">${me.is_online ? `<span class="d-radar" aria-hidden="true">${PL.icon('bike')}</span><b>Looking for deliveries…</b><span class="small">Keep this screen open. New offers ring and appear here.</span>` : `${PL.icon('bike', 'width="36" height="36"')}<b>No active deliveries</b>`}</div>` : ''}`;
   }
   PL.forms.pickup = async (f) => { const r = await PL.run(() => PL.post(`/api/rider/orders/${f.dataset.id}/pickup`, { otp: PL.form(f).otp }), 'Pickup confirmed'); if (r) PL.rerender(); };
-  PL.forms.deliver = async (f) => { const r = await PL.run(() => PL.post(`/api/rider/orders/${f.dataset.id}/deliver`, { otp: PL.form(f).otp }), 'Delivered. Earnings added'); if (r) PL.rerender(); };
+  PL.forms.deliver = async (f) => { const r = await PL.run(() => PL.post(`/api/rider/orders/${f.dataset.id}/deliver`, { otp: PL.form(f).otp })); if (!r) return; S.et = null;
+    await PL.celebrate({ title: 'Delivered!', sub: S.fee[f.dataset.id] ? `${rs(S.fee[f.dataset.id])} added to your earnings.` : 'Earnings added to your balance.' }); PL.rerender(); };
+  S.fee = {};
+  const earnToday = async () => { if (!S.et || Date.now() - S.et.t > 30000) { try { S.et = { t: Date.now(), d: await PL.api('/api/rider/earnings') }; } catch { S.et = S.et || { t: Date.now(), d: null }; } } return S.et.d; };
 
 
   // deep link target for offer notifications: shows the offer only if it is still genuinely available to this rider
@@ -99,7 +110,9 @@
 
   // ---------- earnings ----------
   async function earnings() { const d = await PL.api('/api/rider/earnings');
-    return `${PL.balanceCards(d.balance, `<div class="stat"><div class="v">${rs(d.today_paise)}</div><div class="l">Today</div></div><div class="stat"><div class="v">${rs(d.week_paise)}</div><div class="l">Last 7 days</div></div><div class="stat"><div class="v">${d.completed_count}</div><div class="l">Completed deliveries</div></div>`)}
+    return `<div class="e-hero"><span>Earned today</span><b>${rs(d.today_paise)}</b><div class="e-sub"><span>Last 7 days <b>${rs(d.week_paise)}</b></span><span><b>${d.completed_count}</b> deliveries completed</span></div></div>
+      <div class="card flat small"><b>How payouts work</b><div class="mute mt2">Request a cashout from your available balance. Pakka Local reviews each request and pays it to your UPI or bank account; the payment reference and proof appear below once it is paid.</div></div>
+      ${PL.balanceCards(d.balance)}
       <button class="btn block mt" data-act="cashout-new" data-ep="/api/rider/cashouts" data-methods="${e(d.methods.join(','))}" data-avail="${d.balance.available}" ${d.balance.available < 100 ? 'disabled' : ''}>Request cashout</button><div class="sec">Cashouts</div>${PL.cashoutList(d.cashouts)}
       <div class="sec">Completed deliveries</div>${d.deliveries.map((x) => `<div class="card row between"><div>${PL.code(x.order_code)}<div class="small mute">${PL.dt(x.created_at)}</div></div><b>${rs(x.amount_paise)}</b></div>`).join('') || '<div class="empty">No deliveries yet.</div>'}`; }
 
@@ -186,5 +199,5 @@
     right: () => '',
     tabs: [{ path: '/jobs', label: 'Deliveries', icon: 'bike' }, { path: '/earnings', label: 'Earnings', icon: 'wallet' }, { path: '/profile', label: 'Account', icon: 'user' }],
     onReady: () => { refreshMe(); tick(); const a = setInterval(tick, 1000), b = setInterval(refreshMe, 15000); PL.hooks.stop = [() => { PL.track.stop(); clearInterval(a); clearInterval(b); const x = PL.$('#alerts'); if (x) { x.innerHTML = ''; x.dataset.h = ''; x.classList.add('hide'); setAlertSpace(x); } }]; },
-    routes: { '/jobs': { title: 'Deliveries', render: jobs, poll: 2000 }, '/job/:id': { title: 'Delivery', render: oneJob, poll: 2000 }, '/earnings': { title: 'Earnings', render: earnings, poll: 6000 }, '/profile': { title: 'My application', render: profile }, '/profile/:step': { title: 'My application', render: profile } } });
+    routes: { '/jobs': { title: 'Deliveries', render: jobs, poll: 2000, skel: 'dash' }, '/job/:id': { title: 'Delivery', render: oneJob, poll: 2000 }, '/earnings': { title: 'Earnings', render: earnings, poll: 6000, skel: 'dash' }, '/profile': { title: 'My application', render: profile }, '/profile/:step': { title: 'My application', render: profile } } });
 })();
