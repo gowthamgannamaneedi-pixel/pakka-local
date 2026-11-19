@@ -2,15 +2,24 @@ import crypto from 'node:crypto';
 import webpush from 'web-push';
 import { config } from '../config.js';
 import { iso, getSetting } from './core.js';
+import { loadFcm, fcmEnabled, sendFcm } from './fcm.js';
 
 // ---- sender abstraction: Web Push today; FCM / desktop adapters can implement the same (subscription, payload) interface ----
-let sender = null;
-export const pushEnabled = () => !!sender;
-export const setPushSender = (fn) => { sender = fn; };
+// Each device has a channel: 'webpush' (browsers / installed web app) or 'fcm' (Pakka Rider Android app).
+let web = null, override = null;
 if (config.vapid.publicKey && config.vapid.privateKey) {
   webpush.setVapidDetails(config.vapid.subject, config.vapid.publicKey, config.vapid.privateKey);
-  sender = (sub, payload) => webpush.sendNotification({ endpoint: sub.endpoint, keys: JSON.parse(sub.keys_json) }, payload, { TTL: 3600, urgency: 'high' });
+  web = (sub, payload) => webpush.sendNotification({ endpoint: sub.endpoint, keys: JSON.parse(sub.keys_json) }, payload, { TTL: 3600, urgency: 'high' });
 }
+loadFcm(config.fcmFile);
+export const pushEnabled = () => !!(override || web || fcmEnabled());
+export const webPushEnabled = () => !!(override || web);
+export const setPushSender = (fn) => { override = fn; };
+const sender = (sub, payload) => {
+  if (override) return override(sub, payload);
+  if (sub.channel === 'fcm') { if (!fcmEnabled()) { const e = new Error('fcm off'); e.statusCode = 503; throw e; } return sendFcm(sub, payload); }
+  if (!web) { const e = new Error('webpush off'); e.statusCode = 503; throw e; } return web(sub, payload);
+};
 const clickToken = (nid) => crypto.createHmac('sha256', config.jwtSecret).update(`click:${nid}`).digest('hex').slice(0, 24);
 export const verifyClick = (nid, t) => typeof t === 'string' && t.length === 24 && crypto.timingSafeEqual(Buffer.from(t), Buffer.from(clickToken(nid)));
 
@@ -30,7 +39,7 @@ const payloadFor = (db, n) => JSON.stringify({ title: n.title, body: n.body, url
 
 // Fan out new notifications to each registered device, then send due deliveries (batched, with retry + cleanup).
 export async function dispatchPush(db) {
-  if (!sender) return { sent: 0 };
+  if (!pushEnabled()) return { sent: 0 };
   db.transaction(() => {
     for (const n of db.prepare("SELECT * FROM notifications WHERE push_state='pending' ORDER BY id LIMIT 300").all()) {
       let state = 'done';
@@ -42,7 +51,7 @@ export async function dispatchPush(db) {
       db.prepare('UPDATE notifications SET push_state=? WHERE id=?').run(state, n.id);
     }
   })();
-  const due = db.prepare(`SELECT d.id AS did, d.attempts, d.subscription_id, s.endpoint, s.keys_json, n.* FROM push_deliveries d JOIN notifications n ON n.id=d.notification_id
+  const due = db.prepare(`SELECT d.id AS did, d.attempts, d.subscription_id, s.endpoint, s.keys_json, s.channel, n.* FROM push_deliveries d JOIN notifications n ON n.id=d.notification_id
     LEFT JOIN push_subscriptions s ON s.id=d.subscription_id WHERE d.status='pending' AND (d.next_attempt_at IS NULL OR d.next_attempt_at<=?) ORDER BY d.id LIMIT 100`).all(iso());
   let sent = 0;
   // Several app processes may share this database (Hostinger runs one per hostname, e.g. with and without www).

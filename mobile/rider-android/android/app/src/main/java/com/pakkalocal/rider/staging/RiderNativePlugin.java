@@ -33,6 +33,17 @@ public class RiderNativePlugin extends Plugin {
     @PluginMethod
     public void getStatus(PluginCall call) { call.resolve(status()); }
 
+    /** This phone's Firebase token (null until Firebase is set up). The page registers it with the server for the signed-in rider. */
+    @PluginMethod
+    public void getPushToken(PluginCall call) {
+        JSObject o = new JSObject(); o.put("enabled", PakkaFcmService.available(getContext()));
+        if (!PakkaFcmService.available(getContext())) { call.resolve(o); return; }
+        com.google.firebase.messaging.FirebaseMessaging.getInstance().getToken().addOnCompleteListener((t) -> {
+            if (t.isSuccessful() && t.getResult() != null) o.put("token", t.getResult());
+            call.resolve(o);
+        });
+    }
+
     @PluginMethod
     public void openSettings(PluginCall call) {
         String what = call.getString("what", "app");
@@ -72,6 +83,7 @@ public class RiderNativePlugin extends Plugin {
         o.put("locationPermission", Gates.hasLocationPermission(getContext()));
         o.put("maker", Build.MANUFACTURER == null ? "" : Build.MANUFACTURER.toLowerCase());
         o.put("sdk", Build.VERSION.SDK_INT);
+        o.put("push", PakkaFcmService.available(getContext()));
         return o;
     }
 }

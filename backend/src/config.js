@@ -78,6 +78,7 @@ export const config = {
   // OSRM_API_KEY: sent as X-Routing-Key when the engine sits behind a reverse proxy on another server (OSRM itself has no login).
   routing: { osrmUrl: (env.OSRM_URL || '').trim(), profile: env.OSRM_PROFILE || 'driving', timeoutMs: Number(env.OSRM_TIMEOUT_MS || 3000), apiKey: (env.OSRM_API_KEY || '').trim() },
   serveFrontend: env.SERVE_FRONTEND === 'true' || (!isProd && !isTest),
+  fcmFile: env.FCM_SERVICE_ACCOUNT_FILE || (secretsDir ? path.join(secretsDir, 'fcm-service-account.json') : ''),
   vapid: { publicKey: env.VAPID_PUBLIC_KEY, privateKey: env.VAPID_PRIVATE_KEY, subject: env.VAPID_SUBJECT || 'mailto:admin@pakkalocal.example' },
   publicApiUrl: (env.PUBLIC_API_URL || '').replace(/\/$/, ''),
   otpProvider: isTest ? 'test' : (env.OTP_PROVIDER || 'whatsapp'),

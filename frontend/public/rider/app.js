@@ -6,6 +6,7 @@
   // In a normal browser there is no native side and nothing happens.
   const RN = () => (window.Capacitor?.isNativePlatform?.() && window.Capacitor.Plugins?.RiderNative) || null;
   let nsig = '';
+  PL.hooks.beforeLogout = async () => { if (S.fcmTok) { await PL.post('/api/push/fcm/remove', { token: S.fcmTok }).catch(() => {}); S.fcmTok = S.fcmSent = null; } };      // this phone stops getting this rider's pushes
   // "Background check" (app only): what the phone allows, with a button to fix each item. Read from Android, nothing is guessed.
   const MAKERS = { xiaomi: 'Xiaomi / Redmi / POCO', redmi: 'Redmi', poco: 'POCO', oppo: 'OPPO', realme: 'realme', oneplus: 'OnePlus', vivo: 'vivo', iqoo: 'iQOO', huawei: 'Huawei', honor: 'Honor', samsung: 'Samsung', motorola: 'Motorola', infinix: 'Infinix', tecno: 'TECNO' };
   let bgAt = 0;
@@ -30,7 +31,8 @@
   document.addEventListener('visibilitychange', () => { if (!document.hidden) setTimeout(() => bgCheck(true), 600); });
   const nativeSync = (force) => { const p = RN(); if (!p) return; const s = PL.session(); const online = !!S.me?.is_online, active = S.last?.active?.length || 0, tok = s?.token || '';
     const sig = [online, active, tok].join('|'); if (sig === nsig && !force) return; nsig = sig;
-    p.sync({ online, active, token: tok, api: location.origin }).catch(() => {}); };
+    p.sync({ online, active, token: tok, api: location.origin }).catch(() => {});
+    if (tok && p.getPushToken) p.getPushToken().then((r) => { if (r?.token && S.fcmSent !== r.token + tok) PL.post('/api/push/fcm', { token: r.token, label: 'Pakka Rider app' }).then(() => { S.fcmSent = r.token + tok; S.fcmTok = r.token; }).catch(() => {}); }).catch(() => {}); };
 
   const detail = (o, full) => `<div class="row between"><div>${PL.code(o.order_code)}</div><span class="d-fee">${rs(o.fee_paise)}<small>you earn</small></span></div>
     <div class="small mute">${o.distance_km ? o.distance_km + ' km · ' : ''}${o.eta_at ? 'Customer expects ~' + PL.time(o.eta_at) : ''}</div>
@@ -102,7 +104,22 @@
   // ---------- online switch ----------
   const sw = () => (S.me && !S.me.can_take_orders ? '' : `<button class="sw ${S.me?.is_online ? 'on' : ''}" id="onl" data-act="online" aria-label="Online or offline"><span>${S.me?.is_online ? 'Online' : 'Offline'}</span><i></i></button>`);
   async function refreshMe() { try { S.me = (await PL.api('/api/rider/me')).rider; const s = PL.$('#side'); if (s) s.innerHTML = sw(); nativeSync(); } catch {} }
-  PL.actions.online = async (el) => { el?.classList.add('busy'); const on = !S.me?.is_online; if (on && !PL.sound.unlocked) await PL.sound.enable(); const r = await PL.run(() => PL.post('/api/rider/online', { online: on }), on ? 'You are online' : 'You are offline'); await refreshMe(); if (r) PL.rerender(); };
+  // Location must be allowed before going online (and staying online): a rider who cannot share location is never shown as available.
+  // App: read from Android. Browser: the Permissions API, then one real location request. Returns null when OK, else what to fix.
+  const locProblem = async (ask) => { const p = RN();
+    if (p) { try { const s = await p.getStatus(); if (!s.locationOn) return ['Turn on Location', 'Your phone’s Location (GPS) is off. Turn it on in quick settings, then go online.', 'location']; if (!s.locationPermission) return ['Allow location', 'Pakka Rider needs location permission (“Allow all the time” is best) to show you offers and share delivery progress.', 'location']; } catch {} return null; }
+    if (!navigator.geolocation) return ['Location not available', 'This browser cannot share location. Use the Pakka Rider app or Chrome.', null];
+    try { const st = (await navigator.permissions?.query({ name: 'geolocation' }))?.state; if (st === 'denied') return ['Location is blocked', 'Allow location for this site: tap the lock icon next to the web address → Permissions → Location → Allow, then try again.', null]; if (st === 'granted' || !ask) return null; } catch { if (!ask) return null; }
+    return new Promise((ok) => navigator.geolocation.getCurrentPosition(() => ok(null), (er) => ok(er.code === 1 ? ['Location is blocked', 'You chose not to share location. Allow it to go online.', null] : null), { timeout: 12000, maximumAge: 60000 })); };
+  const locGuide = ([t, why, w]) => PL.modal(`<div class="cf bad"><span class="cf-ic">${PL.icon('pin')}</span><h3>${e(t)}</h3><p class="small mute">${e(why)}</p></div>${w && RN() ? `<button class="btn block mt" data-act="loc-fix" data-w="${w}">Open settings</button>` : ''}<button class="btn ghost block mt2" data-act="close-modal">OK</button>`);
+  PL.actions['loc-fix'] = async (el) => { PL.closeModal(); await RN()?.openSettings({ what: el.dataset.w }).catch(() => {}); };
+  // while online: if location is switched off or blocked, go offline (with a clear message) instead of looking available
+  const locWatch = async () => { if (!PL.session() || !S.me?.is_online || S.locBusy) return; S.locBusy = true;
+    try { const bad = await locProblem(false); if (bad && S.me?.is_online && !(S.last?.active?.length)) { await PL.post('/api/rider/online', { online: false }).catch(() => {}); await refreshMe(); PL.rerender(); locGuide([`${bad[0]} — you are offline`, bad[1], bad[2]]); } } finally { S.locBusy = false; } };
+  setInterval(locWatch, 20000);
+  PL.actions.online = async (el) => { el?.classList.add('busy'); const on = !S.me?.is_online;
+    if (on) { const bad = await locProblem(true); if (bad) { el?.classList.remove('busy'); return locGuide(bad); } }
+    if (on && !PL.sound.unlocked) await PL.sound.enable(); const r = await PL.run(() => PL.post('/api/rider/online', { online: on }), on ? 'You are online' : 'You are offline'); await refreshMe(); if (r) PL.rerender(); };
 
   // ---------- deliveries ----------
   async function jobs() {
@@ -118,7 +135,7 @@
       <div class="d-kpis"><div><b>${today ? rs(today.today_paise) : '–'}</b><span>Earned today</span></div><div><b>${today ? rs(today.week_paise) : '–'}</b><span>Last 7 days</span></div><div><b>${act.length}</b><span>Active now</span></div></div>` : '';
     const stepOf = (st) => (st === 'PICKED_UP' ? 2 : st === 'READY' ? 1 : 0);
     const track = (o) => `<ol class="d-steps">${['Go to restaurant', 'Collect order', 'Deliver to customer'].map((l, i) => `<li class="${i < stepOf(o.status) ? 'done' : i === stepOf(o.status) ? 'cur' : ''}"><span>${i < stepOf(o.status) ? PL.icon('check') : i + 1}</span>${l}</li>`).join('')}</ol>`;
-    return `${gate}${hero}${RN() ? `<div id="bgcheck">${S.bgHtml || ''}</div>` : ''}${act.length ? (PL.track?.card?.() || '') : ''}${S.push === 'on' || RN() ? '' : (PL.push?.card?.('rider') || '')}${act.map((o) => `<div class="card d-active"><div class="row between"><b class="d-title">Active delivery</b>${PL.chip(o.status)}</div>${track(o)}${detail(o)}
+    return `${gate}${hero}${RN() ? `<div id="bgcheck">${S.bgHtml || ''}</div>` : ''}${act.length ? (PL.track?.card?.() || '') : ''}${S.push === 'on' || RN() ? '' : (PL.push?.card?.('rider') || '')}${act.map((o) => `<div class="card d-active"><div class="row between"><b class="d-title">Active delivery</b>${PL.chip(o.status)}</div>${track(o)}${detail(o)}${chatBtn(o.id, o.unread_messages)}
       ${o.status === 'ACCEPTED' || o.status === 'PREPARING' ? '<div class="banner info mt" style="margin-bottom:0">The restaurant is still preparing. You’ll get the pickup code when it’s ready.</div>' : ''}
       ${o.status === 'READY' ? `<form data-form="pickup" data-id="${o.id}" class="mt d-code"><label>Pickup code from the restaurant</label><input class="otp-in" name="otp" inputmode="numeric" maxlength="4" pattern="\\d{4}" placeholder="••••" required autocomplete="off"><button class="btn block lg mt2" type="submit">${PL.icon('box')} Confirm pickup</button></form>` : ''}
       ${o.status === 'PICKED_UP' ? `<form data-form="deliver" data-id="${o.id}" class="mt d-code"><label>Delivery code from the customer</label><input class="otp-in" name="otp" inputmode="numeric" maxlength="8" pattern="\\d{4,8}" placeholder="••••" required autocomplete="off"><button class="btn green block lg mt2" type="submit">${PL.icon('check')} Complete delivery</button></form>` : ''}</div>`).join('')}
@@ -132,10 +149,12 @@
   const earnToday = async () => { if (!S.et || Date.now() - S.et.t > 30000) { try { S.et = { t: Date.now(), d: await PL.api('/api/rider/earnings') }; } catch { S.et = S.et || { t: Date.now(), d: null }; } } return S.et.d; };
 
 
+  const chatBtn = (id, n) => `<button class="btn ghost block mt2 r-chat" data-act="rchat" data-id="${id}">${PL.icon('chat', 'width="18" height="18"')} ${n ? `<b>${n} new message${n > 1 ? 's' : ''}</b>` : 'Message customer'}</button>`;
+  PL.actions.rchat = (el) => PL.chat.open(`/api/rider/orders/${el.dataset.id}/messages`, 'Customer', 'Only you and this customer can see these messages.');
   // deep link target for offer notifications: shows the offer only if it is still genuinely available to this rider
   async function oneJob({ id }) {
     let d; try { d = await PL.api('/api/rider/orders/' + id); } catch { return '<div class="empty">This delivery is no longer available.<br><button class="btn mt" data-act="go" data-path="/jobs">See my deliveries</button></div>'; }
-    const o = d.order; if (d.mine) return `<div class="card" style="border-color:var(--brand)"><div class="row between"><b>Your delivery</b>${PL.chip(o.status)}</div>${detail(o)}<button class="btn block mt" data-act="go" data-path="/jobs">Open delivery steps</button></div>`;
+    const o = d.order; if (d.mine) return `<div class="card" style="border-color:var(--brand)"><div class="row between"><b>Your delivery</b>${PL.chip(o.status)}</div>${detail(o)}${d.chat ? chatBtn(o.id, d.chat.unread) : ''}<button class="btn block mt" data-act="go" data-path="/jobs">Open delivery steps</button></div>`;
     return `<div class="card">${detail(o)}<div class="row mt2"><button class="btn ghost grow" data-act="dismiss" data-id="${o.id}">Not now</button><button class="btn grow" data-act="claim" data-id="${o.id}">Accept</button></div></div>`;
   }
 
@@ -229,6 +248,6 @@
   PL.start({ portal: 'rider', name: 'Rider', home: '/jobs', loginView: (root) => PL.staffLogin(root, { title: 'Delivery partner', blurb: 'Sign in with the account Pakka Local created for you.' }),
     right: () => '',
     tabs: [{ path: '/jobs', label: 'Deliveries', icon: 'bike' }, { path: '/earnings', label: 'Earnings', icon: 'wallet' }, { path: '/profile', label: 'Account', icon: 'user' }],
-    onReady: () => { refreshMe(); tick(); const a = setInterval(tick, 1000), b = setInterval(refreshMe, 15000); PL.hooks.stop = [() => { nsig = ''; RN()?.sync({ online: false, active: 0, token: '', api: '' }).catch(() => {}); PL.track.stop(); clearInterval(a); clearInterval(b); const x = PL.$('#alerts'); if (x) { x.innerHTML = ''; x.dataset.h = ''; x.classList.add('hide'); setAlertSpace(x); } }]; },
+    onReady: () => { refreshMe(); tick(); const a = setInterval(tick, 1000), b = setInterval(refreshMe, 15000); PL.hooks.stop = [() => { nsig = ''; RN()?.sync({ online: false, active: 0, token: '', api: '' }).catch(() => {}); S.fcmSent = null; PL.track.stop(); clearInterval(a); clearInterval(b); const x = PL.$('#alerts'); if (x) { x.innerHTML = ''; x.dataset.h = ''; x.classList.add('hide'); setAlertSpace(x); } }]; },
     routes: { '/jobs': { title: 'Deliveries', render: jobs, poll: 2000, skel: 'dash' }, '/job/:id': { title: 'Delivery', render: oneJob, poll: 2000 }, '/earnings': { title: 'Earnings', render: earnings, poll: 6000, skel: 'dash' }, '/profile': { title: 'My application', render: profile }, '/profile/:step': { title: 'My application', render: profile } } });
 })();

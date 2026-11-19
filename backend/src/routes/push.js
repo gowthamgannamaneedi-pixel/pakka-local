@@ -3,13 +3,29 @@ import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { authenticate } from '../auth.js';
 import { config } from '../config.js';
-import { pushEnabled, verifyClick } from '../services/push.js';
+import { pushEnabled, webPushEnabled, verifyClick } from '../services/push.js';
+import { fcmEnabled } from '../services/fcm.js';
 import { parse } from './util.js';
 
 export function pushRoutes(db) {
   const r = Router(), auth = authenticate(db);
   const lim = rateLimit({ windowMs: 60_000, max: config.isTest ? 1000 : 30, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests.' } });
-  r.get('/key', (req, res) => res.json({ enabled: pushEnabled(), publicKey: pushEnabled() ? config.vapid.publicKey || null : null }));
+  r.get('/key', (req, res) => res.json({ enabled: webPushEnabled(), publicKey: webPushEnabled() ? config.vapid.publicKey || null : null, fcm: fcmEnabled() }));
+  // Pakka Rider Android app: register / remove this phone's Firebase token for the signed-in account (max 8 devices per account).
+  r.post('/fcm', lim, auth, (req, res) => {
+    const d = parse(z.object({ token: z.string().min(20).max(4096).regex(/^[\w:.\-]+$/), label: z.string().max(60).optional() }), req, res); if (!d) return;
+    db.transaction(() => {
+      db.prepare(`INSERT INTO push_subscriptions (user_id,channel,endpoint,keys_json,device_label) VALUES (?,'fcm',?,'{}',?)
+        ON CONFLICT(endpoint) DO UPDATE SET user_id=excluded.user_id, channel='fcm', device_label=excluded.device_label, failures=0`).run(req.user.id, d.token, d.label ?? 'Android app');
+      const extra = db.prepare('SELECT id FROM push_subscriptions WHERE user_id=? ORDER BY id DESC LIMIT -1 OFFSET 8').pluck().all(req.user.id);
+      for (const id of extra) db.prepare('DELETE FROM push_subscriptions WHERE id=?').run(id);
+    })();
+    res.status(201).json({ ok: true, enabled: fcmEnabled() });
+  });
+  r.post('/fcm/remove', lim, auth, (req, res) => {
+    const d = parse(z.object({ token: z.string().max(4096) }), req, res); if (!d) return;
+    db.prepare("DELETE FROM push_subscriptions WHERE endpoint=? AND user_id=? AND channel='fcm'").run(d.token, req.user.id); res.json({ ok: true });
+  });
   r.post('/subscribe', lim, auth, (req, res) => {
     const d = parse(z.object({ endpoint: z.string().url().max(600).startsWith('https://'), keys: z.object({ p256dh: z.string().min(10).max(200), auth: z.string().min(6).max(100) }), label: z.string().max(60).optional() }), req, res); if (!d) return;
     db.transaction(() => {

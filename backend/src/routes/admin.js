@@ -12,6 +12,9 @@ import { send, parse, wrap, wrapA, money } from './util.js';
 import { newSecret, encrypt, decrypt, verifyTotp, otpauthUri } from '../totp.js';
 import { audienceUsers, campaignStats, processCampaigns } from '../services/push.js';
 import { saveUpload } from '../services/core.js';
+import { USERNAME_RE } from './auth.js';
+import * as Coupons from '../services/coupons.js';
+import * as Refunds from '../services/refunds.js';
 
 const IST = 330 * 60_000;
 const dayStart = (offset = 0) => { const t = Date.now() + IST; return new Date(Math.floor(t / 864e5) * 864e5 + offset * 864e5 - IST).toISOString(); };
@@ -52,18 +55,18 @@ export function adminRoutes(db) {
     const [from, to] = range(req.query), live = (s) => one('SELECT COUNT(*) FROM orders WHERE status=?', s);
     const plat = (kinds) => one(`SELECT SUM(amount_paise) FROM platform_transactions WHERE account_type='platform' AND kind IN (${kinds.map(() => '?').join(',')}) AND created_at>=? AND created_at<?`, ...kinds, from, to);
     const collected = one("SELECT SUM(total_paise) FROM orders WHERE status='DELIVERED' AND updated_at>=? AND updated_at<?", from, to);
-    const revenue = plat(['markup', 'commission', 'delivery_margin', 'surge']);
+    const revenue = plat(['markup', 'commission', 'delivery_margin', 'surge', 'coupon']);
     const gateway = Math.round(collected * Number(getSetting(db, 'gateway_fee_bps')) / 10000);
     const refunds = one("SELECT SUM(amount_paise) FROM refunds WHERE created_at>=? AND created_at<?", from, to);
     const liab = (t) => one("SELECT SUM(amount_paise) FROM platform_transactions WHERE account_type=?", t);
-    const dayRev = (a, b) => one("SELECT SUM(amount_paise) FROM platform_transactions WHERE account_type='platform' AND kind IN ('markup','commission','delivery_margin','surge') AND created_at>=? AND created_at<?", a, b);
+    const dayRev = (a, b) => one("SELECT SUM(amount_paise) FROM platform_transactions WHERE account_type='platform' AND kind IN ('markup','commission','delivery_margin','surge','coupon') AND created_at>=? AND created_at<?", a, b);
     const expenses = one('SELECT SUM(amount_paise) FROM operating_expenses WHERE spent_on>=? AND spent_on<=?', new Date(Date.parse(from) + IST).toISOString().slice(0, 10), new Date(Date.parse(to) + IST - 1).toISOString().slice(0, 10));
     const day = (col) => `substr(datetime(${col}, '+330 minutes'), 1, 10)`;
-    const rev = Object.fromEntries(db.prepare(`SELECT ${day('created_at')} AS d, SUM(amount_paise) AS v FROM platform_transactions WHERE account_type='platform' AND kind IN ('markup','commission','delivery_margin','surge') AND created_at>=? AND created_at<? GROUP BY d`).all(from, to).map((x) => [x.d, x.v]));
+    const rev = Object.fromEntries(db.prepare(`SELECT ${day('created_at')} AS d, SUM(amount_paise) AS v FROM platform_transactions WHERE account_type='platform' AND kind IN ('markup','commission','delivery_margin','surge','coupon') AND created_at>=? AND created_at<? GROUP BY d`).all(from, to).map((x) => [x.d, x.v]));
     const col = Object.fromEntries(db.prepare(`SELECT ${day('updated_at')} AS d, SUM(total_paise) AS v, COUNT(*) AS n FROM orders WHERE status='DELIVERED' AND updated_at>=? AND updated_at<? GROUP BY d`).all(from, to).map((x) => [x.d, x]));
     const daily = []; for (let t = Date.parse(from), i = 0; t < Date.parse(to) && i < 62; t += 864e5, i++) { const d = new Date(t + IST).toISOString().slice(0, 10); daily.push({ date: d, revenue_paise: rev[d] || 0, collected_paise: col[d]?.v || 0, orders: col[d]?.n || 0 }); }
     res.json({ daily, range: { from, to }, current: { pending_acceptance: live('PLACED'), preparing: live('ACCEPTED') + live('PREPARING'), ready: live('READY'), active_deliveries: live('PICKED_UP'), delivered: one("SELECT COUNT(*) FROM orders WHERE status='DELIVERED' AND updated_at>=? AND updated_at<?", from, to), rejected: one("SELECT COUNT(*) FROM orders WHERE status='REJECTED' AND updated_at>=? AND updated_at<?", from, to) },
-      money: { collected_paise: collected, platform_revenue_paise: revenue, markup_paise: plat(['markup']), commission_paise: plat(['commission']), delivery_margin_paise: plat(['delivery_margin']), surge_paise: plat(['surge']), tax_liability_paise: plat(['tax_liability']),
+      money: { collected_paise: collected, platform_revenue_paise: revenue, markup_paise: plat(['markup']), commission_paise: plat(['commission']), delivery_margin_paise: plat(['delivery_margin']), surge_paise: plat(['surge']), coupon_discount_paise: -plat(['coupon']), tax_liability_paise: plat(['tax_liability']),
         gateway_fee_estimate_paise: gateway, expenses_paise: expenses, refunds_paise: refunds, estimated_net_profit_paise: revenue - gateway - expenses,
         restaurant_payable_paise: liab('restaurant') - one("SELECT SUM(amount_paise) FROM cashout_requests WHERE account_type='restaurant' AND status IN ('PENDING','APPROVED')") * 0,
         rider_payable_paise: liab('rider'), today_revenue_paise: dayRev(dayStart(), dayStart(1)), yesterday_revenue_paise: dayRev(dayStart(-1), dayStart()), all_time_revenue_paise: dayRev('0', '9'),
@@ -83,7 +86,7 @@ export function adminRoutes(db) {
       { key: 'placed', level: 'warn', n: t ? 0 : one("SELECT COUNT(*) FROM orders WHERE status='PLACED'"), text: 'order(s) waiting for a restaurant to accept', path: '/orders' },
       { key: 'unassigned', level: 'warn', n: one("SELECT COUNT(*) FROM orders WHERE rider_id IS NULL AND status IN ('ACCEPTED','PREPARING','READY')"), text: 'accepted order(s) without a delivery agent yet', path: '/orders' },
       { key: 'cashouts', level: 'warn', n: one("SELECT COUNT(*) FROM cashout_requests WHERE status IN ('PENDING','APPROVED')"), text: 'payout request(s) to process', path: '/cashouts' },
-      { key: 'refunds', level: 'warn', n: one("SELECT COUNT(*) FROM refunds WHERE status='REFUND_INITIATED'"), text: 'refund(s) started and not yet confirmed by the payment provider', path: '/settings' },
+      { key: 'refunds', level: 'warn', n: one("SELECT COUNT(*) FROM refunds WHERE stage IN ('requested','approved')"), text: 'refund(s) with UPI details waiting for review or payment', path: '/refunngs' },
       { key: 'pay_failed', level: 'info', n: one("SELECT COUNT(*) FROM payments WHERE status IN ('FAILED','EXPIRED') AND substr(datetime(created_at,'+330 minutes'),1,10)=?", today), text: 'payment(s) failed or expired today', path: '/orders' },
       { key: 'closed', level: 'info', n: one('SELECT COUNT(*) FROM restaurants r LEFT JOIN restaurant_operating_status s ON s.restaurant_id=r.id WHERE r.admin_visible=1 AND r.approved=1 AND COALESCE(s.is_open,0)=0'), text: 'visible restaurant(s) are closed right now', path: '/restaurants' },
       { key: 'routing_off', level: 'bad', n: Pricing.getConfig(db).enabled && Routing.providerName() === 'none' ? 1 : 0, text: 'Distance pricing is on but no routing engine is set up (OSRM_URL), so every order uses the fallback charge or is refused', path: '/distance', flag: true },
@@ -116,8 +119,19 @@ export function adminRoutes(db) {
       items: db.prepare('SELECT * FROM order_items WHERE order_id=?').all(o.id), payment: db.prepare('SELECT provider,merchant_order_id,provider_txn_id,status,amount_paise FROM payments WHERE order_id=?').get(o.id),
       refund: db.prepare('SELECT id,status,amount_paise,reason FROM refunds WHERE order_id=?').get(o.id) || null,
       events: db.prepare('SELECT e.event_type,e.actor_role,e.actor_user_id,e.metadata,e.created_at,u.name AS actor_name FROM order_events e LEFT JOIN users u ON u.id=e.actor_user_id WHERE order_id=? ORDER BY e.id').all(o.id),
-      platform_revenue_paise: o.markup_paise + o.commission_paise + (o.delivery_paise - o.rider_payout_paise) + o.surge_paise });
+      platform_revenue_paise: o.markup_paise + o.commission_paise + (o.delivery_paise - o.rider_payout_paise) + o.surge_paise - (o.discount_paise || 0) });
   });
+  // manual UPI refunds: list (full UPI IDs, admins only), approve / reject / paid (fresh password) / failed
+  // Coupons (Super Admin). Discount is paid by Pakka Local; payouts unaffected.
+  r.get('/coupons', (req, res) => res.json({ coupons: Coupons.adminList(db), restaurants: db.prepare('SELECT id,name FROM restaurants ORDER BY name').all() }));
+  r.post('/coupons', wrap((req, res) => { const out = Coupons.save(db, req.user, req.body || {}); if (out.ok) audit(db, req, 'coupon.create', 'coupon', out.id, { code: req.body?.code }); send(res, out, 201); }));
+  r.put('/coupons/:id(\\d+)', wrap((req, res) => { const out = Coupons.save(db, req.user, req.body || {}, Number(req.params.id)); if (out.ok) audit(db, req, 'coupon.update', 'coupon', req.params.id, { code: req.body?.code, active: req.body?.active }); send(res, out); }));
+  r.delete('/coupons/:id(\\d+)', wrap((req, res) => { const out = Coupons.remove(db, Number(req.params.id)); if (out.ok) audit(db, req, 'coupon.delete', 'coupon', req.params.id); send(res, out); }));
+  r.get('/refunds', (req, res) => res.json({ refunds: Refunds.adminList(db, ['awaiting_details', 'requested', 'approved', 'completed', 'rejected', 'failed'].includes(req.query.stage) ? req.query.stage : null) }));
+  r.post('/refunds/:id(\\d+)/paid', requireFreshAuth(db), wrap((req, res) => { const out = Refunds.adminAct(db, req.user, Number(req.params.id), 'paid', req.body || {});
+    if (out.ok) audit(db, req, 'refund.paid', 'refund', req.params.id, { utr: req.body?.utr }); send(res, out); }));
+  r.post('/refunds/:id(\\d+)/:action(approve|reject|failed)', wrap((req, res) => { const out = Refunds.adminAct(db, req.user, Number(req.params.id), req.params.action, req.body || {});
+    if (out.ok) audit(db, req, 'refund.' + req.params.action, 'refund', req.params.id, { note: req.body?.note }); send(res, out); }));
   r.post('/refunds/:id/settle', wrap((req, res) => {          // SANDBOX ONLY stand-in for the PhonePe refund status/webhook
     if (!config.sandboxPayments) return res.status(404).json({ error: 'Not found.' });      // a refund is only ever marked complete by hand in a test environment
     audit(db, req, 'refund.sandbox_settle', 'refund', req.params.id, { ok: !!req.body?.ok }); send(res, settleRefund(db, Number(req.params.id), !!req.body?.ok)); }));
@@ -168,6 +182,26 @@ export function adminRoutes(db) {
     if (Object.keys(out.changed).length) audit(db, req, 'distance_pricing.update', 'settings', null, { changed: out.changed }); res.json(out); }));
   // after refreshing the map data (same engine address), clear saved distances so new orders use the new roads
   r.delete('/distance-pricing/cache', wrap((req, res) => { const n = Routing.clearRouteCache(db); audit(db, req, 'distance_pricing.cache_cleared', 'settings', null, { removed: n }); res.json({ ok: true, removed: n }); }));
+  // Order radius lookup: for one delivery point, which restaurants can deliver there under the current distance settings?
+  // Straight-line distance always; road distance and the charge from the same engine and bands used for real orders.
+  r.post('/distance-pricing/radius', wrapA(async (req, res) => { const d = parse(z.object({ location_id: z.number().int().positive().optional(), lat: z.number().min(-90).max(90).optional(), lng: z.number().min(-180).max(180).optional() }).strict(), req, res); if (!d) return;
+    let point = null, place = null;
+    if (d.location_id) { const l = db.prepare('SELECT name, lat, lng FROM delivery_locations WHERE id=?').get(d.location_id); if (!l) return res.status(404).json({ error: 'Place not found.' }); place = l.name; point = l.lat == null ? null : { lat: l.lat, lng: l.lng }; }
+    else if (d.lat != null && d.lng != null) point = { lat: d.lat, lng: d.lng };
+    if (!point) return res.status(400).json({ error: 'Choose a place with a map point, or enter latitude and longitude.' });
+    const cfg = Pricing.getConfig(db), R = 6371, rad = (x) => x * Math.PI / 180;
+    const crow = (a) => { const h = Math.sin(rad(a.lat - point.lat) / 2) ** 2 + Math.cos(rad(point.lat)) * Math.cos(rad(a.lat)) * Math.sin(rad(a.lng - point.lng) / 2) ** 2; return Math.round(2 * R * Math.asin(Math.sqrt(h)) * 100) / 100; };
+    const out = [];
+    for (const x of db.prepare('SELECT id, name, pickup_lat, pickup_lng, admin_visible, approved FROM restaurants WHERE approved=1 ORDER BY name').all()) {
+      if (x.pickup_lat == null) { out.push({ id: x.id, name: x.name, visible: !!x.admin_visible, straight_km: null, road_km: null, within: null, note: 'No pickup point set' }); continue; }
+      const straight = crow({ lat: x.pickup_lat, lng: x.pickup_lng });
+      const route = await Pricing.routeFor(db, x.id, point), price = Pricing.priceFor(cfg, route);
+      const road = route?.distance_m == null ? null : Math.round(route.distance_m / 10) / 100, km = road ?? straight;
+      out.push({ id: x.id, name: x.name, visible: !!x.admin_visible, straight_km: straight, road_km: road, within: cfg.max_km == null ? true : km <= cfg.max_km,
+        fee_paise: price.error ? null : price.fee, band: price.error ? null : price.band, note: price.error || (road == null ? 'Road distance not available; straight-line distance used' : null) });
+    }
+    out.sort((a, b) => (a.straight_km ?? 1e9) - (b.straight_km ?? 1e9));
+    res.json({ point, place, max_km: cfg.max_km, enabled: cfg.enabled, restaurants: out }); }));
   // try a restaurant -> place / point before going live: shows the road distance and the charge the current setup gives
   r.post('/distance-pricing/check', wrapA(async (req, res) => { const d = parse(z.object({ restaurant_id: z.number().int().positive(), location_id: z.number().int().positive().optional(), lat: z.number().min(-90).max(90).optional(), lng: z.number().min(-180).max(180).optional() }).strict(), req, res); if (!d) return;
     let point = null; if (d.location_id) { const l = db.prepare('SELECT lat, lng FROM delivery_locations WHERE id=?').get(d.location_id); if (!l) return res.status(404).json({ error: 'Place not found.' }); point = l.lat == null ? null : { lat: l.lat, lng: l.lng }; }
@@ -218,9 +252,10 @@ export function adminRoutes(db) {
     db.prepare('UPDATE users SET active=?, token_version=token_version+1 WHERE id=?').run(a, req.params.id); audit(db, req, 'user.active', 'user', req.params.id, { active: a }); res.json({ ok: true }); }));
 
   // cashouts
+  // cashouts: UPI IDs are shown in full to admins (needed to pay); bank account numbers stay masked
   r.get('/cashouts', (req, res) => res.json({ cashouts: db.prepare(`SELECT c.*, p.txn_reference, p.paid_at,
     CASE c.account_type WHEN 'restaurant' THEN (SELECT name FROM restaurants WHERE id=c.account_id) ELSE (SELECT name FROM users WHERE id=c.account_id) END AS account_name FROM cashout_requests c LEFT JOIN cashout_proofs p ON p.cashout_id=c.id ORDER BY (c.status='PENDING') DESC, c.id DESC LIMIT 100`).all()
-    .map(c => ({ ...c, beneficiary: c.beneficiary.length > 6 ? `${'•'.repeat(c.beneficiary.length - 4)}${c.beneficiary.slice(-4)}` : c.beneficiary, available_paise: balances(db, c.account_type, c.account_id).available + (['PENDING', 'APPROVED'].includes(c.status) ? c.amount_paise : 0) })) }));
+    .map(c => ({ ...c, beneficiary: c.payout_method === 'upi' || c.beneficiary.length <= 6 ? c.beneficiary : `${'•'.repeat(c.beneficiary.length - 4)}${c.beneficiary.slice(-4)}`, available_paise: balances(db, c.account_type, c.account_id).available + (['PENDING', 'APPROVED'].includes(c.status) ? c.amount_paise : 0) })) }));
   r.post('/cashouts/:id/:action', wrap((req, res) => { const out = adminCashout(db, req.user, Number(req.params.id), req.params.action, req.body || {});
     if (!out.error) audit(db, req, `cashout.${req.params.action}`, 'cashout', req.params.id, { txn: req.body?.txn_reference }); send(res, out); }));
 
@@ -266,6 +301,13 @@ export function adminRoutes(db) {
 
 
   // optional two-factor (authenticator app) for the admin account
+  // Sign-in username (optional; mobile number keeps working). Changing it needs the current password.
+  r.get('/username', (req, res) => res.json({ username: db.prepare('SELECT username FROM users WHERE id=?').pluck().get(req.user.id) || null }));
+  r.post('/username', fresh, wrap((req, res) => {
+    const u = String(req.body?.username || '').trim().toLowerCase();
+    if (u && !USERNAME_RE.test(u)) return res.status(400).json({ error: 'Username: 4–32 characters, start with a letter; letters, numbers, dot or underscore.' });
+    if (u && db.prepare('SELECT 1 FROM users WHERE username=? AND id<>?').get(u, req.user.id)) return res.status(409).json({ error: 'That username is taken.' });
+    db.prepare('UPDATE users SET username=? WHERE id=?').run(u || null, req.user.id); audit(db, req, 'admin.username', 'user', req.user.id, { username: u || null }); res.json({ ok: true, username: u || null }); }));
   r.get('/mfa', (req, res) => res.json({ enabled: !!db.prepare('SELECT mfa_enabled FROM users WHERE id=?').pluck().get(req.user.id) }));
   r.post('/mfa/setup', wrap((req, res) => {
     if (db.prepare('SELECT mfa_enabled FROM users WHERE id=?').pluck().get(req.user.id)) return res.status(409).json({ error: 'Two-factor is already on. Turn it off first to re-enrol.' });

@@ -584,3 +584,19 @@ body.p-admin .tbl td .btn.sm{white-space:nowrap}
 .k-pastlink{display:flex;align-items:center;gap:12px;width:100%;margin-top:16px;padding:14px 16px;border-radius:16px;border:1px solid var(--line);background:#fff;text-align:left;cursor:pointer;color:inherit;font:inherit}
 .k-pastlink>svg{width:22px;height:22px;color:var(--sub)}.k-pastlink b{display:block}.k-pastlink small{display:block;color:var(--mute);font-size:.8rem}
 .k-past{display:flex;gap:12px;align-items:flex-start}
+
+/* ---- order chat sheet (customer + rider) ---- */
+.ch-head{display:flex;gap:12px;align-items:center;margin-bottom:10px}.ch-head h3{margin:0}
+.ch-ic{flex:none;width:40px;height:40px;border-radius:50%;background:#eef3ff;color:#1d4aa8;display:grid;place-items:center}.ch-ic svg{width:20px;height:20px}
+.ch-list{height:min(52vh,420px);overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:16px;background:#f5f5f7;overscroll-behavior:contain}
+.ch-m{max-width:82%;align-self:flex-start;display:flex;flex-direction:column;gap:3px}.ch-m.me{align-self:flex-end;align-items:flex-end}
+.ch-m .b{padding:9px 12px;border-radius:16px 16px 16px 4px;background:#fff;box-shadow:0 1px 2px rgba(17,19,24,.06);font-size:.92rem;line-height:1.35;white-space:pre-wrap;word-break:break-word}
+.ch-m.me .b{background:var(--brand);color:#fff;border-radius:16px 16px 4px 16px}
+.ch-m small{font-size:.7rem;color:#80838f}
+.ch-empty{margin:auto;text-align:center;color:#80838f;font-size:.88rem;max-width:260px}
+.ch-form{display:flex;gap:8px;margin-top:10px}.ch-form input{flex:1;margin:0}.ch-form .btn{flex:none;width:52px;padding:0}.ch-form .btn svg{width:20px;height:20px}
+/* ---- admin coupons ---- */
+.a-coupon .cp-code{font:800 1.05rem var(--head);letter-spacing:.06em;color:var(--brand)}
+.cp-stats{display:flex;flex-wrap:wrap;gap:4px 14px}
+.r-chat b{color:var(--brand)}
+.grid>div{min-width:0}input[type=datetime-local],input[type=time]{min-width:0;width:100%;max-width:100%}

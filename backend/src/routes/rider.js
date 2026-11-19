@@ -10,6 +10,7 @@ import { getOtpProvider } from '../otpProviders.js';
 import { view, saveDraft, uploadDoc, submit, EDITABLE, ID_TYPES, VEHICLES, DOC_LABEL, missing } from '../services/riderApplication.js';
 const otpLimit = rateLimit({ windowMs: 15 * 60_000, max: 20, standardHeaders: true, legacyHeaders: false, skip: () => config.isTest, message: { error: 'Too many attempts. Try again later.' } });
 
+import * as Chat from '../services/chat.js';
 export function riderRoutes(db) {
   const r = Router();
   r.use(authenticate(db), requireRole('rider'));
@@ -56,8 +57,12 @@ export function riderRoutes(db) {
   r.get('/orders/:id(\\d+)', (req, res) => { touch(req); const x = me(req);
     const o = db.prepare("SELECT * FROM orders WHERE id=? AND (rider_id=? OR (rider_id IS NULL AND status IN ('ACCEPTED','PREPARING','READY')))").get(req.params.id, req.user.id);
     if (!o || (o.rider_id == null && (!x.is_online || x.verification_status !== 'approved'))) return res.status(404).json({ error: 'This delivery is no longer available.' });
-    res.json({ order: restaurantMaps(card(o, o.rider_id === req.user.id)), mine: o.rider_id === req.user.id }); });
-  r.get('/active', (req, res) => res.json({ active: db.prepare("SELECT * FROM orders WHERE rider_id=? AND status IN ('ACCEPTED','PREPARING','READY','PICKED_UP') ORDER BY id").all(req.user.id).map((o) => card(o, true)).map(restaurantMaps) }));
+    const mine = o.rider_id === req.user.id;
+    res.json({ order: restaurantMaps(card(o, mine)), mine, chat: mine ? { open: ['ACCEPTED', 'PREPARING', 'READY', 'PICKED_UP'].includes(o.status), unread: Chat.unreadFor(db, 'rider', o.id) } : null }); });
+  // order chat with the customer of a delivery assigned to this rider
+  r.get('/orders/:id(\\d+)/messages', (req, res) => send(res, Chat.list(db, req.user, req.params.id, { after: req.query.after })));
+  r.post('/orders/:id(\\d+)/messages', wrap((req, res) => send(res, Chat.send(db, req.user, req.params.id, req.body?.body), 201)));
+  r.get('/active', (req, res) => res.json({ active: db.prepare("SELECT * FROM orders WHERE rider_id=? AND status IN ('ACCEPTED','PREPARING','READY','PICKED_UP') ORDER BY id").all(req.user.id).map((o) => ({ ...card(o, true), unread_messages: Chat.unreadFor(db, 'rider', o.id) })).map(restaurantMaps) }));
   r.post('/orders/:id/accept', wrap((req, res) => { try { send(res, claimOrder(db, req.user.id, Number(req.params.id))); } catch (e) { if (e.rollback) return res.status(409).json({ error: 'This order is no longer available.' }); throw e; } }));
   r.post('/orders/:id/dismiss', (req, res) => res.json(dismissOffer(db, req.user.id, Number(req.params.id))));
   r.post('/orders/:id/pickup', wrap((req, res) => send(res, verifyPickup(db, req.user.id, Number(req.params.id), req.body?.otp))));

@@ -1,3 +1,4 @@
+import { statusNote } from './core.js';
 // Priority 2: live rider location. Latest fix only, accepted only from the assigned rider during an active delivery.
 const ACTIVE = "('ACCEPTED','PREPARING','READY','PICKED_UP')";
 export const LIVE_SEC = 30, STALE_SEC = 180, MIN_INTERVAL_MS = 3000, SEND_EVERY_MS = 7000;
@@ -41,6 +42,12 @@ export function recordLocation(db, riderId, b = {}, now = Date.now()) {
   db.prepare(`INSERT INTO rider_locations (rider_id,order_id,lat,lng,accuracy_m,heading,speed_mps,recorded_at,received_at) VALUES (?,?,?,?,?,?,?,?,?)
     ON CONFLICT(rider_id) DO UPDATE SET order_id=excluded.order_id, lat=excluded.lat, lng=excluded.lng, accuracy_m=excluded.accuracy_m, heading=excluded.heading, speed_mps=excluded.speed_mps, recorded_at=excluded.recorded_at, received_at=excluded.received_at`)
     .run(riderId, orderId, +lat.toFixed(6), +lng.toFixed(6), acc, heading, speed, new Date(t).toISOString(), new Date(now).toISOString());
+  // "Your order is arriving": once per order, from a real fix within 300 m of the drop-off (and accurate to 100 m)
+  if (acc === null || acc <= 100) for (const o of db.prepare("SELECT * FROM orders WHERE rider_id=? AND status='PICKED_UP' AND dest_lat IS NOT NULL AND dest_lng IS NOT NULL").all(riderId)) {
+    const R = 6371000, dLat = (o.dest_lat - lat) * Math.PI / 180, dLng = (o.dest_lng - lng) * Math.PI / 180;
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat * Math.PI / 180) * Math.cos(o.dest_lat * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+    if (2 * R * Math.asin(Math.sqrt(h)) <= 300) statusNote(db, o, 'NEAR', 'Your order is arriving', `Your delivery partner is less than 300 m away with ${o.order_code}. Keep your delivery code ready.`);
+  }
   return { ok: true, tracking: true, next_ms: SEND_EVERY_MS };
 }
 const pos = (row, f) => (row ? { lat: row.lat, lng: row.lng, accuracy_m: row.accuracy_m, heading: row.heading, updated_at: row.received_at, ...f } : null);

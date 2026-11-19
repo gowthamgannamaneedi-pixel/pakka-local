@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config.js';
+import * as Coupons from './coupons.js';
 
 export const NO_RIDER_MSG = 'Sorry, we are not currently accepting orders as delivery partners are not available. Please check after some time.';
 export const iso = () => new Date().toISOString();
@@ -128,11 +129,17 @@ export function quote(db, input) {
       AND (location_id IS NULL OR location_id=?)`).all(now, now, loc?.id ?? -1)) surge += s.kind === 'fixed' ? s.value : Math.round((base + markup) * s.value / 10000);
   const tax = Math.round((base + markup) * Number(getSetting(db, 'tax_bps')) / 10000);
   const commission = Math.round(base * r.commission_bps / 10000);
-  const total = base + markup + delivery + surge + tax;
+  let total = base + markup + delivery + surge + tax;
+  // Coupon (Pakka Local pays): only the customer's total goes down; commission and both payouts stay as calculated above.
+  let discount = 0, coupon = null, couponError = null;
+  if (input.coupon) {
+    const ev = Coupons.evaluate(db, input.coupon, { customerId: input.customerId, restaurantId: r.id, subtotal: base + markup });
+    if (ev.error) couponError = ev.error; else { coupon = ev.coupon; discount = ev.discount; total -= discount; }
+  }
   const perKm = Number(getSetting(db, 'minutes_per_km'));
   const deliveryMin = loc?.distance_km ? Math.round(loc.distance_km * perKm) + 3 : Number(getSetting(db, 'default_delivery_min'));
   return { restaurant: r, lines, dest, locationId: loc?.id ?? null, feeSource: loc ? 'listed' : 'gps', baseDeliveryFee: fee, pricing,
-    distanceM: priced?.distance_m ?? null, band: priced?.band ?? null, routeSource: priced ? (priced.pricing === 'distance' ? priced.source : `none:${priced.reason}`) : null, base, markup, delivery, surge, tax, total, commissionBps: r.commission_bps, commission,
+    distanceM: priced?.distance_m ?? null, band: priced?.band ?? null, routeSource: priced ? (priced.pricing === 'distance' ? priced.source : `none:${priced.reason}`) : null, base, markup, delivery, surge, tax, total, discount, coupon, couponError, commissionBps: r.commission_bps, commission,
     restaurantPayout: base - commission, riderPayout: Number(getSetting(db, 'rider_payout_paise')), prepMin: prep + r.packing_buffer_min, deliveryMin };
 }
 const etaFrom = (db, prepMin, deliveryMin, stage) => {
@@ -150,11 +157,17 @@ const refreshEta = (db, o, stage) => { const m = orderMins(db, o); db.prepare('U
 
 // ---------- order creation / payment ----------
 export function createOrder(db, customer, input) {
-  const q = quote(db, input);
+  const q = quote(db, { ...input, customerId: customer.id });
   if (q.error) return q;
+  if (q.couponError) return { error: q.couponError, status: 409, code: 'COUPON_INVALID' };
   const a = input.address;
   const instructions = [a.instructions, input.instructions].map((x) => (x ? String(x).trim() : '')).filter(Boolean).join(' · ').slice(0, 300) || null;
   return db.transaction(() => {
+    // Re-check the coupon inside the transaction: SQLite runs one write transaction at a time, so two orders can never both take the last use.
+    if (q.coupon) {
+      const again = Coupons.evaluate(db, q.coupon.code, { customerId: customer.id, restaurantId: q.restaurant.id, subtotal: q.base + q.markup });
+      if (again.error || again.discount !== q.discount) return { error: again.error || 'This coupon changed. Please check your bill again.', status: 409, code: 'COUPON_INVALID' };
+    }
     let code, tries = 0;
     do { code = `PL${new Date().toISOString().slice(0, 10).replace(/-/g, '')}${crypto.randomBytes(4).toString('hex').slice(0, 6).toUpperCase()}`; }
     while (db.prepare('SELECT 1 FROM orders WHERE order_code=?').get(code) && ++tries < 5);
@@ -162,12 +175,13 @@ export function createOrder(db, customer, input) {
     const id = db.prepare(`INSERT INTO orders (order_code,customer_id,restaurant_id,status,delivery_location_id,dest_text,dest_lat,dest_lng,dest_maps_link,instructions,
       customer_name,customer_phone,items_base_paise,markup_paise,delivery_paise,surge_paise,tax_paise,total_paise,commission_bps,commission_paise,restaurant_payout_paise,rider_payout_paise,
       dest_address_id,dest_label,dest_place_name,dest_building,dest_block,dest_floor,dest_room,dest_entrance,dest_landmark,dest_accuracy_m,dest_captured_at,dest_confirmed_at,
-      dest_kind,dest_location_name,dest_coord_source,delivery_pricing,delivery_distance_m,delivery_band,delivery_route_source)
-      VALUES (?,?,?,'PAYMENT_PENDING',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(code, customer.id, q.restaurant.id, q.locationId, q.dest.text, q.dest.lat, q.dest.lng, q.dest.link,
+      dest_kind,dest_location_name,dest_coord_source,delivery_pricing,delivery_distance_m,delivery_band,delivery_route_source,discount_paise,coupon_code)
+      VALUES (?,?,?,'PAYMENT_PENDING',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(code, customer.id, q.restaurant.id, q.locationId, q.dest.text, q.dest.lat, q.dest.lng, q.dest.link,
       instructions, customer.name, customer.phone, q.base, q.markup, q.delivery, q.surge, q.tax, q.total, q.commissionBps, q.commission, q.restaurantPayout, q.riderPayout,
       a.id, a.label, q.dest.locationName || a.place_name, a.building, a.block, a.floor, a.room, a.entrance, a.landmark,
       q.dest.coordSource === 'customer_gps' ? a.accuracy_m : null, q.dest.coordSource === 'customer_gps' ? a.captured_at : null, iso(),
-      q.dest.kind, q.dest.locationName, q.dest.coordSource, q.pricing, q.distanceM, q.band, q.routeSource).lastInsertRowid;
+      q.dest.kind, q.dest.locationName, q.dest.coordSource, q.pricing, q.distanceM, q.band, q.routeSource, q.discount, q.coupon?.code ?? null).lastInsertRowid;
+    if (q.coupon) Coupons.reserve(db, q.coupon.id, id, customer.id, q.discount);
     for (const l of q.lines) db.prepare('INSERT INTO order_items (order_id,food_item_id,name,qty,base_price_paise,customer_price_paise,prep_time_min) VALUES (?,?,?,?,?,?,?)').run(id, l.food_item_id, l.name, l.qty, l.base, l.price, l.prep);
     db.prepare('INSERT INTO payments (order_id,provider,merchant_order_id,amount_paise) VALUES (?,?,?,?)').run(id, config.paymentProvider, code, q.total);
     const mode = getSetting(db, 'delivery_otp_mode') === 'fixed' && getSetting(db, 'fixed_delivery_otp') ? 'fixed' : 'per_order';
@@ -188,6 +202,7 @@ export function settlePayment(db, merchantOrderId, outcome, providerTxn, raw) {
     if (next === 'SUCCESS') {
       if (o.status === 'PAYMENT_PENDING') {
         db.prepare("UPDATE orders SET status='PLACED', updated_at=? WHERE id=?").run(iso(), o.id);
+        Coupons.markUsed(db, o.id);
         refreshEta(db, o, 'PLACED');
         logEvent(db, o.id, 'PAYMENT_SUCCESS', null, { provider_txn: providerTxn });
         notify(db, o.customer_id, 'transactional', 'Order placed', `Order ${o.order_code} is confirmed.`, `/user/orders/${o.order_code}`, o.id, `st:${o.id}:PLACED`);
@@ -196,6 +211,7 @@ export function settlePayment(db, merchantOrderId, outcome, providerTxn, raw) {
       } else startRefund(db, o, 'Late payment on an expired order');
     } else if (o.status === 'PAYMENT_PENDING') {
       db.prepare('UPDATE orders SET status=?, updated_at=? WHERE id=?').run(next === 'EXPIRED' ? 'EXPIRED' : 'PAYMENT_FAILED', iso(), o.id);
+      Coupons.release(db, o.id);                                                             // the use goes back to the pool
       logEvent(db, o.id, next === 'EXPIRED' ? 'PAYMENT_EXPIRED' : 'PAYMENT_FAILED');
     }
     return { ok: true };
@@ -207,14 +223,16 @@ export function startRefund(db, o, reason) {
   if (!p || db.prepare('SELECT 1 FROM refunds WHERE payment_id=?').get(p.id)) return;
   db.prepare('INSERT INTO refunds (order_id,payment_id,merchant_refund_id,amount_paise,reason) VALUES (?,?,?,?,?)').run(o.id, p.id, `${o.order_code}-R1`, p.amount_paise, reason);
   logEvent(db, o.id, 'REFUND_REQUESTED', null, { reason });
-  notify(db, o.customer_id, 'transactional', 'Refund initiated', `Refund for ${o.order_code} is being processed.`, `/user/orders/${o.order_code}`, o.id, `st:${o.id}:REFUND_INITIATED`);
+  const rid = db.prepare('SELECT id FROM refunds WHERE payment_id=?').pluck().get(p.id);
+  db.prepare("INSERT INTO refund_events (refund_id,stage,note) VALUES (?,'awaiting_details',?)").run(rid, reason || null);
+  notify(db, o.customer_id, 'transactional', 'Refund started', `${o.order_code}: add your UPI ID in the app so we can send your refund.`, `/user/orders/${o.order_code}`, o.id, `st:${o.id}:REFUND_INITIATED`, 'refund');
 }
 export function settleRefund(db, refundId, ok) {
   return db.transaction(() => {
     const r = db.prepare('SELECT * FROM refunds WHERE id=?').get(refundId);
     if (!r) return { error: 'Refund not found.', status: 404 };
     if (r.status !== 'REFUND_INITIATED') return { ok: true, duplicate: true };
-    db.prepare('UPDATE refunds SET status=?, updated_at=? WHERE id=?').run(ok ? 'REFUND_COMPLETED' : 'REFUND_FAILED', iso(), r.id);
+    db.prepare('UPDATE refunds SET status=?, stage=?, updated_at=? WHERE id=?').run(ok ? 'REFUND_COMPLETED' : 'REFUND_FAILED', ok ? 'completed' : 'failed', iso(), r.id);
     const o = db.prepare('SELECT * FROM orders WHERE id=?').get(r.order_id);
     logEvent(db, o.id, ok ? 'REFUND_COMPLETED' : 'REFUND_FAILED');
     if (ok) notify(db, o.customer_id, 'transactional', 'Refund completed', `Refund for ${o.order_code} is complete.`, `/user/orders/${o.order_code}`, o.id, `st:${o.id}:REFUND_COMPLETED`);
@@ -235,7 +253,7 @@ const RS = (db, restId, id) => db.prepare('SELECT * FROM orders WHERE id=? AND r
 function move(db, id, from, to, extra = '', params = []) {
   return db.prepare(`UPDATE orders SET status=?, updated_at=?${extra} WHERE id=? AND status IN (${from.map(() => '?').join(',')})`).run(to, iso(), ...params, id, ...from).changes === 1;
 }
-const statusNote = (db, o, key, title, body) => notify(db, o.customer_id, 'transactional', title, body, `/user/orders/${o.order_code}`, o.id, `st:${o.id}:${key}`);
+export const statusNote = (db, o, key, title, body) => notify(db, o.customer_id, 'transactional', title, body, `/user/orders/${o.order_code}`, o.id, `st:${o.id}:${key}`);
 export function restaurantStep(db, actor, restId, id, step, body = {}) {
   return db.transaction(() => {
     const o = RS(db, restId, id);
@@ -280,6 +298,8 @@ export function claimOrder(db, riderId, orderId) {
     try { db.prepare("INSERT INTO rider_assignments (order_id,rider_id,status,responded_at) VALUES (?,?,'ACCEPTED',?) ON CONFLICT(order_id,rider_id) DO UPDATE SET status='ACCEPTED', responded_at=excluded.responded_at").run(orderId, riderId, iso()); }
     catch { throw Object.assign(new Error('race'), { rollback: true }); }
     logEvent(db, orderId, 'RIDER_ACCEPTED', { id: riderId, role: 'rider' });
+    const o = db.prepare('SELECT * FROM orders WHERE id=?').get(orderId);      // the rider's name is shown to the customer only after pickup
+    statusNote(db, o, 'RIDER_ASSIGNED', 'Delivery partner assigned', `A delivery partner is heading to the restaurant for ${o.order_code}.`);
     return { ok: true };
   })();
 }
@@ -303,6 +323,8 @@ export function verifyPickup(db, riderId, orderId, otp) {
     refreshEta(db, o, 'PICKED_UP');
     logEvent(db, orderId, 'PICKUP_OTP_VERIFIED', { id: riderId, role: 'rider' }); logEvent(db, orderId, 'PICKED_UP', { id: riderId, role: 'rider' });
     statusNote(db, o, 'PICKED_UP', 'Order picked up', `${o.order_code} is on its way.`);
+    for (const u of db.prepare('SELECT user_id FROM restaurant_users WHERE restaurant_id=?').pluck().all(o.restaurant_id))
+      notify(db, u, 'transactional', 'Order picked up', `${o.order_code} was collected by the delivery partner.`, `/restaurant/#/past`, o.id, `rp:${o.id}:${u}`, 'restaurant_update');
     return { ok: true };
   })();
 }
@@ -329,6 +351,7 @@ export function verifyDelivery(db, riderId, orderId, otp) {
     L('rider', riderId, 'rider_earning', o.rider_payout_paise);
     L('platform', 0, 'markup', o.markup_paise); L('platform', 0, 'commission', o.commission_paise);
     L('platform', 0, 'delivery_margin', o.delivery_paise - o.rider_payout_paise); L('platform', 0, 'surge', o.surge_paise); L('platform', 0, 'tax_liability', o.tax_paise);
+    L('platform', 0, 'coupon', -(o.discount_paise || 0));                                 // coupon discount: paid by Pakka Local
     db.prepare('INSERT INTO rider_earnings (rider_id,order_id,amount_paise) VALUES (?,?,?)').run(riderId, orderId, o.rider_payout_paise);
     db.prepare('INSERT INTO restaurant_commissions (order_id,restaurant_id,base_paise,commission_bps,commission_paise,payout_paise) VALUES (?,?,?,?,?,?)').run(orderId, o.restaurant_id, o.items_base_paise, o.commission_bps, o.commission_paise, o.restaurant_payout_paise);
     logEvent(db, orderId, 'DELIVERY_OTP_VERIFIED', { id: riderId, role: 'rider' }); logEvent(db, orderId, 'DELIVERED', { id: riderId, role: 'rider' });

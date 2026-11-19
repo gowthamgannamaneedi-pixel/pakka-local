@@ -6,6 +6,7 @@ import { send, parse, wrap, money, img } from './util.js';
 
 // Suggested categories a restaurant can add with one tap; restaurants can still create their own.
 export const CATEGORY_PRESETS = ['Starters', 'Soups', 'Main Course', 'Biryani', 'Rice', 'Breads', 'Curries', 'South Indian', 'Chinese', 'Tandoor', 'Snacks', 'Rolls & Wraps', 'Burgers & Sandwiches', 'Pizza', 'Combos', 'Thalis', 'Desserts', 'Beverages'];
+const HHMM = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use a time like 09:30');
 export function restaurantRoutes(db) {
   const r = Router();
   r.use(authenticate(db), requireRole('restaurant'), (req, res, next) => {
@@ -16,13 +17,18 @@ export function restaurantRoutes(db) {
   const actor = (req) => ({ id: req.user.id, role: 'restaurant' });
   const statusRow = (rid) => db.prepare('SELECT is_open,reopen_mode,reopen_at FROM restaurant_operating_status WHERE restaurant_id=?').get(rid) || { is_open: 0, reopen_mode: 'manual', reopen_at: null };
 
-  r.get('/me', (req, res) => res.json({ restaurant: db.prepare('SELECT id,name,description,address,phone,cuisine,operating_info,logo_path,image_path,admin_visible,approved,packing_buffer_min FROM restaurants WHERE id=?').get(req.restaurantId), status: statusRow(req.restaurantId) }));
+  r.get('/me', (req, res) => res.json({ restaurant: db.prepare('SELECT id,name,description,address,phone,cuisine,operating_info,opens_at,closes_at,logo_path,image_path,admin_visible,approved,packing_buffer_min FROM restaurants WHERE id=?').get(req.restaurantId), status: statusRow(req.restaurantId) }));
   r.put('/me', wrap((req, res) => {
     const d = parse(z.object({ name: z.string().trim().min(1).max(80), description: z.string().max(300).optional(), address: z.string().max(200).optional(), phone: z.string().max(20).optional(),
-      cuisine: z.string().max(60).optional(), operating_info: z.string().max(200).optional(), logo: img, image: img }), req, res); if (!d) return;
+      cuisine: z.string().max(60).optional(), operating_info: z.string().max(200).optional(), logo: img, image: img,
+      opens_at: HHMM.nullish(), closes_at: HHMM.nullish() }), req, res); if (!d) return;
+    if ((d.opens_at == null) !== (d.closes_at == null)) return res.status(400).json({ error: 'Set both the opening and the closing time, or neither.' });
+    if (d.opens_at && d.opens_at === d.closes_at) return res.status(400).json({ error: 'Opening and closing time cannot be the same.' });
     const logo = d.logo ? saveUpload(d.logo, { scope: 'public' }) : null, image = d.image ? saveUpload(d.image, { scope: 'public' }) : null;
     db.prepare('UPDATE restaurants SET name=?,description=?,address=?,phone=?,cuisine=?,operating_info=?,logo_path=COALESCE(?,logo_path),image_path=COALESCE(?,image_path) WHERE id=?')
       .run(d.name, d.description ?? null, d.address ?? null, d.phone ?? null, d.cuisine ?? null, d.operating_info ?? null, logo, image, req.restaurantId);
+    // opening hours are shown to customers; the Open/Closed switch still decides whether orders are accepted
+    if (d.opens_at !== undefined) db.prepare('UPDATE restaurants SET opens_at=?, closes_at=? WHERE id=?').run(d.opens_at ?? null, d.closes_at ?? null, req.restaurantId);
     res.json({ ok: true });
   }));
   r.post('/status', wrap((req, res) => {

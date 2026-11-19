@@ -614,5 +614,60 @@ CREATE INDEX idx_email_otp ON email_otp_challenges(email, created_at);`
     // Optional diet mark per dish, set by the restaurant (veg / nonveg / egg). NULL = not set, so no mark is shown. Display only.
     id: 'p8_001_food_diet',
     sql: `ALTER TABLE food_items ADD COLUMN diet TEXT CHECK (diet IS NULL OR diet IN ('veg','nonveg','egg'));`
+  },
+  {
+    // Manual UPI refund workflow. The existing status column keeps its meaning (completed only when actually paid).
+    id: 'p9_001_refund_workflow',
+    sql: `
+ALTER TABLE refunds ADD COLUMN stage TEXT NOT NULL DEFAULT 'awaiting_details'
+  CHECK (stage IN ('awaiting_details','requested','approved','completed','rejected','failed'));
+ALTER TABLE refunds ADD COLUMN upi_id TEXT;
+ALTER TABLE refunds ADD COLUMN upi_name TEXT;
+ALTER TABLE refunds ADD COLUMN upi_submitted_at TEXT;
+ALTER TABLE refunds ADD COLUMN utr TEXT;
+ALTER TABLE refunds ADD COLUMN admin_note TEXT;
+ALTER TABLE refunds ADD COLUMN reviewed_by INTEGER;
+ALTER TABLE refunds ADD COLUMN processed_at TEXT;
+UPDATE refunds SET stage = CASE status WHEN 'REFUND_COMPLETED' THEN 'completed' WHEN 'REFUND_FAILED' THEN 'failed' ELSE 'awaiting_details' END;
+CREATE UNIQUE INDEX idx_refund_utr ON refunds(utr) WHERE utr IS NOT NULL;
+CREATE TABLE refund_events (
+  id INTEGER PRIMARY KEY, refund_id INTEGER NOT NULL REFERENCES refunds(id), stage TEXT NOT NULL, actor_user_id INTEGER, note TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX idx_refund_events ON refund_events(refund_id, id);`
+  },
+  {
+    // Coupons (discount paid by Pakka Local), rider <-> customer order chat, restaurant opening hours, admin usernames.
+    id: 'p9_002_coupons_chat_hours_username',
+    sql: `
+CREATE TABLE coupons (
+  id INTEGER PRIMARY KEY, code TEXT NOT NULL COLLATE NOCASE, description TEXT,
+  discount_type TEXT NOT NULL CHECK (discount_type IN ('percent','flat')),
+  value INTEGER NOT NULL CHECK (value > 0),                -- percent: basis points (5000 = 50%); flat: paise
+  min_order_paise INTEGER NOT NULL DEFAULT 0, max_discount_paise INTEGER, max_uses INTEGER, per_customer_limit INTEGER NOT NULL DEFAULT 1,
+  starts_at TEXT, ends_at TEXT, active INTEGER NOT NULL DEFAULT 1, restaurant_id INTEGER REFERENCES restaurants(id),
+  created_by INTEGER, deleted_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), updated_at TEXT
+);
+CREATE UNIQUE INDEX idx_coupon_code ON coupons(code) WHERE deleted_at IS NULL;
+CREATE TABLE coupon_redemptions (
+  id INTEGER PRIMARY KEY, coupon_id INTEGER NOT NULL REFERENCES coupons(id), order_id INTEGER NOT NULL UNIQUE REFERENCES orders(id),
+  customer_id INTEGER NOT NULL, discount_paise INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'reserved' CHECK (status IN ('reserved','used','released')),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX idx_redeem_coupon ON coupon_redemptions(coupon_id, status);
+ALTER TABLE orders ADD COLUMN discount_paise INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE orders ADD COLUMN coupon_code TEXT;
+CREATE TABLE order_messages (
+  id INTEGER PRIMARY KEY, order_id INTEGER NOT NULL REFERENCES orders(id), sender_id INTEGER NOT NULL,
+  sender_role TEXT NOT NULL CHECK (sender_role IN ('customer','rider')), body TEXT NOT NULL, read_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX idx_msg_order ON order_messages(order_id, id);
+ALTER TABLE restaurants ADD COLUMN opens_at TEXT;
+ALTER TABLE restaurants ADD COLUMN closes_at TEXT;
+ALTER TABLE users ADD COLUMN username TEXT COLLATE NOCASE;
+CREATE UNIQUE INDEX idx_users_username ON users(username) WHERE username IS NOT NULL;`
   }
 ];

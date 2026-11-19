@@ -3,3 +3,7 @@ node_modules/
 .env.production
 backend/data/
 *.sqlite*
+
+# Firebase (rider app config; service-account key belongs only on the server)
+mobile/rider-android/android/app/google-services.json
+**/fcm-service-account*.json

@@ -47,7 +47,7 @@ import org.json.JSONObject;
  * Only real server answers are shown; nothing is invented. Stops when the rider goes offline or signs out.
  */
 public class RiderService extends Service {
-    private static final String CH_STATUS = "rider_status", CH_OFFERS = "rider_offers_v1";
+    private static final String CH_STATUS = "rider_status", CH_OFFERS = "rider_offers_v1", CH_UPDATES = "rider_updates";
     private static final int ID_STATUS = 1, ID_OFFER = 2;
     private static volatile RiderService inst;
     private static volatile boolean foreground = false;      // a restarted service runs without the app on screen; MainActivity sets true when it is visible
@@ -151,7 +151,7 @@ public class RiderService extends Service {
             }
             seen.retainAll(now); seen.addAll(now);
             final boolean seenOnScreen = inFront();
-            final int n = now.size(); final boolean ring = fresh && !seenOnScreen; final String text = first;
+            final int n = now.size(); final boolean ring = fresh && !seenOnScreen && System.currentTimeMillis() - PakkaFcmService.lastOfferRing > 20000; final String text = first;      // skip if Firebase already rang for it
             if (nAct != active) { active = nAct; main.post(() -> { startLocation(); refreshStatus(); }); }
             main.post(() -> { bubble.setAlert(n > 0); if (ring) offerNotification(n, text); if (n == 0) cancelOffer(); });
         } catch (Exception ignored) { /* no network: try again on the next round */ }
@@ -210,18 +210,43 @@ public class RiderService extends Service {
     }
 
     // ---------- notifications ----------
-    private void channels() {
+    private void channels() { channels(this); }
+    static void channels(Context c) {
         if (Build.VERSION.SDK_INT < 26) return;
-        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        NotificationManager nm = (NotificationManager) c.getSystemService(NOTIFICATION_SERVICE);
         NotificationChannel st = new NotificationChannel(CH_STATUS, "Online status", NotificationManager.IMPORTANCE_LOW);
         st.setDescription("Shown while you are online or on a delivery");
         NotificationChannel of = new NotificationChannel(CH_OFFERS, "Delivery offers", NotificationManager.IMPORTANCE_HIGH);
         of.setDescription("Rings when a new delivery offer arrives");
-        of.setSound(Uri.parse("android.resource://" + getPackageName() + "/" + R.raw.offer_ring),
+        of.setSound(Uri.parse("android.resource://" + c.getPackageName() + "/" + R.raw.offer_ring),
             new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build());
         of.enableVibration(true); of.setVibrationPattern(new long[]{0, 400, 200, 400, 200, 400});
         of.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
-        nm.createNotificationChannel(st); nm.createNotificationChannel(of);
+        NotificationChannel up = new NotificationChannel(CH_UPDATES, "Order updates and messages", NotificationManager.IMPORTANCE_HIGH);
+        up.setDescription("Delivery changes, customer messages and announcements");
+        nm.createNotificationChannel(st); nm.createNotificationChannel(of); nm.createNotificationChannel(up);
+    }
+
+    /** A push from Firebase (works with the app closed). Offers use the ringing channel and replace any offer already shown. */
+    static void showPush(Context c, String title, String body, boolean offer, String tag) {
+        channels(c);
+        if (offer && inst != null && inst.inFront()) return;      // the screen in front already rings
+        Intent i = new Intent(c, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+        PendingIntent pi = PendingIntent.getActivity(c, 0, i, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        NotificationCompat.Builder b = new NotificationCompat.Builder(c, offer ? CH_OFFERS : CH_UPDATES).setSmallIcon(R.drawable.ic_stat_rider)
+            .setContentTitle(title).setContentText(body).setStyle(new NotificationCompat.BigTextStyle().bigText(body)).setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH).setColor(0xFFD0450B).setContentIntent(pi).setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
+        if (offer) b.setCategory(NotificationCompat.CATEGORY_CALL).setSound(Uri.parse("android.resource://" + c.getPackageName() + "/" + R.raw.offer_ring)).setVibrate(new long[]{0, 400, 200, 400, 200, 400});
+        NotificationManager nm = (NotificationManager) c.getSystemService(NOTIFICATION_SERVICE);
+        if (nm != null) nm.notify(offer ? ID_OFFER : (tag == null ? (int) (System.currentTimeMillis() & 0xfffffff) : (tag.hashCode() & 0x7ffffff) + 10), b.build());
+    }
+
+    /** A Firebase offer arrived while the service was stopped by the phone: start it again with the saved sign-in. */
+    static void restartIfOnline(Context c) {
+        if (inst != null) return;
+        android.content.SharedPreferences sp = c.getSharedPreferences("rider_bg", MODE_PRIVATE);
+        if (sp.getString("token", "").isEmpty()) return;
+        try { ContextCompat.startForegroundService(c, new Intent(c, RiderService.class)); } catch (Exception ignored) { /* Android refused: the notification still rang */ }
     }
 
     private PendingIntent openApp() {

@@ -32,6 +32,8 @@
   const etaOf = (x) => (x.eta_min ? `${x.eta_min} mins` : '');
   const dietMark = (d) => (d ? `<span class="diet ${e(d)}" role="img" aria-label="${{ veg: 'Veg', nonveg: 'Non-veg', egg: 'Contains egg' }[d] || ''}"></span>` : '');
   const offerOf = (x) => (x.free_delivery_above_paise ? `<span class="of"><small>Free delivery</small>above ${rs(x.free_delivery_above_paise)}</span>` : '');
+  const hm = (t) => { if (!t) return ''; const [h, m] = t.split(':').map(Number); return `${h % 12 || 12}${m ? ':' + String(m).padStart(2, '0') : ''} ${h < 12 ? 'AM' : 'PM'}`; };
+  const hoursOf = (x) => (x.opens_at && x.closes_at ? `${hm(x.opens_at)} – ${hm(x.closes_at)}` : '');
   const greet = () => { const h = new Date().getHours(); return h < 11 ? 'Good morning' : h < 16 ? 'Good afternoon' : h < 22 ? 'Good evening' : 'Late-night cravings?'; };
   const ART = {      // simple original illustrations for empty states (no emoji, no downloaded art)
     bowl: '<svg class="art" viewBox="0 0 160 110" fill="none"><ellipse cx="80" cy="98" rx="58" ry="7" fill="#f1ece6"/><path d="M22 52h116c0 28-26 44-58 44S22 80 22 52z" fill="#ffd9c2"/><path d="M22 52h116" stroke="#d0450b" stroke-width="4" stroke-linecap="round"/><path d="M58 40c0-8 6-8 6-16M80 40c0-8 6-8 6-16M102 40c0-8 6-8 6-16" stroke="#f2a375" stroke-width="3.5" stroke-linecap="round"/></svg>',
@@ -66,7 +68,7 @@
   PL.forms['email-otp-request'] = async (f) => { const email = PL.form(f).email.trim().toLowerCase(); const r = await PL.run(() => PL.post('/api/auth/customer/email-otp/request', { email })); if (r) emailOtpView(email, r.resendAfterSec); };
   const codeForm = (form, attr, sentTo, note) => `<h2>Enter the 6-digit code</h2><p class="s">Sent to <b>${e(sentTo)}</b>${note ? `. ${note}` : ''}</p>
       <form data-form="${form}" ${attr}><input class="otp-in" placeholder="••••••" name="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="\\d{6}" required autofocus aria-label="6-digit code">
-      <label class="small mute">Your name (optional)</label><input name="name" autocomplete="name" maxlength="80"><button class="btn block lg mt" type="submit">Verify and continue</button></form>`;
+      <button class="btn block lg mt" type="submit">Verify and continue</button></form>`;
   function emailOtpView(email, wait) {
     sheet(`${codeForm('email-otp-verify', `data-email="${e(email)}"`, email, 'Check spam too. It expires in 5 minutes')}
       <button class="btn ghost block mt2" id="resend" data-act="email-resend" data-email="${e(email)}" disabled>Resend in ${wait}s</button><button class="btn ghost block mt2" data-act="to-email-login">Change email</button>`);
@@ -74,7 +76,7 @@
   }
   const countdown = (wait) => { let t = wait; const iv = setInterval(() => { const b = PL.$('#resend'); if (!b) return clearInterval(iv); t--; if (t <= 0) { b.disabled = false; b.textContent = 'Resend code'; clearInterval(iv); } else b.textContent = `Resend in ${t}s`; }, 1000); };
   PL.actions['email-resend'] = async (el) => { const r = await PL.run(() => PL.post('/api/auth/customer/email-otp/request', { email: el.dataset.email }), 'Code sent'); if (r) emailOtpView(el.dataset.email, r.resendAfterSec); };
-  PL.forms['email-otp-verify'] = async (f) => { const v = PL.form(f); const body = { email: f.dataset.email, otp: v.otp }; if (v.name?.trim()) body.name = v.name.trim();
+  PL.forms['email-otp-verify'] = async (f) => { const v = PL.form(f); const body = { email: f.dataset.email, otp: v.otp };
     const r = await PL.run(() => PL.post('/api/auth/customer/email-otp/verify', body)); if (r) { PL.setSession(r); history.replaceState({ idx: 0 }, '', location.hash || '#'); PL.boot(); } };
   const normPhone = (p) => { p = p.replace(/[\s-]/g, ''); return /^\d{10}$/.test(p) ? '+91' + p : p; };
   PL.forms['otp-request'] = async (f) => { const phone = normPhone(PL.form(f).phone); const r = await PL.run(() => PL.post('/api/auth/customer/otp/request', { phone })); if (r) otpView(phone, r.resendAfterSec); };
@@ -84,8 +86,20 @@
     countdown(wait);
   }
   PL.actions.resend = async (el) => { const r = await PL.run(() => PL.post('/api/auth/customer/otp/request', { phone: el.dataset.phone }), 'Code sent'); if (r) otpView(el.dataset.phone, r.resendAfterSec); };
-  PL.forms['otp-verify'] = async (f) => { const v = PL.form(f); const body = { phone: f.dataset.phone, otp: v.otp }; if (v.name?.trim()) body.name = v.name.trim();
+  PL.forms['otp-verify'] = async (f) => { const v = PL.form(f); const body = { phone: f.dataset.phone, otp: v.otp };
     const r = await PL.run(() => PL.post('/api/auth/customer/otp/verify', body)); if (r) { PL.setSession(r); history.replaceState({ idx: 0 }, '', location.hash || '#'); PL.boot(); } };
+
+  // ---------- "What should we call you?" (required once; never asked again when a real name is saved) ----------
+  const nameGate = () => { if (PL.$('#u-namegate')) return; const d = document.createElement('div'); d.id = 'u-namegate'; d.className = 'u-namegate';
+    d.innerHTML = `<div class="card"><img src="/assets/logo.png" alt="" class="lg"><h2>What should we call you?</h2><p class="s">Your name is shown to the restaurant and your delivery partner with your order.</p>
+      <form data-form="set-name"><label for="nm-in" class="small mute">Your name</label><input id="nm-in" name="name" autocomplete="name" maxlength="60" placeholder="e.g. Priya" required><button class="btn block lg mt" type="submit">Continue</button></form></div>`;
+    document.body.append(d); PL.hydrate?.(d); setTimeout(() => d.querySelector('input')?.focus(), 200); };
+  PL.forms['set-name'] = async (f) => { const name = PL.form(f).name.trim(); if (name.length < 2) return PL.toast('Please enter your name.', true);
+    const r = await PL.run(() => PL.post('/api/auth/name', { name })); if (!r) return;
+    const s = PL.session(); if (s) { s.user = { ...s.user, ...r.user }; PL.setSession(s); } PL.$('#u-namegate')?.remove(); PL.toast(`Welcome, ${r.user.name}!`, 'ok'); PL.boot(); };
+  const checkName = async () => { const s = PL.session(); if (!s) return; let need = s.user?.needs_name;
+    if (need === undefined) { try { const me = (await PL.api('/api/auth/me')).user; need = me.needs_name; s.user = { ...s.user, ...me }; PL.setSession(s); } catch { return; } }
+    if (need) nameGate(); };
 
   // ---------- order status wording (one place, used by home, orders and tracking) ----------
   const ACTIVE = ['PLACED', 'ACCEPTED', 'PREPARING', 'READY', 'PICKED_UP'];
@@ -102,9 +116,9 @@
   const homeMode = () => document.body.classList.toggle('c-home', /^#\/home(\?|$)|^#?$/.test(location.hash)); window.addEventListener('hashchange', homeMode); homeMode();
   const card = (x, i) => { const cats = catsOf(textOf(x)), eta = etaOf(x);
     return `<button class="u-rrow ${x.is_open ? '' : 'u-closed'}" style="--i:${Math.min(i, 8)}" data-act="go" data-path="/r/${x.id}" data-s="${e(textOf(x).toLowerCase())}" data-cats="${cats.join(' ')}" data-open="${x.is_open ? 1 : 0}" data-r="${x.rating || 0}" data-eta="${x.eta_min || 999}" data-veg="${x.veg_only ? 1 : 0}" data-o="${i}">
-      <span class="im">${img(coverOf(x), '', '')}${x.is_open ? offerOf(x) : `<span class="cl">Closed${x.reopen_at ? `<br>Opens ${PL.time(x.reopen_at)}` : ''}</span>`}</span>
+      <span class="im">${img(coverOf(x), '', '')}${x.is_open ? offerOf(x) : `<span class="cl">Closed${x.reopen_at ? `<br>Opens ${PL.time(x.reopen_at)}` : x.opens_at ? `<br>Opens ${hm(x.opens_at)}` : ''}</span>`}</span>
       <span class="tx"><h3>${e(x.name)}</h3><span class="mt">${rateBadge(x)}${x.rating_count ? `<span class="small mute" style="font-weight:600;margin-right:2px">(${kfmt(x.rating_count)})</span>` : ''}${eta && x.is_open ? `<span class="u-dot"></span>${eta}` : ''}</span>
-        <span class="cu">${e(x.cuisine || 'Local favourites')}</span>${x.description ? `<span class="ds">${e(x.description)}</span>` : ''}
+        <span class="cu">${e(x.cuisine || 'Local favourites')}</span>${hoursOf(x) ? `<span class="u-hrs">${I('clock')}${hoursOf(x)}</span>` : ''}${x.description ? `<span class="ds">${e(x.description)}</span>` : ''}
         <span class="tags">${x.veg_only ? `<span class="u-tag g">${dietMark('veg')} Pure veg</span>` : ''}${x.min_order_paise ? `<span class="u-tag">Min ${rs(x.min_order_paise)}</span>` : ''}</span></span></button>`; };
   // menus of open kitchens, cached for 5 minutes (home refreshes every few seconds; menus rarely change)
   const menusFor = async (ids) => { const c = (S.mcache ||= {}), now = Date.now();
@@ -224,7 +238,7 @@
     return `<div class="u-hero">${img(cover, '', r.name)}<div class="tb"><button class="u-iconbtn" data-act="back" aria-label="Back">${I('chev', 'class="flip"')}</button><div class="grp"><button class="u-iconbtn" data-act="focus-mq" aria-label="Search the menu">${I('search')}</button></div></div></div>
       <div class="u-rinfo"><div class="r1"><div style="min-width:0"><h1>${e(r.name)}</h1><div class="cu">${e(r.cuisine || 'Local favourites')}</div></div><div class="rbox ${r.rating ? '' : 'new'}"><b>${r.rating ? star + Number(r.rating).toFixed(1) : 'New'}</b><span>${r.rating_count ? `${kfmt(r.rating_count)} ratings` : 'No ratings'}</span></div></div>
         ${r.description ? `<div class="ds">${e(r.description)}</div>` : ''}${r.operating_info ? `<div class="ds">${e(r.operating_info)}</div>` : ''}
-        <div class="facts"><div>${I('clock')}<span class="txt"><b>${prep ? `${prep + (r.packing_buffer_min || 0)} mins` : '–'}</b><small>to prepare</small></span></div><div>${I(r.is_open ? 'check' : 'clock')}<span class="txt"><b>${r.is_open ? 'Open now' : 'Closed'}</b><small>${r.is_open ? 'Taking orders' : 'Opens later'}</small></span></div></div></div>
+        <div class="facts"><div>${I('clock')}<span class="txt"><b>${prep ? `${prep + (r.packing_buffer_min || 0)} mins` : '–'}</b><small>to prepare</small></span></div><div>${I(r.is_open ? 'check' : 'clock')}<span class="txt"><b>${r.is_open ? 'Open now' : 'Closed'}</b><small>${hoursOf(r) ? `Hours ${hoursOf(r)}` : r.is_open ? 'Taking orders' : 'Opens later'}</small></span></div></div></div>
       ${noRiders(c)}${r.is_open ? '' : `<div class="u-note bad">${I('clock')}<span>This restaurant is closed right now. You can browse the menu; ordering opens when it reopens.</span></div>`}
       <div class="u-offers">${offers.map(([ic, b, s]) => `<div class="u-offer"><span class="ic">${ic}</span><span class="txt"><b>${b}</b><small>${s}</small></span></div>`).join('')}</div>
       ${m.items.length ? `<div class="u-mbar"><label class="u-search">${I('search')}<input id="m-q" type="search" value="${e(S.mq || '')}" placeholder="Search for dishes" autocomplete="off" aria-label="Search dishes"></label>${hasDiet ? `<button class="u-veg ${S.veg ? 'on' : ''}" data-act="veg" aria-pressed="${!!S.veg}">${dietMark('veg')}<span>Veg</span><span class="tg"></span></button>` : ''}</div>` : ''}
@@ -259,7 +273,7 @@
   PL.actions.dec = (el) => { const it = S.cart.items[el.dataset.id]; if (!it) return; it.qty--; if (it.qty <= 0) delete S.cart.items[el.dataset.id]; if (!cartCount()) S.cart.rid = null; S.popId = el.dataset.id; saveCart(); PL.rerender(); };
 
   // ---------- cart + checkout (same rules: server quote, confirmed destination, online payment only) ----------
-  const body = () => ({ restaurant_id: S.cart.rid, items: Object.entries(S.cart.items).map(([id, i]) => ({ id: Number(id), qty: i.qty })), instructions: S.instr || undefined, address_id: S.addrId || undefined });
+  const body = () => ({ restaurant_id: S.cart.rid, items: Object.entries(S.cart.items).map(([id, i]) => ({ id: Number(id), qty: i.qty })), instructions: S.instr || undefined, address_id: S.addrId || undefined, coupon: S.coupon || undefined });
   async function cart() {
     if (!cartCount()) return `<div class="u-pg">${empty('bag', 'Your cart is empty', 'Good food is always cooking. Go ahead, order some yummy items from the menu.', '<button class="btn mt" data-act="go" data-path="/home">Browse restaurants</button>')}</div>`;
     const [{ addresses: ad, gps_fee_paise: gpsFee }, { locations: places }] = await Promise.all([PL.api('/api/customer/addresses'), PL.api('/api/public/locations')]);
@@ -272,7 +286,10 @@
       S.addrId = sel?.id ?? S.addrId; if (sel) save('pl.addr', S.addrId); }
     const mine = ad.filter((x) => (S.method === 'list' ? x.kind === 'listed' : x.kind !== 'listed'));
     let q = null, err = null;
-    if (sel) { try { q = await PL.post('/api/customer/quote', body()); } catch (x) { err = x; } }
+    if (sel) { try { q = await PL.post('/api/customer/quote', body());
+      if (q.coupon_error && S.coupon) { S.couponErr = `${S.coupon}: ${q.coupon_error}`; S.coupon = null; q = await PL.post('/api/customer/quote', body()); }      // the server said no: show why and price without it
+    } catch (x) { err = x; } }
+    if (!S.offers || S.offers.rid !== S.cart.rid || Date.now() - S.offers.t > 60000) S.offers = { rid: S.cart.rid, t: Date.now(), list: (await PL.api('/api/customer/coupons?restaurant_id=' + S.cart.rid).catch(() => ({ coupons: [] }))).coupons };
     const items = `<div class="u-box"><div class="u-crest">${img(restPic(S.cart.rname, S.cart.rimg, Object.values(S.cart.items).map((i) => i.name).join(' ')))}<span class="txt"><b>${e(S.cart.rname)}</b><small>${cartCount()} item${cartCount() > 1 ? 's' : ''} · ${rs(cartTotal())}</small></span></div>
       <div class="mt2">${Object.entries(S.cart.items).map(([id, i]) => `<div class="u-cline"><div class="nm"><b>${i.diet ? dietMark(i.diet) : ''}<span>${e(i.name)}</span></b><small>${rs(i.price)} each</small></div><div class="rt"><div class="u-step sm ${S.popId == id ? 'pop' : ''}"><button data-act="dec" data-id="${id}" aria-label="Remove one ${e(i.name)}">−</button><span>${i.qty}</span><button data-act="inc" data-id="${id}" aria-label="Add one ${e(i.name)}">+</button></div><span class="amt">${rs(i.price * i.qty)}</span></div></div>`).join('')}</div>
       <button class="u-addmore" data-act="go" data-path="/r/${S.cart.rid}">${I('plus')} Add more items</button>
@@ -289,18 +306,34 @@
         <p class="small mute mt2" style="text-align:center">Can’t find your place? <a href="#" data-act="method" data-m="gps">Use your GPS location instead</a>.</p>`
       : `<div class="u-note info">${I('info')}<span>Delivery charge for places not on the list: <b>${rs(gpsFee)}</b></span></div>${mine.map(acard).join('')}
         <button class="u-lnk" data-act="go" data-path="/addresses/new?back=cart">${I('pin')} ${mine.length ? 'Add a new GPS address' : 'Add address with my GPS location'}</button>${sel ? `<button class="u-lnk" data-act="go" data-path="/addresses/${sel.id}?back=cart&gps=1">${I('refresh')} I’ve moved: update GPS</button>` : ''}`;
+    const offTxt = (c) => (c.discount_type === 'percent' ? `${c.value / 100}% off` : `${rs(c.value)} off`) + (c.max_discount_paise ? ` up to ${rs(c.max_discount_paise)}` : '') + (c.min_order_paise ? ` on orders above ${rs(c.min_order_paise)}` : '');
+    const coupon = `<div class="u-box u-coupon"><h3>${I('receipt')} Offers & coupons</h3>${q?.coupon_code ? `<div class="u-capplied"><span class="tk">${I('check')}</span><span class="txt"><b>${e(q.coupon_code)} applied</b><small>You save ${rs(q.discount_paise)} on this order</small></span><button class="btn ghost sm" data-act="coupon-off">Remove</button></div>`
+      : `<form class="u-cform" data-form="coupon"><input name="code" data-bind="couponTry" placeholder="Enter coupon code" autocomplete="off" autocapitalize="characters" maxlength="24" aria-label="Coupon code" value="${e(S.couponTry || '')}"><button class="btn sm" type="submit">Apply</button></form>
+        ${S.couponErr ? `<div class="u-cerr">${I('alert')}<span>${e(S.couponErr)}</span></div>` : ''}
+        ${(S.offers?.list || []).slice(0, 4).map((c) => `<div class="u-cchip"><span class="txt"><b>${e(c.code)}</b><small>${e(c.description || offTxt(c))}</small></span><button class="btn ghost sm" data-act="coupon-use" data-code="${e(c.code)}">Apply</button></div>`).join('')}`}</div>`;
     const confirm = sel ? `<label class="u-confirm ${S.confirmed ? 'ok' : ''}"><input type="checkbox" id="confirm-dest" ${S.confirmed ? 'checked' : ''}><span>${sel.kind === 'listed' ? `Deliver to <b>${e(addrLine(sel))}</b>. This is the place I am ordering for.` : `Deliver to this point. The location was captured ${PL.dt(sel.captured_at)} and I am ordering for that place.`}</span></label>` : '';
     const bill = q ? `<div class="u-box u-bill"><h3>${I('receipt')} Bill details</h3><div class="mt2"><div class="kv"><span>Item total<small>Restaurant prices</small></span><span>${rs(q.items_base_paise)}</span></div>${q.markup_paise ? `<div class="kv"><span>Platform markup</span><span>${rs(q.markup_paise)}</span></div>` : ''}
         <div class="kv"><span>Delivery charge<small>${q.delivery_pricing === 'distance' ? `${e(q.delivery_distance_km)} km by road from ${e(S.cart.rname)}` : q.delivery_pricing === 'distance_fallback' ? 'Standard charge' : q.delivery_type === 'listed' ? e(q.delivery_location) : 'Fixed charge for places not on the list'}${q.delivery_paise < q.delivery_fee_before_offers_paise ? ' · free above the restaurant’s minimum' : ''}</small></span><span>${q.delivery_paise < q.delivery_fee_before_offers_paise ? `<s class="mute" style="font-weight:500;margin-right:6px">${rs(q.delivery_fee_before_offers_paise)}</s>` : ''}${rs(q.delivery_paise)}</span></div>
         ${q.delivery_fallback ? `<div class="u-note info small">${I('info')}<span>We couldn’t measure the road distance right now, so the standard delivery charge applies.</span></div>` : ''}${q.surge_paise ? `<div class="kv"><span>Surge charge</span><span>${rs(q.surge_paise)}</span></div>` : ''}${q.tax_paise ? `<div class="kv"><span>Taxes</span><span>${rs(q.tax_paise)}</span></div>` : ''}
+        ${q.discount_paise ? `<div class="kv save"><span>Coupon ${e(q.coupon_code)}<small>Paid by Pakka Local</small></span><span>− ${rs(q.discount_paise)}</span></div>` : ''}
         <div class="kv tot"><span>To pay</span><span>${rs(q.total_paise)}</span></div></div><div class="small mute">Estimated delivery in ~${q.prep_min + 8 + q.delivery_min} min</div></div>` : '';
-    return `<div class="u-pg">${items}
-      <div class="u-box"><h3>${I('pin')} Delivery at</h3>${tabs}${addrPart}${confirm}</div>
+    // compact "Deliver to" card; the full chooser opens only when changing it
+    const open = !sel || S.addrOpen, spl = sel && placeOf(sel);
+    const deliver = open ? `<div class="u-box u-deliver"><div class="row between"><h3>${I('pin')} Deliver to</h3>${sel ? '<button class="btn ghost sm" data-act="addr-done">Done</button>' : ''}</div>${tabs}${addrPart}</div>`
+      : `<div class="u-box u-deliver"><div class="u-dto"><span class="ic">${I(sel.kind === 'listed' ? 'shop' : 'pin')}</span><span class="txt"><small>Deliver to</small><b>${e(sel.kind === 'listed' ? (spl?.name || sel.place_name) : LBL[sel.label])}</b><span>${e(addrLine(sel, sel.kind === 'listed'))}</span>${sel.entrance || sel.landmark ? `<span class="mute">${e([sel.entrance, sel.landmark].filter(Boolean).join(' · '))}</span>` : ''}</span><button class="btn ghost sm" data-act="addr-change">Change</button></div>${confirm}</div>`;
+    return `<div class="u-pg u-checkout">${deliver}${items}${coupon}
       ${err ? `<div class="u-note ${err.code === 'NO_RIDERS' ? '' : 'bad'}">${I('alert')}<span>${e(err.message)}${err.code === 'NO_MAP_POINT' && sel ? `<br><button class="btn sm mt2" data-act="go" data-path="/addresses/${sel.id}?back=cart&gps=1">Add my GPS location</button>` : ''}</span></div>` : ''}
       ${bill}
       <div class="u-cod">${I('shield')} Online payment only. Cash on delivery is not available.</div></div>
-      <div class="u-paybar"><span class="l"><b>${q ? rs(q.total_paise) : rs(cartTotal())}</b><small>${q ? 'To pay' : 'Item total'}</small></span><button class="go" data-act="place" ${q && !err && S.confirmed ? '' : 'disabled'}>${!sel ? 'Choose delivery place' : !S.confirmed ? 'Confirm delivery point' : q ? `Proceed to pay ${I('chev')}` : 'Not available'}</button></div>`;
+      <div class="u-paybar"><span class="l"><b>${q ? rs(q.total_paise) : rs(cartTotal())}</b><small>${q ? (q.discount_paise ? `To pay · saved ${rs(q.discount_paise)}` : 'To pay') : 'Item total'}</small></span><button class="go" data-act="place" ${q && !err && S.confirmed ? '' : 'disabled'}>${!sel ? 'Choose delivery place' : !S.confirmed ? 'Confirm delivery point' : q ? `Continue to payment ${I('chev')}` : 'Not available'}</button></div>`;
   }
+  PL.actions['addr-change'] = () => { S.addrOpen = true; PL.rerender(); };
+  PL.actions['addr-done'] = () => { S.addrOpen = false; PL.rerender(); };
+  // coupons: the code is only sent; the server decides whether it applies and by how much
+  const tryCoupon = (code) => { code = String(code || '').trim().toUpperCase(); if (!code) return PL.toast('Enter a coupon code.', true); S.coupon = code; S.couponTry = code; S.couponErr = null; PL.rerender(); };
+  PL.forms.coupon = (f) => tryCoupon(PL.form(f).code);
+  PL.actions['coupon-use'] = (el) => tryCoupon(el.dataset.code);
+  PL.actions['coupon-off'] = () => { S.coupon = null; S.couponTry = ''; S.couponErr = null; PL.rerender(); };
   PL.actions.method = (el, ev) => { ev?.preventDefault?.(); if (S.method === el.dataset.m) return; S.method = el.dataset.m; S.confirmed = false; PL.rerender(); };
 
   // searchable list of Pakka Local's places (active only, as returned by the server)
@@ -318,10 +351,10 @@
     PL.go(`/addresses/new?kind=listed&place=${id}&back=${qs.get('back') || 'cart'}`); };
 
   document.addEventListener('change', (ev) => { const t = ev.target;
-    if (t.name === 'addr' && t.closest('.addr-pick')) { S.addrId = Number(t.value); save('pl.addr', S.addrId); S.confirmed = false; PL.rerender(); }      // picking an address keeps its method
+    if (t.name === 'addr' && t.closest('.addr-pick')) { S.addrId = Number(t.value); save('pl.addr', S.addrId); S.confirmed = false; S.addrOpen = false; PL.rerender(); }      // picking an address keeps its method
     if (t.id === 'confirm-dest') { S.confirmed = t.checked; PL.rerender(); } });
   PL.actions.place = async (el) => { if (!S.confirmed) return PL.toast('Confirm the delivery point first.', true); el.disabled = true; el.classList.add('busy');
-    const r = await PL.run(() => PL.post('/api/customer/orders', { ...body(), confirm_destination: true })); if (r) { S.confirmed = false; PL.go('/pay/' + r.order_code, true); } else { el.disabled = false; el.classList.remove('busy'); } };
+    const r = await PL.run(() => PL.post('/api/customer/orders', { ...body(), confirm_destination: true })); if (r) { S.confirmed = false; S.coupon = null; S.couponTry = ''; S.couponErr = null; PL.go('/pay/' + r.order_code, true); } else { el.disabled = false; el.classList.remove('busy'); } };
 
   // ---------- delivery addresses (GPS-first) ----------
   // Fresh, high-accuracy reading from this phone. Never reuses an old browser position and never invents one.
@@ -459,7 +492,15 @@
     const steps = STEPS.map(([ev, label, st], i) => ({ i, label, t: at[ev], done: !!at[ev] || (st ? rank > RANK[st] || (o.status === 'DELIVERED' && st === 'DELIVERED') : rank >= 5) }));
     const done = steps.filter((s) => s.done).sort((a, b) => (a.t && b.t ? new Date(a.t) - new Date(b.t) : a.i - b.i)), todo = steps.filter((s) => !s.done);
     const tl = dead ? '' : `<ul class="u-tl">${[...done, ...todo].map((s, k) => `<li class="${s.done ? 'done' : k === done.length && o.status !== 'DELIVERED' ? 'cur' : ''}"><span class="dt">${s.done ? I('check') : ''}</span><span><b>${s.label}</b><small>${s.t ? PL.time(s.t) : s.done ? '' : k === done.length ? 'In progress' : 'Pending'}</small></span></li>`).join('')}</ul>`;
-    const banner = o.status === 'CANCELLED' ? `<div class="u-note bad">${I('alert')}<span>This order was cancelled. ${e(o.rejection_reason || '')} ${o.refund ? 'Refund: ' + PL.chip(o.refund) : ''}</span></div>` : o.status === 'REJECTED' ? `<div class="u-note bad">${I('alert')}<span>The restaurant couldn’t take this order: ${e(o.rejection_reason || '')}. ${o.refund ? 'Refund: ' + PL.chip(o.refund) : ''}</span></div>` : o.status === 'PAYMENT_PENDING' ? `<div class="u-note">${I('info')}<span>Payment is pending.<br><button class="btn sm mt2" data-act="go" data-path="/pay/${e(code)}">Complete payment</button></span></div>` : o.status === 'PAYMENT_FAILED' || o.status === 'EXPIRED' ? `<div class="u-note bad">${I('alert')}<span>Payment was not completed. No order was placed.</span></div>` : '';
+    const rf = o.refund_detail;
+    const refundCard = rf ? `<div class="u-box u-refund"><div class="row between"><h3>${I('refresh')} Refund ${rs(rf.amount_paise)}</h3><span class="u-pill ${rf.stage === 'completed' ? 'ok' : ['rejected', 'failed'].includes(rf.stage) ? 'bad' : 'warn'}">${e(rf.stage_text)}</span></div>
+        <ol class="u-rsteps">${[['requested', 'UPI ID received'], ['approved', 'Approved'], ['completed', 'Money sent']].map(([k, l]) => { const done = rf.history.some((h) => h.stage === k); return `<li class="${done ? 'on' : ''}"><i>${done ? I('check') : ''}</i>${l}</li>`; }).join('')}</ol>
+        ${rf.stage === 'completed' ? `<div class="u-note ok">${I('check')}<span>Sent to <b>${e(rf.upi_id)}</b>. UPI reference <b>${e(rf.reference)}</b>. It can take a few minutes to show in your bank app.</span></div>` : ''}
+        ${rf.note ? `<div class="u-note bad">${I('alert')}<span>${e(rf.note)}</span></div>` : ''}
+        ${rf.can_edit ? `<form data-form="refund-upi" data-code="${e(o.order_code)}" class="mt2"><label for="rf-upi">Your UPI ID for the refund</label><input id="rf-upi" name="upi_id" value="${e(rf.upi_id || '')}" placeholder="yourname@okaxis" required autocomplete="off" autocapitalize="off" spellcheck="false">
+          <label for="rf-name">Name on the UPI account (optional)</label><input id="rf-name" name="upi_name" value="${e(rf.upi_name || '')}" maxlength="80" autocomplete="name">
+          <button class="btn block lg mt" type="submit">${rf.upi_id ? 'Update UPI ID' : 'Request refund to this UPI ID'}</button><p class="small mute mt2">Pakka Local checks the request and sends the money to this UPI ID. You’ll be notified at each step.</p></form>` : rf.upi_id && rf.stage !== 'completed' ? `<div class="small mute mt2">Refund to <b>${e(rf.upi_id)}</b></div>` : ''}</div>` : '';
+    const banner = o.status === 'CANCELLED' ? `<div class="u-note bad">${I('alert')}<span>This order was cancelled. ${e(o.rejection_reason || '')}${rf ? ' Your money will be refunded.' : ''}</span></div>` : o.status === 'REJECTED' ? `<div class="u-note bad">${I('alert')}<span><b>Order not accepted.</b> The restaurant couldn’t take this order: ${e(o.rejection_reason || '')}.${rf ? ' Your money will be refunded.' : ''}</span></div>` : o.status === 'PAYMENT_PENDING' ? `<div class="u-note">${I('info')}<span>Payment is pending.<br><button class="btn sm mt2" data-act="go" data-path="/pay/${e(code)}">Complete payment</button></span></div>` : o.status === 'PAYMENT_FAILED' || o.status === 'EXPIRED' ? `<div class="u-note bad">${I('alert')}<span>Payment was not completed. No order was placed.</span></div>` : '';
     const say = SAY[o.status] || [o.status, ''], prev = S.seen[code], changed = prev && prev !== o.status; S.seen[code] = o.status;
     if (changed) { PL.inbox.load(); if (o.status === 'DELIVERED') setTimeout(() => PL.celebrate({ title: 'Order delivered', sub: 'Enjoy your meal! Tap the stars below to rate it.', ms: 2400 }), 50); }
     const live = o.status === 'PICKED_UP';
@@ -467,7 +508,9 @@
     const map = live ? `<div class="u-map"><div id="trkmap" data-code="${e(o.order_code)}"></div><div class="lbl"><span class="chip" id="trkst">Checking…</span></div><div class="note" id="trknote"></div></div>` : '';
     const nItems = o.items.reduce((a, i) => a + i.qty, 0);
     const rcard = `<div class="u-box u-crest">${img(restPic(o.restaurant, o.restaurant_image, o.items.map((i) => i.name).join(' ')))}<span class="txt"><b>${e(o.restaurant)}</b><small>${nItems} item${nItems > 1 ? 's' : ''} · ${rs(o.total_paise)} · ${e(o.order_code)}</small></span></div>`;
-    return `${map}${hero}${banner}${rcard}
+    const chat = o.chat && (o.chat.open || o.chat.any) ? `<button class="u-box u-chatbtn" data-act="chat-open" data-code="${e(o.order_code)}"><span class="ic">${I('chat')}${o.chat.unread ? `<i class="dot">${o.chat.unread}</i>` : ''}</span><span class="txt"><b>${o.chat.unread ? `${o.chat.unread} new message${o.chat.unread > 1 ? 's' : ''}` : 'Message your delivery partner'}</b><small>${o.chat.open ? 'Gate number, landmark or where to meet' : 'Chat history for this order'}</small></span>${I('chev')}</button>` : '';
+    const bar = `<div class="u-trkbar"><span>Updated ${PL.time(new Date().toISOString())}</span><button class="btn ghost sm" data-act="trk-refresh" aria-label="Refresh order status">${I('refresh')} Refresh</button></div>`;
+    return `${map}${bar}${hero}${banner}${refundCard}${chat}${rcard}
       ${o.delivery_otp ? `<div class="u-box u-otp"><span><b style="font:800 1rem var(--head)">Delivery code</b><div class="small mute">Share it with your delivery partner at your door</div></span><span class="dg" aria-label="Delivery code ${e(o.delivery_otp)}">${String(o.delivery_otp).split('').map((d) => `<span>${e(d)}</span>`).join('')}</span></div>` : ''}
       ${o.rider ? `<div class="u-box"><div class="u-rider">${o.rider.has_photo ? `<img alt="" data-authimg="/api/files/order-rider-photo/${e(code)}">` : `<span class="av">${e((o.rider.name || 'R').trim().charAt(0).toUpperCase())}</span>`}<span class="txt"><b>${e(o.rider.name)}</b><small>${['Your delivery partner', [o.rider.vehicle_category, o.rider.vehicle_make, o.rider.vehicle_model].filter(Boolean).join(' ')].filter(Boolean).map(e).join(' · ')}</small>${o.rider.vehicle_reg_no ? `<span class="plate">${e(o.rider.vehicle_reg_no)}</span>` : ''}</span>${o.status === 'PICKED_UP' ? `<a class="u-call" href="tel:${e(o.rider.phone)}" aria-label="Call your delivery partner">${I('phone')}</a>` : ''}</div></div>` : ''}
       ${o.status === 'DELIVERED' ? `<div class="u-box"><h3>${o.rating ? 'Your rating' : 'How was your food?'}</h3><div class="u-stars">${[1, 2, 3, 4, 5].map((n) => o.rating ? `<span class="${n <= o.rating ? 'on' : ''}">${star}</span>` : `<button data-act="rate" data-code="${e(o.order_code)}" data-s="${n}" aria-label="${n} star${n > 1 ? 's' : ''}">${star}</button>`).join('')}</div></div>` : ''}
@@ -476,6 +519,12 @@
       <details class="u-box u-items" ${dead ? 'open' : ''}><summary><span>${e(o.restaurant)} · ${o.items.reduce((a, i) => a + i.qty, 0)} item${o.items.reduce((a, i) => a + i.qty, 0) > 1 ? 's' : ''}</span>${I('chev')}</summary><div class="mt2">${o.items.map((i) => `<div class="kv"><span>${i.qty} × ${e(i.name)}</span><span>${rs(i.price_paise * i.qty)}</span></div>`).join('')}<div class="kv"><span class="mute">Item total</span><span>${rs(o.items_base_paise + o.markup_paise)}</span></div><div class="kv"><span class="mute">Delivery</span><span>${rs(o.delivery_paise)}</span></div>${o.surge_paise ? `<div class="kv"><span class="mute">Surge</span><span>${rs(o.surge_paise)}</span></div>` : ''}${o.tax_paise ? `<div class="kv"><span class="mute">Taxes</span><span>${rs(o.tax_paise)}</span></div>` : ''}<div class="kv" style="font-weight:800;border-top:1px solid var(--u-line);margin-top:6px;padding-top:10px"><span>Total paid</span><span>${rs(o.total_paise)}</span></div>
         <div class="small mute mt2">Deliver to: ${e(o.dest_text)}${o.instructions ? `<br>Note: ${e(o.instructions)}` : ''}</div>${o.refund ? `<div class="mt2">Refund ${PL.chip(o.refund)}</div>` : ''}<div class="small mute mt2">Order ${PL.code(o.order_code)}</div></div></details>`;
   }
+
+  // refresh: one request at a time; the screen is repainted in place (no page reload)
+  PL.actions['trk-refresh'] = async (el) => { if (S.trkBusy) return; S.trkBusy = true; el.disabled = true; el.classList.add('spin');
+    try { await PL.rerender(); } finally { S.trkBusy = false; const b = PL.$('[data-act="trk-refresh"]'); if (b) { b.disabled = false; b.classList.remove('spin'); } } };
+  PL.actions['chat-open'] = (el) => PL.chat.open(`/api/customer/orders/${el.dataset.code}/messages`, 'Your delivery partner', 'Only you and the partner delivering this order can see these messages.');
+  PL.forms['refund-upi'] = async (f) => { const v = PL.form(f); const r = await PL.run(() => PL.post(`/api/customer/orders/${f.dataset.code}/refund-upi`, { upi_id: v.upi_id.trim(), upi_name: v.upi_name.trim() || undefined }), 'Refund request sent. We’ll notify you when it’s paid.'); if (r) PL.rerender(); };
 
   // ---------- account ----------
   async function account() { const [me, pf, my, adr] = await Promise.all([PL.api('/api/customer/me'), PL.api('/api/customer/preferences'), PL.api('/api/customer/orders'), PL.api('/api/customer/addresses').catch(() => ({ addresses: [] }))]); const u = me.user;
@@ -495,7 +544,7 @@
 
   PL.start({ portal: 'user', name: 'Pakka Local', home: '/home', loginView,
     tabs: [{ path: '/home', label: 'Home', icon: 'home' }, { path: '/search', label: 'Search', icon: 'search' }, { path: '/orders', label: 'Orders', icon: 'orders' }, { path: '/me', label: 'Account', icon: 'user' }],
-    onReady: () => { const tick = async () => { try { const { orders } = await PL.api('/api/customer/orders'); PL.badge('/orders', orders.filter((o) => ACTIVE.includes(o.status)).length); } catch {} }; tick(); const iv = setInterval(tick, 10000); PL.hooks.stop = [() => clearInterval(iv)]; },
+    onReady: () => { checkName(); const tick = async () => { try { const { orders } = await PL.api('/api/customer/orders'); PL.badge('/orders', orders.filter((o) => ACTIVE.includes(o.status)).length); } catch {} }; tick(); const iv = setInterval(tick, 10000); PL.hooks.stop = [() => clearInterval(iv)]; },
     routes: { '/home': { title: 'Home', render: home, poll: 6000, after: homeAfter, skel: 'cards' }, '/search': { title: 'Search', render: search, after: () => { runSearch(); const i = PL.$('#s-q'); if (i && !S.sq) i.focus(); }, skel: 'list' },
       '/r/:id': { title: 'Menu', render: menu, poll: 8000, noNav: true, after: () => { filterMenu(); S.popId = null; }, skel: 'menu' }, '/cart': { title: 'Cart', render: cart, poll: 8000, noNav: true, after: () => { S.popId = null; }, skel: 'detail' }, '/pay/:code': { title: 'Payment', render: pay, noNav: true, skel: 'detail' },
       '/orders': { title: 'My orders', render: orders, poll: 5000 }, '/orders/:code': { title: 'Track order', render: track, poll: 2000, skel: 'detail', after: () => { PL.track.customerMount(); mountLottie(); } }, '/me': { title: 'Account', render: account }, '/addresses': { title: 'Delivery addresses', render: addresses }, '/places': { title: 'Find your place', render: placesView }, '/addresses/:id': { title: 'Delivery address', render: addressForm } } });

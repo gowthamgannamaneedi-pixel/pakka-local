@@ -157,7 +157,7 @@ test('Test 10: cashouts, reservation, duplicate guard, proofs visible only to ow
   assert.equal((await call('POST', '/api/restaurant/cashouts', mk(100), S.rt0)).status, 409);          // duplicate open request
   assert.equal((await call('GET', '/api/restaurant/earnings', null, S.rt0)).body.balance.available, 2600);   // amount reserved
   assert.equal((await call('POST', '/api/rider/cashouts', mk(3000), S.winner)).status, 201);
-  const list = (await call('GET', '/api/admin/cashouts', null, S.admin)).body.cashouts; assert.equal(list.length, 2); assert.ok(!list[0].beneficiary.includes('owner@upi'));
+  const list = (await call('GET', '/api/admin/cashouts', null, S.admin)).body.cashouts; assert.equal(list.length, 2); assert.ok(list.some((c) => c.beneficiary === 'owner@upi'), 'admins see full UPI IDs to pay them');
   const rc = list.find(c => c.account_type === 'restaurant'), rd = list.find(c => c.account_type === 'rider');
   assert.equal((await call('POST', `/api/admin/cashouts/${rc.id}/pay`, { txn_reference: 'UTR123456' }, S.admin)).status, 400);   // proof required
   assert.equal((await call('POST', `/api/admin/cashouts/${rc.id}/pay`, { txn_reference: 'UTR123456', proof: Buffer.from('not an image').toString('base64') }, S.admin)).status, 400);

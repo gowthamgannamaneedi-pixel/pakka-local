@@ -10,7 +10,7 @@
   PL.dt = (i) => (i ? new Date(i).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
   PL.$ = (s, r = document) => r.querySelector(s);
 
-  const ICONS = {
+  const ICONS = { chat: 'M4 5h16v11H9l-5 4z M8 10h8 M8 13h5',
     home: 'M3 11l9-8 9 8M5 10v10h14V10', orders: 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6', user: 'M12 12a4 4 0 100-8 4 4 0 000 8zM4 21c0-4 4-6 8-6s8 2 8 6', bell: 'M6 16V11a6 6 0 0112 0v5l2 2H4zM10 21h4', clock: 'M12 21a9 9 0 100-18 9 9 0 000 18zM12 7v5l3 2', camera: 'M4 8h3l2-3h6l2 3h3v11H4zM12 17a4 4 0 100-8 4 4 0 000 8z', check: 'M5 12l5 5L20 7', alert: 'M12 3l10 18H2zM12 10v5M12 18h.01',
     cart: 'M3 4h3l2 11h10l2-8H7M9 20h.01M17 20h.01', menu: 'M4 6h16M4 12h16M4 18h10', wallet: 'M3 7h16a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2zM3 7l12-3v3M16 14h2', bike: 'M5 18a3 3 0 100-6 3 3 0 000 6zM19 18a3 3 0 100-6 3 3 0 000 6zM12 18l-2-6h6l3 6M8 8h3',
     search: 'M11 18a7 7 0 100-14 7 7 0 000 14zM21 21l-5-5', shop: 'M4 9l1-5h14l1 5M4 9v11h16V9M4 9a3 3 0 006 0 3 3 0 006 0 3 3 0 004 0', pin: 'M12 21s7-6 7-11a7 7 0 10-14 0c0 5 7 11 7 11zM12 12a2 2 0 100-4 2 2 0 000 4z',
@@ -238,7 +238,7 @@
   PL.actions.nav = (el) => { if (here() !== el.dataset.path) PL.go(el.dataset.path); };
   PL.actions.go = (el) => PL.go(el.dataset.path);
   PL.actions['close-modal'] = () => PL.closeModal();
-  PL.actions.logout = async () => { if (!(await PL.confirm('Sign out of this portal?', 'Sign out'))) return; try { PL.track && PL.track.stop(); if (PL.push) await PL.push.disable(); } catch {}      /* a signed-out device must stop sharing location and stop receiving this account's notifications */
+  PL.actions.logout = async () => { if (!(await PL.confirm('Sign out of this portal?', 'Sign out'))) return; try { PL.track && PL.track.stop(); if (PL.push) await PL.push.disable(); if (PL.hooks.beforeLogout) await PL.hooks.beforeLogout(); } catch {}      /* a signed-out device must stop sharing location and stop receiving this account's notifications */
     try { await PL.post('/api/auth/logout-all'); } catch {} PL.stopAll(); PL.clearSession(); PL.boot(); };
   PL.actions['sound-toggle'] = async (el) => { if (PL.sound.enabled() && PL.sound.unlocked) { PL.sound.disable(); } else await PL.sound.enable(); el.innerHTML = PL.icon(PL.sound.enabled() ? 'sound' : 'mute'); };
 
@@ -300,16 +300,35 @@
   };
   PL.badge = (path, n) => { const b = PL.$('#bd-' + path.slice(1)); if (b) { if (b.textContent !== String(n)) { b.textContent = n; b.style.animation = 'none'; void b.offsetWidth; b.style.animation = ''; } b.classList.toggle('hide', !n); } };
 
+  // Order chat (customer <-> assigned delivery partner). One sheet for both apps; refreshes every 4 s while open.
+  PL.chat = { open(url, title, sub) {
+    let busy = false, iv = null, last = '';
+    const ov = PL.modal(`<div class="ch-head"><span class="ch-ic">${PL.icon('chat')}</span><span><h3>${e(title)}</h3><small class="mute">${e(sub || 'Messages are only for this order.')}</small></span></div>
+      <div class="ch-list" id="ch-list" aria-live="polite"><div class="ch-empty">Loading…</div></div>
+      <form data-form="chat-send" class="ch-form" data-url="${e(url)}"><input name="body" maxlength="500" placeholder="Type a message" autocomplete="off" aria-label="Message"><button class="btn" type="submit" aria-label="Send">${PL.icon('chev')}</button></form>`,
+      { cls: 'ch-ov', onClose: () => { clearInterval(iv); PL.chat.reload = null; } });
+    const load = async () => { if (busy) return; busy = true;
+      try { const d = await PL.api(url), el = ov.querySelector('#ch-list'); if (!el) return;
+        const html = d.messages.length ? d.messages.map((m) => `<div class="ch-m ${m.mine ? 'me' : ''}"><div class="b">${e(m.body)}</div><small>${m.mine ? '' : e(m.from) + ' · '}${PL.time(m.created_at)}${m.mine ? (m.read_at ? ' · Seen' : ' · Sent') : ''}</small></div>`).join('')
+          : '<div class="ch-empty">No messages yet. Say where to meet, a gate number or a landmark.</div>';
+        if (html !== last) { el.innerHTML = html; last = html; el.scrollTop = el.scrollHeight; }
+        const f = ov.querySelector('.ch-form'); f.classList.toggle('hide', !d.can_send);
+        if (!d.can_send && !ov.querySelector('.ch-closed')) f.insertAdjacentHTML('afterend', '<p class="small mute center ch-closed">Chat is closed for this order.</p>');
+      } catch (x) { const el = ov.querySelector('#ch-list'); if (el && !last) el.innerHTML = `<div class="ch-empty">${e(x.message)}</div>`; } finally { busy = false; } };
+    PL.chat.reload = load; load(); iv = setInterval(load, 4000); } };
+  PL.forms['chat-send'] = async (f) => { const i = f.querySelector('input'), body = i.value.trim(); if (!body || f.dataset.busy) return; f.dataset.busy = 1;
+    try { await PL.post(f.dataset.url, { body }); i.value = ''; PL.chat.reload && await PL.chat.reload(); } catch (x) { PL.toast(x.message, true); } finally { delete f.dataset.busy; i.focus(); } };
+
   // Staff login (restaurant / rider / admin): accounts are created by an admin, no sign-up.
   PL.staffLogin = (root, { title, blurb }) => {
     const pts = { restaurant: [['receipt', 'New orders ring instantly'], ['chef', 'Kitchen status in one tap'], ['wallet', 'Daily earnings and payouts']], rider: [['bike', 'Delivery offers near you'], ['nav', 'One-tap navigation'], ['wallet', 'Earnings paid next day']], admin: [['chart', 'Live orders and revenue'], ['users', 'Approve riders and restaurants'], ['shield', 'Every action is logged']] }[PL.portal] || [];
     root.innerHTML = `<div class="auth"><aside class="auth-art"><img src="/assets/logo.png" alt=""><h2>${e(title)}</h2><ul>${pts.map(([i, t]) => `<li>${PL.icon(i)}<span>${e(t)}</span></li>`).join('')}</ul></aside>
       <div class="loginbox"><img class="logo" src="/assets/logo.png" alt="Pakka Local"><h1>${e(title)}</h1><p class="mute">${e(blurb)}</p>
-      <form data-form="login"><label for="lg-p">Mobile number</label><div class="field pre"><span>+91</span><input id="lg-p" name="phone" inputmode="tel" autocomplete="username" placeholder="98765 43210" required></div>
+      <form data-form="login">${PL.portal === 'admin' ? '<label for="lg-p">Username or mobile number</label><div class="field"><input id="lg-p" name="phone" autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="Username or 98765 43210" required></div>' : '<label for="lg-p">Mobile number</label><div class="field pre"><span>+91</span><input id="lg-p" name="phone" inputmode="tel" autocomplete="username" placeholder="98765 43210" required></div>'}
       <label for="lg-w">Password</label><div class="field"><input id="lg-w" name="password" type="password" autocomplete="current-password" required><button type="button" class="eye" data-act="pw-eye" aria-label="Show password">Show</button></div><div id="mfa" class="hide"><label>Authenticator code</label><input name="totp" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6-digit code"></div><button class="btn block lg mt" type="submit">Sign in</button></form>
       <p class="small mute mt center">Accounts are created by Pakka Local. Contact the team if you need access.</p></div></div>`;
     PL.forms.login = async (f) => { const v = PL.form(f); let phone = v.phone.replace(/[\s-]/g, ''); if (/^\d{10}$/.test(phone)) phone = '+91' + phone;
-      const body = { portal: PL.portal, phone, password: v.password }; if (v.totp) body.totp = v.totp;
+      const body = { portal: PL.portal, password: v.password }; if (PL.portal === 'admin' && !/^\+?\d{10,15}$/.test(phone)) body.username = v.phone.trim(); else body.phone = phone; if (v.totp) body.totp = v.totp;
       try { const r = await PL.post('/api/auth/login', body); PL.setSession(r); history.replaceState({ idx: 0 }, '', location.hash || '#'); PL.boot(); }
       catch (err) { if (err.code === 'MFA_REQUIRED') { PL.$('#mfa').classList.remove('hide'); PL.$('#mfa input').focus(); } PL.toast(err.message, !!v.totp || err.code !== 'MFA_REQUIRED'); } };
   };

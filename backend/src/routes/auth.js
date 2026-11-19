@@ -12,23 +12,32 @@ import { decrypt, verifyTotp } from '../totp.js';
 const phoneSchema = z.string().trim().regex(/^\+?[1-9]\d{9,14}$/, 'Enter a valid mobile number');
 const normPhone = (p) => (p.startsWith('+') ? p : p.length === 10 ? `+91${p}` : `+${p}`);
 const hashOtp = (phone, otp) => crypto.createHmac('sha256', config.jwtSecret).update(`${phone}:${otp}`).digest('hex');
+// A customer has a usable name unless it is empty or one of the placeholders we stored before names were required.
+export const USERNAME_RE = /^[a-z][a-z0-9._]{3,31}$/;
+export const needsName = (u) => u.role === 'customer' && (!u.name || !/\p{L}/u.test(u.name) || u.name.trim().length < 2 || u.name.trim().toLowerCase() === 'customer');
+export const nameSchema = z.string().trim().min(2, 'Please enter your name.').max(60).regex(/\p{L}/u, 'Please enter your name.');
 const limiter = (max, windowMs = 15 * 60_000) =>
   rateLimit({ windowMs, max: config.isTest ? 1000 : max, standardHeaders: true, legacyHeaders: false,
     message: { error: 'Too many attempts. Please try again later.' } });
 
 export function authRoutes(db) {
   const r = Router();
-  const sessionOut = (u) => ({ token: signToken(u), user: { id: u.id, role: u.role, name: u.name } });
+  const sessionOut = (u) => ({ token: signToken(u), user: { id: u.id, role: u.role, name: u.name, needs_name: needsName(u) } });
 
   // Staff login (restaurant / rider / admin). `portal` must match the account's role, so a
   // rider cannot obtain a session through the admin login form, and vice versa.
   r.post('/login', limiter(20), (req, res) => {
-    const p = z.object({ portal: z.enum(['restaurant', 'rider', 'admin']), phone: phoneSchema,
+    // Admins may sign in with their username instead of the mobile number; every other check below is the same.
+    const p = z.object({ portal: z.enum(['restaurant', 'rider', 'admin']), phone: z.string().trim().max(40).optional(), username: z.string().trim().toLowerCase().max(40).optional(),
       password: z.string().min(1).max(200), totp: z.string().max(10).optional() }).safeParse(req.body);
     if (!p.success) return res.status(400).json({ error: p.error.issues[0].message });
-    const phone = normPhone(p.data.phone);
-    const u = db.prepare('SELECT * FROM users WHERE phone = ?').get(phone);
-    const bad = () => res.status(401).json({ error: 'Incorrect mobile number or password.' });
+    let id = p.data.username || p.data.phone || '';
+    const asPhone = phoneSchema.safeParse(id.replace(/[\s-]/g, ''));
+    let u;
+    if (asPhone.success) u = db.prepare('SELECT * FROM users WHERE phone = ?').get(normPhone(asPhone.data));
+    else if (p.data.portal === 'admin' && USERNAME_RE.test(id.toLowerCase())) u = db.prepare("SELECT * FROM users WHERE username = ? AND role = 'admin'").get(id.toLowerCase());
+    else if (p.data.portal !== 'admin') return res.status(400).json({ error: 'Enter a valid mobile number' });
+    const bad = () => res.status(401).json({ error: p.data.portal === 'admin' ? 'Incorrect username / mobile number or password.' : 'Incorrect mobile number or password.' });
     if (!u || u.role !== p.data.portal || !u.password_hash) { bcrypt.compareSync(p.data.password, '$2a$12$' + 'x'.repeat(53)); return bad(); }
     if (u.locked_until && u.locked_until > new Date().toISOString())
       return res.status(429).json({ error: 'Account temporarily locked. Try again in a few minutes.' });
@@ -90,7 +99,8 @@ export function authRoutes(db) {
       if (db.prepare('UPDATE otp_challenges SET used = 1 WHERE id = ? AND used = 0').run(ch.id).changes !== 1) return null;
       let u = db.prepare('SELECT * FROM users WHERE phone = ?').get(phone);
       if (!u) {
-        const id = db.prepare("INSERT INTO users (role, phone, name) VALUES ('customer', ?, ?)").run(phone, p.data.name || 'Customer').lastInsertRowid;
+        const nm = p.data.name && nameSchema.safeParse(p.data.name).success ? p.data.name.trim() : null;      // no name yet -> the app asks "What should we call you?"
+        const id = db.prepare("INSERT INTO users (role, phone, name) VALUES ('customer', ?, ?)").run(phone, nm || '').lastInsertRowid;
         db.prepare('INSERT INTO customers (user_id) VALUES (?)').run(id);
         u = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
       }
@@ -154,7 +164,14 @@ export function authRoutes(db) {
     res.json(sessionOut(user));
   });
 
-  r.get('/me', authenticate(db), (req, res) => res.json({ user: { id: req.user.id, role: req.user.role, name: req.user.name } }));
+  r.get('/me', authenticate(db), (req, res) => res.json({ user: { id: req.user.id, role: req.user.role, name: req.user.name, needs_name: needsName(req.user) } }));
+  // "What should we call you?" — customers set or change their own name.
+  r.post('/name', authenticate(db), limiter(30), (req, res) => {
+    if (req.user.role !== 'customer') return res.status(403).json({ error: 'Not allowed.' });
+    const p = nameSchema.safeParse(req.body?.name); if (!p.success) return res.status(400).json({ error: p.error.issues[0].message });
+    db.prepare('UPDATE users SET name = ? WHERE id = ?').run(p.data, req.user.id);
+    res.json({ ok: true, user: { id: req.user.id, role: 'customer', name: p.data, needs_name: false } });
+  });
   // Revokes every session of this user on all devices.
   r.post('/logout-all', authenticate(db), (req, res) => {
     db.prepare('UPDATE users SET token_version = token_version + 1 WHERE id = ?').run(req.user.id);
