@@ -39,6 +39,7 @@
     bowl: '<svg class="art" viewBox="0 0 160 110" fill="none"><ellipse cx="80" cy="98" rx="58" ry="7" fill="#f1ece6"/><path d="M22 52h116c0 28-26 44-58 44S22 80 22 52z" fill="#ffd9c2"/><path d="M22 52h116" stroke="#d0450b" stroke-width="4" stroke-linecap="round"/><path d="M58 40c0-8 6-8 6-16M80 40c0-8 6-8 6-16M102 40c0-8 6-8 6-16" stroke="#f2a375" stroke-width="3.5" stroke-linecap="round"/></svg>',
     bag: '<svg class="art" viewBox="0 0 160 110" fill="none"><ellipse cx="80" cy="100" rx="52" ry="6" fill="#f1ece6"/><rect x="44" y="34" width="72" height="62" rx="10" fill="#ffe3d1"/><path d="M60 34v-6a20 20 0 0140 0v6" stroke="#d0450b" stroke-width="4" stroke-linecap="round"/><path d="M66 62l10 10 20-20" stroke="#0f8a4f" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     search: '<svg class="art" viewBox="0 0 160 110" fill="none"><ellipse cx="80" cy="100" rx="50" ry="6" fill="#f1ece6"/><circle cx="72" cy="50" r="30" fill="#fff3ec" stroke="#d0450b" stroke-width="5"/><path d="M94 72l22 22" stroke="#d0450b" stroke-width="7" stroke-linecap="round"/><path d="M60 50h24" stroke="#f2a375" stroke-width="4" stroke-linecap="round"/></svg>' };
+  const WA = '<svg class="wa-ic" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8s-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.3-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.8 11.8 0 0 0 4.5 4c1.7.7 2.4.8 3.2.6a2.8 2.8 0 0 0 1.8-1.3 2.3 2.3 0 0 0 .2-1.3c-.1-.1-.3-.2-.5-.3z"/></svg>';
   const empty = (art, title, text, btn = '') => `<div class="u-empty">${ART[art] || ''}<b>${title}</b><div>${text}</div>${btn}</div>`;
 
   // ---------- login: photo welcome -> mobile number -> code ----------
@@ -47,15 +48,16 @@
     root.innerHTML = `<div class="splash" id="splash"><img src="/assets/logo.png" alt="Pakka Local"><div class="bar"></div></div>
       <div class="u-login"><div class="u-collage" aria-hidden="true"><div class="grid">${pics.map((k, i) => `<img src="${catPic(k)}" alt="" style="animation-delay:${i * 50}ms">`).join('')}</div>
         <div class="brand"><span class="lg"><img src="/assets/logo.png" alt=""></span><p>Your neighbourhood, delivered.</p><span>Hot food from kitchens near your PG, hostel or college</span></div></div>
-      <div class="u-lsheet" id="u-lsheet"><h2>Hungry? Let’s get started</h2><p class="s">Log in or sign up with your mobile number.</p><button class="btn block lg" data-act="to-login">Continue with mobile number</button>
+      <div class="u-lsheet" id="u-lsheet"><h2>Hungry? Let’s get started</h2><p class="s">Log in or sign up with your mobile number.</p><button class="btn block lg" data-act="to-login">${WA} Continue with WhatsApp</button>
         <p class="fine">Online payment only · Live order tracking</p></div></div>`;
     setTimeout(() => PL.$('#splash')?.classList.add('out'), 1100); setTimeout(() => PL.$('#splash')?.remove(), 1600);
   }
   const sheet = (html) => { const s = PL.$('#u-lsheet'); if (s) { s.innerHTML = html; s.style.animation = 'none'; void s.offsetWidth; s.style.animation = ''; return; } loginView(PL.$('#root')); PL.$('#splash')?.remove(); PL.$('#u-lsheet').innerHTML = html; };
   PL.actions['to-login'] = () => {
-    sheet(`<h2>Log in or sign up</h2><p class="s">We’ll send a one-time code on WhatsApp.</p>
-      <form data-form="otp-request"><label for="c-ph" class="small mute">Mobile number</label><div class="field pre"><span>+91</span><input id="c-ph" name="phone" inputmode="tel" autocomplete="tel" placeholder="98765 43210" required autofocus></div><button class="btn block lg mt" type="submit">Send code</button></form><div id="email-login"></div>
-      <p class="fine">By continuing you agree to receive order updates on WhatsApp.</p>`);
+    sheet(`<h2>Log in or sign up</h2><p class="s">Enter your WhatsApp number. We’ll send a 6-digit code on WhatsApp.</p>
+      <form data-form="otp-request"><label for="c-ph" class="small mute">WhatsApp mobile number</label><div class="field pre"><span>+91</span><input id="c-ph" name="phone" inputmode="numeric" autocomplete="tel-national" maxlength="14" placeholder="98765 43210" value="${e(S.lastPhone ? S.lastPhone.slice(3) : '')}" required autofocus></div>
+        <div class="u-lerr" id="lg-err" role="alert"></div><button class="btn block lg mt wa" type="submit">${WA} Send WhatsApp OTP</button></form><div id="email-login"></div>
+      <p class="fine">By continuing you agree to receive your login code and order updates on WhatsApp.</p>`);
     // STAGING ONLY: the server says whether allow-listed testers may sign in by e-mail (never on production)
     PL.api('/api/public/config').then((c) => { const el = PL.$('#email-login'); if (el && c?.emailLogin) el.innerHTML = `<div class="u-note info small">${I('info')}<span>Staging test login: approved testers can get the code by email instead.</span></div><button class="btn ghost block" data-act="to-email-login">Use a test email</button>`; }).catch(() => {});
   };
@@ -78,16 +80,39 @@
   PL.actions['email-resend'] = async (el) => { const r = await PL.run(() => PL.post('/api/auth/customer/email-otp/request', { email: el.dataset.email }), 'Code sent'); if (r) emailOtpView(el.dataset.email, r.resendAfterSec); };
   PL.forms['email-otp-verify'] = async (f) => { const v = PL.form(f); const body = { email: f.dataset.email, otp: v.otp };
     const r = await PL.run(() => PL.post('/api/auth/customer/email-otp/verify', body)); if (r) { PL.setSession(r); history.replaceState({ idx: 0 }, '', location.hash || '#'); PL.boot(); } };
-  const normPhone = (p) => { p = p.replace(/[\s-]/g, ''); return /^\d{10}$/.test(p) ? '+91' + p : p; };
-  PL.forms['otp-request'] = async (f) => { const phone = normPhone(PL.form(f).phone); const r = await PL.run(() => PL.post('/api/auth/customer/otp/request', { phone })); if (r) otpView(phone, r.resendAfterSec); };
-  function otpView(phone, wait) {
-    sheet(`${codeForm('otp-verify', `data-phone="${e(phone)}"`, phone)}
-      <button class="btn ghost block mt2" id="resend" data-act="resend" data-phone="${e(phone)}" disabled>Resend in ${wait}s</button><button class="btn ghost block mt2" data-act="to-login">Change number</button>`);
-    countdown(wait);
+  // ---------- WhatsApp login: number -> code (resend countdown, delivery status, clear errors) -> portal ----------
+  const normPhone = (p) => { p = String(p).replace(/[\s()-]/g, '').replace(/^\+?91(?=\d{10}$)/, '').replace(/^0(?=\d{10}$)/, ''); return /^\d{10}$/.test(p) ? '+91' + p : null; };
+  const lerr = (msg) => { const el = PL.$('#lg-err'); if (el) { el.textContent = msg || ''; el.classList.toggle('on', !!msg); } else if (msg) PL.toast(msg, true); };
+  PL.forms['otp-request'] = async (f) => { const phone = normPhone(PL.form(f).phone); lerr('');
+    if (!phone) return lerr('Enter your 10-digit mobile number.');
+    try { const r = await PL.post('/api/auth/customer/otp/request', { phone }); S.lastPhone = phone; otpView(phone, r.resendAfterSec, r.channel); }
+    catch (x) { if (x.code === 'WAIT' && S.lastPhone === phone && PL.$('#lg-err')) { otpView(phone, x.retryAfterSec || 30); return; } lerr(x.message); } };
+  const DELIV = { sent: ['', 'Sent on WhatsApp. It usually arrives within a few seconds.'], delivered: ['ok', 'Delivered to your WhatsApp.'], read: ['ok', 'Delivered to your WhatsApp.'],
+    failed: ['bad', 'WhatsApp could not deliver the code to this number. Check the number, or resend.'] };
+  let delivT = null;
+  const watchDelivery = (phone) => { clearInterval(delivT); let n = 0;
+    delivT = setInterval(async () => { const el = PL.$('#lg-deliv'); if (!el || ++n > 40) return clearInterval(delivT);
+      try { const { status } = await PL.api('/api/auth/customer/otp/status?phone=' + encodeURIComponent(phone)); const d = DELIV[status]; if (d) { el.className = 'u-deliv ' + d[0]; el.textContent = d[1]; if (status === 'failed') clearInterval(delivT); } } catch {} }, 3000); };
+  function otpView(phone, wait, channel) {
+    const pretty = phone.replace(/^\+91(\d{5})(\d{5})$/, '+91 $1 $2');
+    sheet(`<h2>Enter the 6-digit code</h2><p class="s">${channel === 'test' ? 'Staging test login: enter your tester code for' : 'We sent a code on WhatsApp to'} <b>${e(pretty)}</b> <button class="u-lnkbtn" data-act="to-login">Edit</button></p>
+      ${channel === 'test' ? '' : `<div class="u-deliv" id="lg-deliv">${DELIV.sent[1]}</div>`}
+      <form data-form="otp-verify" data-phone="${e(phone)}"><input class="otp-in" placeholder="••••••" name="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="\\d{6}" required autofocus aria-label="6-digit code" data-autosubmit="6">
+      <div class="u-lerr" id="lg-err" role="alert"></div><button class="btn block lg mt" type="submit">Verify and continue</button></form>
+      <button class="btn ghost block mt2" id="resend" data-act="resend" data-phone="${e(phone)}" disabled>Resend code in ${wait}s</button><button class="btn ghost block mt2" data-act="to-login">Change number</button>`);
+    countdown(wait); if (channel !== 'test') watchDelivery(phone);
   }
-  PL.actions.resend = async (el) => { const r = await PL.run(() => PL.post('/api/auth/customer/otp/request', { phone: el.dataset.phone }), 'Code sent'); if (r) otpView(el.dataset.phone, r.resendAfterSec); };
-  PL.forms['otp-verify'] = async (f) => { const v = PL.form(f); const body = { phone: f.dataset.phone, otp: v.otp };
-    const r = await PL.run(() => PL.post('/api/auth/customer/otp/verify', body)); if (r) { PL.setSession(r); history.replaceState({ idx: 0 }, '', location.hash || '#'); PL.boot(); } };
+  document.addEventListener('input', (ev) => { const t = ev.target; if (t.dataset?.autosubmit && t.value.replace(/\D/g, '').length === Number(t.dataset.autosubmit)) { t.value = t.value.replace(/\D/g, ''); t.form?.requestSubmit(); } });
+  PL.actions.resend = async (el) => { if (el.disabled) return; el.disabled = true; lerr('');
+    try { const r = await PL.post('/api/auth/customer/otp/request', { phone: el.dataset.phone }); PL.toast('New code sent on WhatsApp', 'ok'); otpView(el.dataset.phone, r.resendAfterSec, r.channel); }
+    catch (x) { lerr(x.message); if (x.retryAfterSec) countdown(x.retryAfterSec); else el.disabled = false; } };
+  PL.forms['otp-verify'] = async (f) => { const v = PL.form(f); lerr('');
+    if (!/^\d{6}$/.test(v.otp)) return lerr('Enter the 6-digit code from WhatsApp.');
+    try { const r = await PL.post('/api/auth/customer/otp/verify', { phone: f.dataset.phone, otp: v.otp }); clearInterval(delivT);
+      PL.toast(r.is_new ? 'Number verified. Welcome to Pakka Local!' : 'Verified. Welcome back!', 'ok');
+      PL.setSession(r); history.replaceState({ idx: 0 }, '', location.hash || '#'); PL.boot(); }
+    catch (x) { lerr(x.message); f.otp.value = ''; f.otp.focus(); if (['EXPIRED', 'TOO_MANY_TRIES', 'BLOCKED'].includes(x.code)) { const b = PL.$('#resend'); if (b && x.code !== 'BLOCKED' && !/in \d+s/.test(b.textContent)) b.disabled = false; } } };
+
 
   // ---------- "What should we call you?" (required once; never asked again when a real name is saved) ----------
   const nameGate = () => { if (PL.$('#u-namegate')) return; const d = document.createElement('div'); d.id = 'u-namegate'; d.className = 'u-namegate';
@@ -504,8 +529,8 @@
     const say = SAY[o.status] || [o.status, ''], prev = S.seen[code], changed = prev && prev !== o.status; S.seen[code] = o.status;
     if (changed) { PL.inbox.load(); if (o.status === 'DELIVERED') setTimeout(() => PL.celebrate({ title: 'Order delivered', sub: 'Enjoy your meal! Tap the stars below to rate it.', ms: 2400 }), 50); }
     const live = o.status === 'PICKED_UP';
-    const hero = `<div class="u-thero ${o.status === 'DELIVERED' ? 'ok' : dead && o.status !== 'PAYMENT_PENDING' ? 'bad' : ''} ${changed ? 'just' : ''}">${LOT[o.status] ? `<div class="u-lot ${LOT[o.status]}" data-a="${LOT[o.status]}">${scene(o.status)}</div>` : scene(o.status)}<div class="st"><h1>${e(say[0])}</h1><p>${e(say[1])}</p></div>${NEXT[o.status] ? `<div class="u-next">${I('chev')}<span>${NEXT[o.status]}</span></div>` : ''}${o.eta_at && !dead && o.status !== 'DELIVERED' ? `<div class="u-eta">${I('clock')}<span class="txt"><b>${etaText(o)}</b><small>${minsTo(o.eta_at) > 1 ? `by ${PL.time(o.eta_at)}` : 'Your delivery partner is close'}</small></span></div>` : ''}</div>`;
-    const map = live ? `<div class="u-map"><div id="trkmap" data-code="${e(o.order_code)}"></div><div class="lbl"><span class="chip" id="trkst">Checking…</span></div><div class="note" id="trknote"></div></div>` : '';
+    const hero = `<div class="u-thero ${o.status === 'DELIVERED' ? 'ok' : dead && o.status !== 'PAYMENT_PENDING' ? 'bad' : ''} ${changed ? 'just' : ''}">${LOT[o.status] ? `<div class="u-lot ${LOT[o.status]}" data-a="${LOT[o.status]}">${scene(o.status)}</div>` : scene(o.status)}<div class="st"><h1>${e(say[0])}</h1><p>${e(say[1])}</p></div>${NEXT[o.status] ? `<div class="u-next">${I('chev')}<span>${NEXT[o.status]}</span></div>` : ''}${o.eta_at && !dead && o.status !== 'DELIVERED' ? `<div class="u-eta">${I('clock')}<span class="txt"><b>${etaText(o)}</b><small>${minsTo(o.eta_at) > 1 ? `by ${PL.time(o.eta_at)}` : 'Your delivery partner is close'}${o.eta_live ? ' · <span class="u-livetag">live</span> from your delivery partner’s location' : ''}</small></span></div>` : ''}</div>`;
+    const map = live ? `<div class="u-map"><div id="trkmap" data-code="${e(o.order_code)}"></div><div class="lbl"><span class="chip" id="trkst">Checking…</span></div><div class="u-meta" id="trketa" aria-live="polite"></div><div class="note" id="trknote"></div></div>` : '';
     const nItems = o.items.reduce((a, i) => a + i.qty, 0);
     const rcard = `<div class="u-box u-crest">${img(restPic(o.restaurant, o.restaurant_image, o.items.map((i) => i.name).join(' ')))}<span class="txt"><b>${e(o.restaurant)}</b><small>${nItems} item${nItems > 1 ? 's' : ''} · ${rs(o.total_paise)} · ${e(o.order_code)}</small></span></div>`;
     const chat = o.chat && (o.chat.open || o.chat.any) ? `<button class="u-box u-chatbtn" data-act="chat-open" data-code="${e(o.order_code)}"><span class="ic">${I('chat')}${o.chat.unread ? `<i class="dot">${o.chat.unread}</i>` : ''}</span><span class="txt"><b>${o.chat.unread ? `${o.chat.unread} new message${o.chat.unread > 1 ? 's' : ''}` : 'Message your delivery partner'}</b><small>${o.chat.open ? 'Gate number, landmark or where to meet' : 'Chat history for this order'}</small></span>${I('chev')}</button>` : '';

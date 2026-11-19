@@ -89,11 +89,11 @@ test('customer sees the rider only for their own order and only between pickup a
 
 test('stale and offline are reported honestly, with the age', async () => {
   const cid = db.prepare('SELECT customer_id FROM orders WHERE id=?').pluck().get(S.o1.id), at = Date.parse(db.prepare('SELECT received_at FROM rider_locations WHERE rider_id=?').pluck().get(S.rdId1));
-  assert.equal(customerView(db, cid, S.o1.code, at + 10_000).state, 'live');
-  const st = customerView(db, cid, S.o1.code, at + 90_000); assert.equal(st.state, 'stale'); assert.equal(st.age_sec, 90);
-  assert.equal(customerView(db, cid, S.o1.code, at + 600_000).state, 'offline');
+  assert.equal((await customerView(db, cid, S.o1.code, at + 10_000)).state, 'live');
+  const st = await customerView(db, cid, S.o1.code, at + 90_000); assert.equal(st.state, 'stale'); assert.equal(st.age_sec, 90);
+  assert.equal((await customerView(db, cid, S.o1.code, at + 600_000)).state, 'offline');
   db.prepare('DELETE FROM rider_locations').run();
-  const none = customerView(db, cid, S.o1.code); assert.equal(none.state, 'unavailable'); assert.equal(none.rider, null);
+  const none = await customerView(db, cid, S.o1.code); assert.equal(none.state, 'unavailable'); assert.equal(none.rider, null);
 });
 
 test('admin map lists active deliveries only; other roles are refused', async () => {

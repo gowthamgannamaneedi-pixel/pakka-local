@@ -37,7 +37,7 @@
     } catch { throw new Error('No connection. Please check your internet.'); }
     const data = await res.json().catch(() => ({}));
     if (res.status === 401 && s && !path.startsWith('/api/auth/') && !/^REAUTH/.test(data.code || ''))   /* a wrong confirmation password is not a lost session */ { PL.clearSession(); PL.stopAll(); PL.boot(); throw new Error('Your session has expired. Please sign in again.'); }
-    if (!res.ok) throw Object.assign(new Error(data.error || 'Something went wrong.'), { status: res.status, code: data.code });
+    if (!res.ok) throw Object.assign(new Error(data.error || 'Something went wrong.'), { status: res.status, code: data.code, retryAfterSec: data.retryAfterSec });
     return data;
   };
   PL.post = (p, body) => PL.api(p, { method: 'POST', body: body || {} });

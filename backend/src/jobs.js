@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { backupDb } from './db/index.js';
 import { purgeLocations } from './services/tracking.js';
+import { pruneRoutes } from './services/liveRoute.js';
 import { purgeRouteCache } from './services/routing.js';
 import { expireStalePayments } from './services/core.js';
 import { dispatchPush, processCampaigns } from './services/push.js';
@@ -43,7 +44,7 @@ export function startJobs(db, backupDir, { backupKeep = 14 } = {}) {
     setInterval(() => { try { reopenDueRestaurants(db); } catch (e) { console.error('reopen job:', e.message); } }, 15_000),
     setInterval(() => { try { expireStalePayments(db); } catch (e) { console.error('payment expiry:', e.message); } }, 60_000),
     (() => { let busy = false; return setInterval(async () => { if (busy) return; busy = true; try { processCampaigns(db); await dispatchPush(db); } catch (e) { console.error('push job:', e.message); } finally { busy = false; } }, 2000); })(),
-    setInterval(() => { try { purgeLocations(db); } catch (e) { console.error('location cleanup:', e.message); } }, 60_000),      // backstop; the database trigger does the immediate cleanup
+    setInterval(() => { try { purgeLocations(db); pruneRoutes(new Set(db.prepare("SELECT id FROM orders WHERE status='PICKED_UP'").pluck().all())); } catch (e) { console.error('location cleanup:', e.message); } }, 60_000),      // backstop; the database trigger does the immediate cleanup
     setInterval(() => { try { purgeRouteCache(db); } catch (e) { console.error('route cache cleanup:', e.message); } }, 6 * 3600_000),      // expired road distances
     setInterval(() => backupIfDue(db, backupDir, { everyHours: 6, keep: backupKeep }).catch(e => console.error('backup:', e.message)), 6 * 3600_000)
   ];

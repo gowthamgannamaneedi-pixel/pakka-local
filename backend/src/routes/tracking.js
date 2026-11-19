@@ -3,7 +3,8 @@ import rateLimit from 'express-rate-limit';
 import { authenticate, requireRole } from '../auth.js';
 import { config } from '../config.js';
 import { recordLocation, customerView, adminActive, stopSharing, LIVE_SEC, STALE_SEC, SEND_EVERY_MS } from '../services/tracking.js';
-import { send, wrap } from './util.js';
+import { send, wrap, wrapA } from './util.js';
+import { liveRoute } from '../services/liveRoute.js';
 
 // Mounted at /api/tracking. Kept in its own router so Priority 2 does not touch the rider / customer / admin route files.
 export function trackingRoutes(db) {
@@ -14,7 +15,10 @@ export function trackingRoutes(db) {
   // the rider's own position; ownership comes from the session, never from the request body
   r.post('/rider/location', auth, requireRole('rider'), lim, wrap((req, res) => { const out = recordLocation(db, req.user.id, req.body || {}); out.error ? res.status(out.status).json({ error: out.error, code: out.code, tracking: out.code === 'NOT_TRACKING' ? false : undefined, retry_ms: out.retry_ms }) : res.json(out); }));
   r.post('/rider/stop', auth, requireRole('rider'), wrap((req, res) => res.json(stopSharing(db, req.user.id))));
-  r.get('/orders/:code', auth, requireRole('customer'), wrap((req, res) => send(res, customerView(db, req.user.id, req.params.code))));
-  r.get('/admin/active', auth, requireRole('admin'), wrap((req, res) => res.json({ deliveries: adminActive(db), live_sec: LIVE_SEC, stale_sec: STALE_SEC })));
+  r.get('/orders/:code', auth, requireRole('customer'), wrapA(async (req, res) => send(res, await customerView(db, req.user.id, req.params.code))));
+  r.get('/admin/active', auth, requireRole('admin'), wrapA(async (req, res) => { const list = adminActive(db);
+    // road route for each delivery on its way to the customer (same cache as the customer map, so no extra lookups per viewer)
+    for (const x of list) if (x.status === 'PICKED_UP' && x.location && x.destination?.lat != null && ['live', 'stale'].includes(x.state)) { const rt = await liveRoute(x.id, x.location, x.destination); x.route = rt ? rt.coords : null; }
+    res.json({ deliveries: list, live_sec: LIVE_SEC, stale_sec: STALE_SEC }); }));
   return r;
 }

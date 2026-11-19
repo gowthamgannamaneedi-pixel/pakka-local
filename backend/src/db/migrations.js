@@ -669,5 +669,19 @@ ALTER TABLE restaurants ADD COLUMN opens_at TEXT;
 ALTER TABLE restaurants ADD COLUMN closes_at TEXT;
 ALTER TABLE users ADD COLUMN username TEXT COLLATE NOCASE;
 CREATE UNIQUE INDEX idx_users_username ON users(username) WHERE username IS NOT NULL;`
+  },
+  {
+    // WhatsApp login codes: delivery reports from Meta (sent / delivered / read / failed) and temporary blocks after repeated wrong codes
+    id: 'p9_003_whatsapp_otp',
+    sql: `
+ALTER TABLE otp_challenges ADD COLUMN channel TEXT;
+ALTER TABLE otp_challenges ADD COLUMN wa_message_id TEXT;
+ALTER TABLE otp_challenges ADD COLUMN delivery TEXT;
+ALTER TABLE otp_challenges ADD COLUMN delivery_error TEXT;
+ALTER TABLE otp_challenges ADD COLUMN delivery_at TEXT;
+CREATE INDEX idx_otp_wamid ON otp_challenges(wa_message_id) WHERE wa_message_id IS NOT NULL;
+CREATE TABLE otp_blocks (
+  phone TEXT PRIMARY KEY, fails INTEGER NOT NULL DEFAULT 0, window_start TEXT NOT NULL, blocked_until TEXT
+);`
   }
 ];

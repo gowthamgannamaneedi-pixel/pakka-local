@@ -1,4 +1,5 @@
-import { statusNote } from './core.js';
+import { statusNote, getSetting } from './core.js';
+import { liveRoute, cachedRoute } from './liveRoute.js';
 // Priority 2: live rider location. Latest fix only, accepted only from the assigned rider during an active delivery.
 const ACTIVE = "('ACCEPTED','PREPARING','READY','PICKED_UP')";
 export const LIVE_SEC = 30, STALE_SEC = 180, MIN_INTERVAL_MS = 3000, SEND_EVERY_MS = 7000;
@@ -42,23 +43,42 @@ export function recordLocation(db, riderId, b = {}, now = Date.now()) {
   db.prepare(`INSERT INTO rider_locations (rider_id,order_id,lat,lng,accuracy_m,heading,speed_mps,recorded_at,received_at) VALUES (?,?,?,?,?,?,?,?,?)
     ON CONFLICT(rider_id) DO UPDATE SET order_id=excluded.order_id, lat=excluded.lat, lng=excluded.lng, accuracy_m=excluded.accuracy_m, heading=excluded.heading, speed_mps=excluded.speed_mps, recorded_at=excluded.recorded_at, received_at=excluded.received_at`)
     .run(riderId, orderId, +lat.toFixed(6), +lng.toFixed(6), acc, heading, speed, new Date(t).toISOString(), new Date(now).toISOString());
-  // "Your order is arriving": once per order, from a real fix within 300 m of the drop-off (and accurate to 100 m)
+  // From a reasonably accurate fix (100 m): live arrival time for every screen, and "Your order is arriving" once within 300 m
   if (acc === null || acc <= 100) for (const o of db.prepare("SELECT * FROM orders WHERE rider_id=? AND status='PICKED_UP' AND dest_lat IS NOT NULL AND dest_lng IS NOT NULL").all(riderId)) {
-    const R = 6371000, dLat = (o.dest_lat - lat) * Math.PI / 180, dLng = (o.dest_lng - lng) * Math.PI / 180;
-    const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat * Math.PI / 180) * Math.cos(o.dest_lat * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
-    if (2 * R * Math.asin(Math.sqrt(h)) <= 300) statusNote(db, o, 'NEAR', 'Your order is arriving', `Your delivery partner is less than 300 m away with ${o.order_code}. Keep your delivery code ready.`);
+    const to = { lat: o.dest_lat, lng: o.dest_lng }, rt = cachedRoute(o.id, { lat, lng }, to);
+    const est = liveEta(db, { lat, lng, speed_mps: speed }, to, rt?.distance_m);
+    db.prepare('UPDATE orders SET eta_at=? WHERE id=?').run(new Date(now + est.minutes * 60_000).toISOString(), o.id);
+    if (est.straight_m <= 300) statusNote(db, o, 'NEAR', 'Your order is arriving', `Your delivery partner is less than 300 m away with ${o.order_code}. Keep your delivery code ready.`);
   }
   return { ok: true, tracking: true, next_ms: SEND_EVERY_MS };
+}
+// Live arrival estimate from the rider's latest position. Roads are longer than a straight line, so the straight distance
+// is multiplied by 1.3; the pace is the admin's "minutes per km", blended 50/50 with the rider's own GPS speed when it is
+// a realistic riding speed (9–72 km/h). Plus 1 minute to hand over. It is an estimate and is labelled as one.
+const DETOUR = 1.3;
+export function liveEta(db, from, to, roadM) {
+  const R = 6371000, dLat = (to.lat - from.lat) * Math.PI / 180, dLng = (to.lng - from.lng) * Math.PI / 180;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(from.lat * Math.PI / 180) * Math.cos(to.lat * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  const straight = 2 * R * Math.asin(Math.sqrt(h)), byRoad = Number.isFinite(roadM), road = byRoad ? roadM : straight * DETOUR;      // real road distance when a route is known
+  let pace = Number(getSetting(db, 'minutes_per_km')) || 3;                           // minutes per km
+  const v = from.speed_mps; if (v != null && v >= 2.5 && v <= 20) pace = (pace + 1000 / v / 60) / 2;
+  const minutes = straight < 150 ? 1 : Math.max(1, Math.ceil(road / 1000 * pace) + 1);
+  return { minutes, straight_m: Math.round(straight), road_km_est: Math.round(road / 100) / 10, by_road: byRoad };
 }
 const pos = (row, f) => (row ? { lat: row.lat, lng: row.lng, accuracy_m: row.accuracy_m, heading: row.heading, updated_at: row.received_at, ...f } : null);
 
 // The customer of THIS order only, and only between pickup and delivery (the same window in which the rider's identity is shown).
-export function customerView(db, customerId, code, now = Date.now()) {
+export async function customerView(db, customerId, code, now = Date.now()) {
   const o = db.prepare('SELECT id,status,rider_id,dest_lat,dest_lng,dest_text FROM orders WHERE order_code=? AND customer_id=?').get(String(code), customerId);
   if (!o) return fail('Order not found.', 404);
   if (o.status !== 'PICKED_UP' || !o.rider_id) return { tracking: false, status: o.status };
   const row = db.prepare('SELECT * FROM rider_locations WHERE rider_id=?').get(o.rider_id), f = freshness(row, now);
-  return { tracking: true, status: o.status, ...f, rider: pos(row), destination: o.dest_lat != null && o.dest_lng != null ? { lat: o.dest_lat, lng: o.dest_lng, text: o.dest_text } : null };
+  const destination = o.dest_lat != null && o.dest_lng != null ? { lat: o.dest_lat, lng: o.dest_lng, text: o.dest_text } : null;
+  // a live estimate only from a position we still trust (live or recently seen), never from an offline phone
+  const trusted = row && destination && ['live', 'stale'].includes(f.state);
+  const route = trusted ? await liveRoute(o.id, { lat: row.lat, lng: row.lng }, destination, now) : null;      // road route; null when no routing service
+  const eta = trusted ? { ...liveEta(db, { lat: row.lat, lng: row.lng, speed_mps: row.speed_mps }, destination, route?.distance_m), from: f.state } : null;
+  return { tracking: true, status: o.status, ...f, rider: pos(row), destination, eta, route: route ? { coords: route.coords, distance_m: route.distance_m } : null };
 }
 export function adminActive(db, now = Date.now()) {
   purge(db);

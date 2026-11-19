@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import webpush from 'web-push';
 const env = process.env;
 const isProd = env.NODE_ENV === 'production';
+const num = (v, d, min, max) => { const n = Number(v); return Number.isFinite(n) && v !== '' && v != null ? Math.min(max, Math.max(min, n)) : d; };
 const isTest = env.NODE_ENV === 'test';
 
 // SECRETS_DIR: a private folder (outside the app) where secrets are created on first start and kept, so nobody has to
@@ -66,7 +67,9 @@ export const config = {
   allowedOrigins: (env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean),
   staffTokenTtl: '12h',
   customerTokenTtl: '30d',
-  otp: { ttlMs: 5 * 60_000, maxAttempts: 5, resendCooldownMs: 45_000 },
+  // customer LOGIN codes (WhatsApp). All configurable; defaults are safe for production.
+  otp: { ttlMs: num(env.OTP_TTL_SEC, 300, 60, 900) * 1000, maxAttempts: num(env.OTP_MAX_ATTEMPTS, 5, 3, 10), resendCooldownMs: num(env.OTP_RESEND_SEC, 45, 30, 300) * 1000,
+    maxPerHour: num(env.OTP_MAX_PER_HOUR, 5, 3, 20), blockAfterFails: num(env.OTP_BLOCK_AFTER_FAILS, 10, 5, 50), blockMs: num(env.OTP_BLOCK_MIN, 30, 5, 1440) * 60_000 },
   uploadDir: env.UPLOAD_DIR || (isProd ? '/var/data/uploads' : './data/uploads'),
   // 'disabled' = no orders can be placed | 'sandbox' = simulated, never on production | 'phonepe' = reserved: the gateway is NOT integrated yet, so it behaves like 'disabled'
   paymentProvider: env.PAYMENT_PROVIDER || (isProd ? 'disabled' : 'sandbox'),
@@ -76,7 +79,8 @@ export const config = {
   map: { tileUrl: env.MAP_TILE_URL === 'none' ? '' : env.MAP_TILE_URL || (isProd ? '' : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'), attribution: env.MAP_TILE_ATTRIBUTION || '&copy; OpenStreetMap contributors' },
   // Road distance for distance-based delivery charges: a self-hosted OSRM engine (see docs/DISTANCE-PRICING.md). Empty = not set up.
   // OSRM_API_KEY: sent as X-Routing-Key when the engine sits behind a reverse proxy on another server (OSRM itself has no login).
-  routing: { osrmUrl: (env.OSRM_URL || '').trim(), profile: env.OSRM_PROFILE || 'driving', timeoutMs: Number(env.OSRM_TIMEOUT_MS || 3000), apiKey: (env.OSRM_API_KEY || '').trim() },
+  routing: { osrmUrl: (env.OSRM_URL || '').trim(), profile: env.OSRM_PROFILE || 'driving', timeoutMs: Number(env.OSRM_TIMEOUT_MS || 3000), apiKey: (env.OSRM_API_KEY || '').trim(),
+    orsKey: (env.ORS_API_KEY || '').trim(), orsProfile: env.ORS_PROFILE || 'driving-car', orsDailyLimit: Number(env.ORS_DAILY_LIMIT || 1800) },
   serveFrontend: env.SERVE_FRONTEND === 'true' || (!isProd && !isTest),
   fcmFile: env.FCM_SERVICE_ACCOUNT_FILE || (secretsDir ? path.join(secretsDir, 'fcm-service-account.json') : ''),
   vapid: { publicKey: env.VAPID_PUBLIC_KEY, privateKey: env.VAPID_PRIVATE_KEY, subject: env.VAPID_SUBJECT || 'mailto:admin@pakkalocal.example' },
@@ -89,10 +93,23 @@ export const config = {
     apiUrl: env.BREVO_API_URL || 'https://api.brevo.com/v3/smtp/email', apiKey: (env.BREVO_API_KEY || '').trim(), from: (env.EMAIL_FROM || '').trim(), fromName: env.EMAIL_FROM_NAME || 'Pakka Local (staging)',
     ttlMs: 5 * 60_000, maxAttempts: 5, resendCooldownMs: 60_000, perHour: 6 },
   whatsapp: {
-    token: env.WHATSAPP_ACCESS_TOKEN, phoneId: env.WHATSAPP_PHONE_NUMBER_ID,
-    template: env.WHATSAPP_OTP_TEMPLATE_NAME, apiVersion: env.WHATSAPP_API_VERSION || 'v21.0'
+    token: (env.WHATSAPP_ACCESS_TOKEN || '').trim(), phoneId: (env.WHATSAPP_PHONE_NUMBER_ID || '').trim(),
+    template: (env.WHATSAPP_OTP_TEMPLATE_NAME || '').trim(), language: env.WHATSAPP_OTP_TEMPLATE_LANG || 'en_US', apiVersion: env.WHATSAPP_API_VERSION || 'v21.0',
+    copyButton: env.WHATSAPP_OTP_COPY_BUTTON !== '0',                       // authentication templates with a "Copy code" button need the code there too
+    appSecret: (env.WHATSAPP_APP_SECRET || '').trim(), verifyToken: (env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || '').trim()   // delivery reports (webhook)
+  },
+  // OTP_PROVIDER=msg91: WhatsApp login codes through MSG91 (authkey from MSG91 dashboard; number connected in MSG91 -> WhatsApp)
+  msg91: {
+    authKey: (env.MSG91_AUTH_KEY || '').trim(), number: (env.MSG91_WHATSAPP_NUMBER || '').replace(/\D/g, ''), template: (env.MSG91_WHATSAPP_TEMPLATE || '').trim(),
+    language: env.MSG91_WHATSAPP_TEMPLATE_LANG || 'en', namespace: (env.MSG91_WHATSAPP_NAMESPACE || '').trim(), copyButton: env.MSG91_WHATSAPP_COPY_BUTTON !== '0'
   }
 };
+// Real customers must always get a real WhatsApp code: the fixed test code is refused outright on production.
+if (appEnv === 'production' && ['testcode', 'test'].includes(config.otpProvider)) throw new Error(`OTP_PROVIDER=${config.otpProvider} is not allowed when APP_ENV=production. Use OTP_PROVIDER=whatsapp.`);
+config.whatsapp.configured = !!(config.whatsapp.token && config.whatsapp.phoneId && config.whatsapp.template);
+config.msg91.configured = !!(config.msg91.authKey && config.msg91.number && config.msg91.template);
+if (appEnv === 'production' && config.otpProvider === 'msg91' && !config.msg91.configured) console.warn('WARNING: MSG91 WhatsApp OTP is not configured (MSG91_AUTH_KEY, MSG91_WHATSAPP_NUMBER, MSG91_WHATSAPP_TEMPLATE). Customers cannot log in until it is.');
+if (appEnv === 'production' && config.otpProvider === 'whatsapp' && !config.whatsapp.configured) console.warn('WARNING: WhatsApp OTP is not configured (WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_OTP_TEMPLATE_NAME). Customers cannot log in until it is.');
 if (isProd && config.otpProvider === 'testcode' && env.ALLOW_TEST_OTP !== '1') throw new Error('OTP_PROVIDER=testcode in production requires ALLOW_TEST_OTP=1 (pilot testing only)');
 if (config.otpProvider === 'testcode' && !/^\d{6}$/.test(config.testOtp.code || '')) throw new Error('TEST_OTP_CODE must be 6 digits when OTP_PROVIDER=testcode');
 if (isProd && config.otpProvider === 'test') throw new Error('OTP_PROVIDER=test is not allowed in production');

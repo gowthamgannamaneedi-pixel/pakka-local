@@ -13,6 +13,7 @@ import { newSecret, encrypt, decrypt, verifyTotp, otpauthUri } from '../totp.js'
 import { audienceUsers, campaignStats, processCampaigns } from '../services/push.js';
 import { saveUpload } from '../services/core.js';
 import { USERNAME_RE } from './auth.js';
+import { mountMenu } from './restaurant.js';
 import * as Coupons from '../services/coupons.js';
 import * as Refunds from '../services/refunds.js';
 
@@ -122,6 +123,17 @@ export function adminRoutes(db) {
       platform_revenue_paise: o.markup_paise + o.commission_paise + (o.delivery_paise - o.rider_payout_paise) + o.surge_paise - (o.discount_paise || 0) });
   });
   // manual UPI refunds: list (full UPI IDs, admins only), approve / reject / paid (fresh password) / failed
+  // Restaurant menus (Super Admin): add, edit, hide or delete dishes and categories for any restaurant.
+  // Same rules as the restaurant portal (mountMenu); every change is written to the audit log.
+  const am = Router({ mergeParams: true });
+  am.use((req, res, next) => {
+    if (!/^\/(menu|categories|category-presets)(\/|$)/.test(req.path)) return next('router');      // other /restaurants/:id routes are handled below as before
+    const rid = Number(req.params.rid); if (!db.prepare('SELECT 1 FROM restaurants WHERE id=?').get(rid)) return res.status(404).json({ error: 'Restaurant not found.' });
+    req.restaurantId = rid;
+    if (req.method !== 'GET') res.on('finish', () => { if (res.statusCode < 300) audit(db, req, `menu.${req.method.toLowerCase()}`, 'restaurant', rid, { path: req.path, name: req.body?.name }); });
+    next(); });
+  mountMenu(am, db);
+  r.use('/restaurants/:rid(\\d+)', am);
   // Coupons (Super Admin). Discount is paid by Pakka Local; payouts unaffected.
   r.get('/coupons', (req, res) => res.json({ coupons: Coupons.adminList(db), restaurants: db.prepare('SELECT id,name FROM restaurants ORDER BY name').all() }));
   r.post('/coupons', wrap((req, res) => { const out = Coupons.save(db, req.user, req.body || {}); if (out.ok) audit(db, req, 'coupon.create', 'coupon', out.id, { code: req.body?.code }); send(res, out, 201); }));
@@ -209,7 +221,6 @@ export function adminRoutes(db) {
     if (!point) return res.status(400).json({ error: 'Choose a place with a map point, or enter latitude and longitude.' });
     const route = await Pricing.routeFor(db, d.restaurant_id, point), cfg = Pricing.getConfig(db), price = Pricing.priceFor(cfg, route);
     res.json({ distance_km: route.distance_m == null ? null : Math.round(route.distance_m / 10) / 100, source: route.source || null, reason: route.reason || null, price: price.error ? null : { fee_paise: price.fee, band: price.band, pricing: price.pricing }, error: price.error || null, enabled: cfg.enabled }); }));
-  r.get('/restaurants/:id/menu', (req, res) => res.json({ items: db.prepare('SELECT id,name,base_price_paise,prep_time_min,available FROM food_items WHERE restaurant_id=? AND deleted=0').all(req.params.id) }));
 
   // ---------- delivery locations (PGs, hostels, colleges...) with their own delivery charges ----------
   // Every change is audited with the exact old and new values. Orders keep the charge they were placed with.

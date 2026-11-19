@@ -5,13 +5,12 @@ import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { config, EMAIL_RE } from '../config.js';
 import { signToken, authenticate } from '../auth.js';
-import { getOtpProvider } from '../otpProviders.js';
+import { requestCode, checkCode, deliveryStatus } from '../services/loginOtp.js';
 import { getEmailProvider } from '../emailProviders.js';
 import { decrypt, verifyTotp } from '../totp.js';
 
 const phoneSchema = z.string().trim().regex(/^\+?[1-9]\d{9,14}$/, 'Enter a valid mobile number');
 const normPhone = (p) => (p.startsWith('+') ? p : p.length === 10 ? `+91${p}` : `+${p}`);
-const hashOtp = (phone, otp) => crypto.createHmac('sha256', config.jwtSecret).update(`${phone}:${otp}`).digest('hex');
 // A customer has a usable name unless it is empty or one of the placeholders we stored before names were required.
 export const USERNAME_RE = /^[a-z][a-z0-9._]{3,31}$/;
 export const needsName = (u) => u.role === 'customer' && (!u.name || !/\p{L}/u.test(u.name) || u.name.trim().length < 2 || u.name.trim().toLowerCase() === 'customer');
@@ -62,55 +61,33 @@ export function authRoutes(db) {
     res.json(sessionOut(u));
   });
 
-  // Customer login OTP (separate from pickup / delivery OTPs).
+  // Customer login with a WhatsApp code (separate from pickup / delivery codes). Rules live in services/loginOtp.js.
+  const otpSend = (res, out) => (out.error ? res.status(out.status).json({ error: out.error, code: out.code, retryAfterSec: out.retryAfterSec }) : null);
   r.post('/customer/otp/request', limiter(10), async (req, res) => {
-    const p = z.object({ phone: phoneSchema }).safeParse(req.body);
-    if (!p.success) return res.status(400).json({ error: p.error.issues[0].message });
-    const phone = normPhone(p.data.phone);
-    const last = db.prepare('SELECT created_at FROM otp_challenges WHERE phone = ? ORDER BY id DESC LIMIT 1').get(phone);
-    if (last && Date.now() - Date.parse(last.created_at) < config.otp.resendCooldownMs)
-      return res.status(429).json({ error: 'Please wait a few seconds before requesting another code.' });
-    const prov = getOtpProvider();
-    let otp = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
-    if (prov.fixedFor) { otp = prov.fixedFor(phone); if (!otp) return res.status(403).json({ error: 'This number is not enabled for test login.' }); }
-    const id = db.prepare('INSERT INTO otp_challenges (phone, otp_hash, expires_at) VALUES (?,?,?)')
-      .run(phone, hashOtp(phone, otp), new Date(Date.now() + config.otp.ttlMs).toISOString()).lastInsertRowid;
-    try { await prov.send(phone, otp); }
-    catch (e) {
-      db.prepare('UPDATE otp_challenges SET used = 1 WHERE id = ?').run(id);
-      console.error('OTP delivery failed:', e.message);
-      return res.status(502).json({ error: 'We could not send the code. Please try again.' });
-    }
-    res.json({ ok: true, resendAfterSec: config.otp.resendCooldownMs / 1000 });   // never returns the OTP
+    const out = await requestCode(db, req.body?.phone); if (otpSend(res, out) !== null) return;
+    res.json({ ok: true, resendAfterSec: out.resendAfterSec, expiresInSec: out.expiresInSec, channel: out.channel });   // never returns the code
   });
-
+  // delivery state of the latest code (sent / delivered / read / failed), so the code screen can say if WhatsApp could not deliver it
+  r.get('/customer/otp/status', limiter(120), (req, res) => res.json(deliveryStatus(db, req.query.phone)));
   r.post('/customer/otp/verify', limiter(20), (req, res) => {
-    const p = z.object({ phone: phoneSchema, otp: z.string().regex(/^\d{6}$/), name: z.string().trim().min(1).max(80).optional() }).safeParse(req.body);
+    const p = z.object({ phone: z.string().max(20), otp: z.string().max(10), name: z.string().trim().min(1).max(80).optional() }).safeParse(req.body);
     if (!p.success) return res.status(400).json({ error: 'Enter the 6-digit code.' });
-    const phone = normPhone(p.data.phone);
-    const fail = () => res.status(401).json({ error: 'That code is incorrect or has expired.' });
-    const ch = db.prepare('SELECT * FROM otp_challenges WHERE phone = ? AND used = 0 ORDER BY id DESC LIMIT 1').get(phone);
-    if (!ch || ch.expires_at < new Date().toISOString() || ch.attempts >= config.otp.maxAttempts) return fail();
-    db.prepare('UPDATE otp_challenges SET attempts = attempts + 1 WHERE id = ?').run(ch.id);
-    const a = Buffer.from(ch.otp_hash), b = Buffer.from(hashOtp(phone, p.data.otp));
-    if (!crypto.timingSafeEqual(a, b)) return fail();
+    const ok = checkCode(db, p.data.phone, p.data.otp); if (otpSend(res, ok) !== null) return;
+    const phone = ok.phone;
     const user = db.transaction(() => {
-      // single-use: only one verifier can flip used 0 -> 1
-      if (db.prepare('UPDATE otp_challenges SET used = 1 WHERE id = ? AND used = 0').run(ch.id).changes !== 1) return null;
       let u = db.prepare('SELECT * FROM users WHERE phone = ?').get(phone);
-      if (!u) {
-        const nm = p.data.name && nameSchema.safeParse(p.data.name).success ? p.data.name.trim() : null;      // no name yet -> the app asks "What should we call you?"
+      if (!u) {                                                  // new customer: one account per number; the app then asks "What should we call you?"
+        const nm = p.data.name && nameSchema.safeParse(p.data.name).success ? p.data.name.trim() : null;
         const id = db.prepare("INSERT INTO users (role, phone, name) VALUES ('customer', ?, ?)").run(phone, nm || '').lastInsertRowid;
         db.prepare('INSERT INTO customers (user_id) VALUES (?)').run(id);
         u = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
       }
       return u;
     })();
-    if (!user || user.role !== 'customer') return fail();
+    if (user.role !== 'customer') return res.status(401).json({ error: 'That code is incorrect or has expired.' });      // staff numbers never log in here
     if (!user.active) return res.status(403).json({ error: 'This account has been deactivated. Contact support.' });
-    res.json(sessionOut(user));
+    res.json({ ...sessionOut(user), is_new: !user.name });
   });
-
 
   // ---- STAGING-ONLY e-mail login for allow-listed testers (WhatsApp OTP above stays the real customer login) ----
   // 6-digit code, 5-minute expiry, 5 attempts, 60 s resend wait, hashed, single use, per-IP and per-address limits.

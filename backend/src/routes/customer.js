@@ -11,6 +11,7 @@ import * as Addr from '../services/addresses.js';
 import { customerRefund, submitUpi } from '../services/refunds.js';
 import * as Coupons from '../services/coupons.js';
 import * as Chat from '../services/chat.js';
+import { freshness } from '../services/tracking.js';
 
 // An order always goes to one of the customer's own saved GPS addresses, and the customer confirms that delivery point.
 const cartSchema = z.object({ restaurant_id: z.number().int(), items: z.array(z.object({ id: z.number().int(), qty: z.number().int() })).max(30),
@@ -98,6 +99,8 @@ export function customerRoutes(db) {
     out.payment = db.prepare('SELECT status FROM payments WHERE order_id=?').pluck().get(o.id);
     out.refund = db.prepare('SELECT status FROM refunds WHERE order_id=?').pluck().get(o.id) || null;
     out.refund_detail = customerRefund(db, o.id);
+    // true while the arrival time is being recalculated from the delivery partner's live position
+    out.eta_live = o.status === 'PICKED_UP' && !!o.rider_id && ['live', 'stale'].includes(freshness(db.prepare('SELECT received_at FROM rider_locations WHERE rider_id=?').get(o.rider_id)).state);
     out.chat = { open: !!o.rider_id && ['ACCEPTED', 'PREPARING', 'READY', 'PICKED_UP'].includes(o.status), unread: Chat.unreadFor(db, 'customer', o.id), any: !!db.prepare('SELECT 1 FROM order_messages WHERE order_id=?').get(o.id) };
     out.rating = db.prepare('SELECT stars FROM order_ratings WHERE order_id=?').pluck().get(o.id) || null;
     if (['PICKED_UP', 'DELIVERED'].includes(o.status) && o.rider_id) {          // rider identity only after pickup

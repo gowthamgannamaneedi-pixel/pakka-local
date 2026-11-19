@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import express from 'express';
 import helmet from 'helmet';
@@ -14,6 +15,7 @@ import { adminRoutes } from './routes/admin.js';
 import { fileRoutes } from './routes/files.js';
 import { pushRoutes } from './routes/push.js';
 import { trackingRoutes } from './routes/tracking.js';
+import { applyDeliveryReport } from './services/loginOtp.js';
 
 const BIG = /^\/api\/(restaurant\/(menu|me)|rider\/(documents|application\/documents)|admin\/cashouts\/\d+\/pay|admin\/campaigns|admin\/locations\/import)/;
 const small = express.json({ limit: '100kb' }), big = express.json({ limit: '8mb' });
@@ -30,6 +32,17 @@ export function createApp(db) {
     imgSrc: ["'self'", 'data:', 'blob:', ...tileSrc], mediaSrc: ["'self'"], connectSrc: ["'self'"], objectSrc: ["'none'"], frameAncestors: ["'none'"], baseUri: ["'self'"], formAction: ["'self'"] } } }));
   app.use(cors({ origin: (o, cb) => cb(null, !o || config.allowedOrigins.includes(o)), allowedHeaders: ['Authorization', 'Content-Type'], maxAge: 600 }));
   if (!config.isTest) app.use('/api', rateLimit({ windowMs: 60_000, max: 600, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Please slow down.' } }));
+  // WhatsApp delivery reports for login codes (Meta webhook). Raw body is needed to check Meta's signature, so this sits
+  // before the JSON parser. Off (404) until WHATSAPP_WEBHOOK_VERIFY_TOKEN and WHATSAPP_APP_SECRET are set.
+  app.get('/api/whatsapp/webhook', (req, res) => { const w = config.whatsapp;
+    if (w.verifyToken && req.query['hub.mode'] === 'subscribe' && req.query['hub.verify_token'] === w.verifyToken) return res.type('text/plain').send(String(req.query['hub.challenge'] || ''));
+    res.sendStatus(w.verifyToken ? 403 : 404); });
+  app.post('/api/whatsapp/webhook', express.raw({ type: '*/*', limit: '1mb' }), (req, res) => { const w = config.whatsapp;
+    if (!w.appSecret) return res.sendStatus(404);
+    const sig = String(req.get('x-hub-signature-256') || ''), want = 'sha256=' + crypto.createHmac('sha256', w.appSecret).update(req.body || Buffer.alloc(0)).digest('hex');
+    if (sig.length !== want.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(want))) return res.sendStatus(401);
+    try { applyDeliveryReport(db, JSON.parse(req.body.toString('utf8'))); } catch { /* malformed: acknowledged, nothing applied */ }
+    res.sendStatus(200); });
   app.use((req, res, next) => (req.method !== 'GET' && BIG.test(req.path + (req.baseUrl || '') ) ? big : small)(req, res, next));
 
   // API replies are personal and live: never stored by browsers, the host's CDN or any proxy (routes may override, e.g. public images)

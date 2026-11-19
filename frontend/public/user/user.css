@@ -591,3 +591,18 @@ body.p-user input[type=search]::-webkit-search-cancel-button{-webkit-appearance:
 .u-namegate .lg{width:92px;display:block;margin-bottom:8px}.u-namegate h2{font:800 1.35rem var(--head)}.u-namegate .s{color:var(--u-sub);font-size:.9rem;margin:4px 0 14px}
 @keyframes u-fade{from{opacity:0}to{opacity:1}}
 .u-namegate .btn{width:100%;min-height:54px;border-radius:14px;font-size:1.02rem}
+
+/* live ETA on the tracking map */
+.u-meta:empty{display:none}
+.u-meta{position:absolute;z-index:500;top:262px;left:12px;display:flex;flex-direction:column;align-items:flex-start;padding:7px 11px;border-radius:12px;background:#fff;box-shadow:0 4px 14px rgba(17,19,24,.18);pointer-events:none}
+.u-meta b{font:800 1.05rem var(--head);color:var(--u-ink)}.u-meta span{font-size:.72rem;color:var(--u-sub);font-weight:600}
+.u-livetag{display:inline-block;padding:0 6px;border-radius:6px;background:var(--u-green-l);color:var(--u-green-d);font-weight:800;text-transform:uppercase;font-size:.66rem;letter-spacing:.05em}
+@media(min-width:1000px){.u-meta{top:322px}}
+
+/* WhatsApp login */
+.u-lsheet .btn .wa-ic,.u-lsheet .btn.wa .wa-ic{width:20px;height:20px;margin-right:6px;vertical-align:-4px}
+.u-lsheet .btn.wa{background:#1a9e53;border-color:#1a9e53}
+.u-lerr{display:none;margin-top:10px;padding:10px 12px;border-radius:12px;background:#fdecea;color:#a3221b;font-size:.86rem;font-weight:600}.u-lerr.on{display:block}
+.u-deliv{margin:-4px 0 12px;font-size:.84rem;font-weight:600;color:var(--u-sub)}.u-deliv.ok{color:var(--u-green-d)}.u-deliv.bad{color:#a3221b}
+.u-deliv.ok:before{content:'✓ '}
+.u-lnkbtn{border:0;background:none;color:var(--brand);font:700 .9rem var(--font);padding:0 4px;cursor:pointer;text-decoration:underline}

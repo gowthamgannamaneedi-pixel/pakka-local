@@ -12,6 +12,7 @@ let port = 18300;
 const boot = (extra) => new Promise((resolve) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pl-pay-')), p = ++port;
   const env = { PATH: process.env.PATH, HOME: process.env.HOME, NODE_OPTIONS: '--no-warnings', JWT_SECRET: 'x'.repeat(40), DB_PATH: path.join(dir, 'db.sqlite'), UPLOAD_DIR: path.join(dir, 'up'), BACKUP_DIR: path.join(dir, 'bk'), PORT: String(p), OTP_PROVIDER: 'testcode', TEST_OTP_CODE: '424242', TEST_OTP_PHONES: '+919811111111,+919822222222', ALLOW_TEST_OTP: '1', ...extra };
+  if ((env.APP_ENV || 'production') === 'production') env.OTP_PROVIDER = 'whatsapp';      // fixed test codes are refused on production; such cases sign in with prodLogin()
   env.DOTENV_CONFIG_PATH = path.join(dir, 'no-such.env');      // a developer's backend/.env must not leak into these cases
   const child = spawn(process.execPath, ['src/server.js'], { cwd: root, env }); let out = '';
   child.stdout.on('data', (d) => { out += d; }); child.stderr.on('data', (d) => { out += d; });
@@ -19,6 +20,11 @@ const boot = (extra) => new Promise((resolve) => {
   child.on('exit', (code) => { clearInterval(t); resolve({ up: false, code, out }); });
 });
 const call = async (base, method, p, body, token) => { const r = await fetch(base + p, { method, headers: { 'Content-Type': 'application/json', ...(token && { Authorization: `Bearer ${token}` }) }, body: body && JSON.stringify(body) }); return { status: r.status, body: await r.json().catch(() => ({})) }; };
+// Production has no fixed test code, so these cases create the customer directly in the test database and sign a session
+// with the test's own JWT secret (the server still checks the token and loads the user from the database).
+const prodLogin = async (s, phone) => { const { DatabaseSync } = await import('node:sqlite'); const jwt = (await import('jsonwebtoken')).default; const d = new DatabaseSync(s.db);
+  const id = Number(d.prepare("INSERT INTO users (role, phone, name) VALUES ('customer', ?, 'Prod Tester')").run(phone).lastInsertRowid); d.prepare('INSERT INTO customers (user_id) VALUES (?)').run(id); d.close();
+  return jwt.sign({ sub: id, role: 'customer', tv: 0 }, 'x'.repeat(40), { expiresIn: '1h', algorithm: 'HS256' }); };
 const login = async (base, phone) => { await call(base, 'POST', '/api/auth/customer/otp/request', { phone }); return (await call(base, 'POST', '/api/auth/customer/otp/verify', { phone, otp: '424242', name: 'Tester' })).body.token; };
 
 test('production refuses to start with simulated payments (no override exists)', async () => {
@@ -35,7 +41,7 @@ test('production default: ordering closed, no order rows, every simulated-paymen
     const s = await boot(extra); assert.equal(s.up, true, s.out);
     try {
       const cfg = (await call(s.base, 'GET', '/api/public/config')).body; assert.equal(cfg.testPayments, false); assert.equal(cfg.paymentsAvailable, false);
-      const tok = await login(s.base, '+919811111111'); assert.ok(tok);
+      const tok = await prodLogin(s, '+919811111111'); assert.ok(tok);
       const o = await call(s.base, 'POST', '/api/customer/orders', { restaurant_id: 1, items: [{ id: 1, qty: 1 }], location_id: 1 }, tok);
       assert.equal(o.status, 503); assert.equal(o.body.code, 'ORDERING_CLOSED');
       assert.equal((await call(s.base, 'POST', '/api/customer/payments/sandbox/PL123/complete', { outcome: 'success' }, tok)).status, 404);

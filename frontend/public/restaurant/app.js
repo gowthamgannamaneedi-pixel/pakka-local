@@ -75,15 +75,17 @@
   // ---------- orders: one screen, three boxes, two taps (Accept -> Food is ready). No tabs. ----------
   const COOK = ['ACCEPTED', 'PREPARING'], PAST = ['PICKED_UP', 'DELIVERED', 'REJECTED', 'CANCELLED'];
   const sc = (o) => '#' + e(String(o.order_code).slice(-6));
+  // full order ID + rider on every card, so several orders at once are never mixed up
+  const ids = (o, riderTxt) => `<div class="k-ids"><span><small>Order ID</small><b>${e(o.order_code)}</b></span><span class="${o.rider ? 'on' : ''}"><small>Rider</small><b>${PL.icon('bike')}${o.rider ? e(o.rider.name) : riderTxt}</b></span></div>`;
   const itemsList = (o) => `<ul class="k-items">${o.items.map((i) => `<li><b>${i.qty}×</b><span>${e(i.name)}</span></li>`).join('')}</ul>`;
   const newCard = (o) => `<div class="k-card k-new"><div class="k-top"><b class="k-code">${sc(o)}</b><span class="timer" data-placed="${e(o.placed_at || o.created_at)}"></span></div>
-      ${itemsList(o)}<div class="k-pay"><span>You get</span><b>${rs(o.payout_paise)}</b></div>
+      ${ids(o, 'Assigned after you accept')}${itemsList(o)}<div class="k-pay"><span>You get</span><b>${rs(o.payout_paise)}</b></div>
       <div class="k-acts"><button class="btn danger" data-act="reject" data-id="${o.id}">Reject</button><button class="btn green lg" data-act="accept" data-id="${o.id}">${PL.icon('check')} Accept</button></div></div>`;
   const cookCard = (o) => `<div class="k-card k-cook"><div class="k-top"><b class="k-code">${sc(o)}</b><span class="small mute">Accepted ${e(PL.ago(o.created_at))}</span></div>
-      ${itemsList(o)}<button class="btn block lg k-big" data-act="step" data-step="ready" data-id="${o.id}">${PL.icon('box')} Food is ready</button></div>`;
+      ${ids(o, 'Finding a rider…')}${itemsList(o)}<button class="btn block lg k-big" data-act="step" data-step="ready" data-id="${o.id}">${PL.icon('box')} Food is ready</button></div>`;
   const readyCard = (o) => `<div class="k-card k-ready"><div class="k-top"><b class="k-code">${sc(o)}</b><span class="k-rider">${PL.icon('bike')} ${o.rider ? `${e(o.rider.name)} is coming` : 'Finding a rider…'}</span></div>
-      ${itemsList(o)}<div class="k-pick"><span>Give this code to the rider</span><div class="k-otp">${String(o.pickup_otp || '').split('').map((d) => `<i>${e(d)}</i>`).join('')}</div></div></div>`;
-  const pastRow = (o) => `<div class="k-past"><div class="grow"><b>${sc(o)}</b> <span class="small mute">${e(PL.dt(o.created_at))}</span><div class="small">${o.items.map((i) => `${i.qty}× ${e(i.name)}`).join(', ')}</div>
+      ${ids(o, 'Finding a rider…')}${itemsList(o)}<div class="k-pick"><span>Give this code to the rider</span><div class="k-otp">${String(o.pickup_otp || '').split('').map((d) => `<i>${e(d)}</i>`).join('')}</div></div></div>`;
+  const pastRow = (o) => `<div class="k-past"><div class="grow"><b>${e(o.order_code)}</b> <span class="small mute">${e(PL.dt(o.created_at))}</span><div class="small">${o.items.map((i) => `${i.qty}× ${e(i.name)}`).join(', ')}</div>
       ${o.rejection_reason ? `<div class="small" style="color:var(--bad)">${o.status === 'CANCELLED' ? '' : 'Rejected: '}${e(o.rejection_reason)}${o.refund ? ' ' + PL.chip(o.refund) : ''}</div>` : ''}${o.status === 'PICKED_UP' && o.rider ? `<div class="small mute">Picked up by ${e(o.rider.name)}</div>` : ''}</div>
       <div class="right">${PL.chip(o.status)}<div class="small mt2">${['REJECTED', 'CANCELLED'].includes(o.status) ? '' : rs(o.payout_paise)}</div></div></div>`;
   const anyCard = (o) => (o.status === 'PLACED' ? newCard(o) : COOK.includes(o.status) ? cookCard(o) : o.status === 'READY' ? readyCard(o) : `<div class="k-card">${pastRow(o)}</div>`);

@@ -7,6 +7,40 @@ import { send, parse, wrap, money, img } from './util.js';
 // Suggested categories a restaurant can add with one tap; restaurants can still create their own.
 export const CATEGORY_PRESETS = ['Starters', 'Soups', 'Main Course', 'Biryani', 'Rice', 'Breads', 'Curries', 'South Indian', 'Chinese', 'Tandoor', 'Snacks', 'Rolls & Wraps', 'Burgers & Sandwiches', 'Pizza', 'Combos', 'Thalis', 'Desserts', 'Beverages'];
 const HHMM = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use a time like 09:30');
+// Menu and category routes, used by the restaurant portal (its own restaurant) and by Super Admin
+// (/api/admin/restaurants/:rid/...). Both set req.restaurantId first; the rules are the same for both.
+export function mountMenu(r, db) {
+  // menu: an item is shown to customers only with a photo (new items and any edit/publish from now on)
+  const NEED_PHOTO = 'Add a photo of this dish before showing it to customers. You can save it as sold out until you have one.';
+  r.get('/category-presets', (req, res) => res.json({ presets: CATEGORY_PRESETS }));
+  const itemSchema = z.object({ name: z.string().trim().min(1).max(80), description: z.string().max(300).optional(), base_price_paise: money, prep_time_min: z.number().int().min(1).max(180), available: z.boolean().optional(), category_id: z.number().int().positive().nullish(), diet: z.enum(['veg', 'nonveg', 'egg']).nullish(), image: img });
+  r.get('/menu', (req, res) => res.json({ items: db.prepare('SELECT id,name,description,image_path,base_price_paise,prep_time_min,available,category_id,diet FROM food_items WHERE restaurant_id=? AND deleted=0 ORDER BY name').all(req.restaurantId), categories: db.prepare('SELECT id,name,sort_order FROM food_categories WHERE restaurant_id=? ORDER BY sort_order,name').all(req.restaurantId) }));
+  const ownCat = (req, cid) => cid == null || !!db.prepare('SELECT 1 FROM food_categories WHERE id=? AND restaurant_id=?').get(cid, req.restaurantId);
+  r.post('/menu', wrap((req, res) => { const d = parse(itemSchema, req, res); if (!d) return; if (!ownCat(req, d.category_id)) return res.status(400).json({ error: 'Unknown category.' });
+    if (d.available !== false && !d.image) return res.status(400).json({ error: NEED_PHOTO, code: 'PHOTO_REQUIRED' }); const im = d.image ? saveUpload(d.image, { scope: 'public' }) : null;
+    const id = db.prepare('INSERT INTO food_items (restaurant_id,category_id,name,description,image_path,base_price_paise,prep_time_min,available,diet) VALUES (?,?,?,?,?,?,?,?,?)').run(req.restaurantId, d.category_id ?? null, d.name, d.description ?? null, im, d.base_price_paise, d.prep_time_min, d.available === false ? 0 : 1, d.diet ?? null).lastInsertRowid;
+    res.status(201).json({ id }); }));
+  r.put('/menu/:id', wrap((req, res) => { const d = parse(itemSchema.partial().extend({ name: z.string().trim().min(1).max(80) }), req, res); if (!d) return;
+    const cur = db.prepare('SELECT * FROM food_items WHERE id=? AND restaurant_id=? AND deleted=0').get(req.params.id, req.restaurantId);
+    if (!cur) return res.status(404).json({ error: 'Item not found.' });
+    const willShow = d.available === undefined ? !!cur.available : !!d.available;
+    // publishing (sold out -> available) needs a photo; items published before this rule keep working and are flagged in the menu screen
+    if (willShow && !cur.available && !d.image && !cur.image_path) return res.status(400).json({ error: NEED_PHOTO, code: 'PHOTO_REQUIRED' });
+    const im = d.image ? saveUpload(d.image, { scope: 'public' }) : cur.image_path;
+    if (d.category_id !== undefined && !ownCat(req, d.category_id)) return res.status(400).json({ error: 'Unknown category.' });
+    db.prepare('UPDATE food_items SET name=?,description=?,image_path=?,base_price_paise=?,prep_time_min=?,available=?,category_id=?,diet=? WHERE id=?').run(d.name, d.description ?? cur.description, im, d.base_price_paise ?? cur.base_price_paise, d.prep_time_min ?? cur.prep_time_min, d.available === undefined ? cur.available : d.available ? 1 : 0, d.category_id === undefined ? cur.category_id : d.category_id, d.diet === undefined ? cur.diet : d.diet, cur.id);
+    res.json({ ok: true }); }));
+  r.delete('/menu/:id', (req, res) => { const c = db.prepare('UPDATE food_items SET deleted=1 WHERE id=? AND restaurant_id=?').run(req.params.id, req.restaurantId).changes; c ? res.json({ ok: true }) : res.status(404).json({ error: 'Item not found.' }); });
+
+
+  // menu categories
+  r.post('/categories', wrap((req, res) => { const d = parse(z.object({ name: z.string().trim().min(1).max(40), sort_order: z.number().int().min(0).max(999).optional() }), req, res); if (!d) return;
+    res.status(201).json({ id: db.prepare('INSERT INTO food_categories (restaurant_id,name,sort_order) VALUES (?,?,?)').run(req.restaurantId, d.name, d.sort_order ?? 0).lastInsertRowid }); }));
+  r.put('/categories/:id', wrap((req, res) => { const d = parse(z.object({ name: z.string().trim().min(1).max(40), sort_order: z.number().int().min(0).max(999).optional() }), req, res); if (!d) return;
+    const c = db.prepare('UPDATE food_categories SET name=?, sort_order=COALESCE(?,sort_order) WHERE id=? AND restaurant_id=?').run(d.name, d.sort_order ?? null, req.params.id, req.restaurantId).changes; c ? res.json({ ok: true }) : res.status(404).json({ error: 'Category not found.' }); }));
+  r.delete('/categories/:id', (req, res) => { db.prepare('UPDATE food_items SET category_id=NULL WHERE category_id=? AND restaurant_id=?').run(req.params.id, req.restaurantId);
+    const c = db.prepare('DELETE FROM food_categories WHERE id=? AND restaurant_id=?').run(req.params.id, req.restaurantId).changes; c ? res.json({ ok: true }) : res.status(404).json({ error: 'Category not found.' }); });
+}
 export function restaurantRoutes(db) {
   const r = Router();
   r.use(authenticate(db), requireRole('restaurant'), (req, res, next) => {
@@ -44,36 +78,7 @@ export function restaurantRoutes(db) {
     res.json({ status: statusRow(req.restaurantId) });
   }));
 
-  // menu: an item is shown to customers only with a photo (new items and any edit/publish from now on)
-  const NEED_PHOTO = 'Add a photo of this dish before showing it to customers. You can save it as sold out until you have one.';
-  r.get('/category-presets', (req, res) => res.json({ presets: CATEGORY_PRESETS }));
-  const itemSchema = z.object({ name: z.string().trim().min(1).max(80), description: z.string().max(300).optional(), base_price_paise: money, prep_time_min: z.number().int().min(1).max(180), available: z.boolean().optional(), category_id: z.number().int().positive().nullish(), diet: z.enum(['veg', 'nonveg', 'egg']).nullish(), image: img });
-  r.get('/menu', (req, res) => res.json({ items: db.prepare('SELECT id,name,description,image_path,base_price_paise,prep_time_min,available,category_id,diet FROM food_items WHERE restaurant_id=? AND deleted=0 ORDER BY name').all(req.restaurantId), categories: db.prepare('SELECT id,name,sort_order FROM food_categories WHERE restaurant_id=? ORDER BY sort_order,name').all(req.restaurantId) }));
-  const ownCat = (req, cid) => cid == null || !!db.prepare('SELECT 1 FROM food_categories WHERE id=? AND restaurant_id=?').get(cid, req.restaurantId);
-  r.post('/menu', wrap((req, res) => { const d = parse(itemSchema, req, res); if (!d) return; if (!ownCat(req, d.category_id)) return res.status(400).json({ error: 'Unknown category.' });
-    if (d.available !== false && !d.image) return res.status(400).json({ error: NEED_PHOTO, code: 'PHOTO_REQUIRED' }); const im = d.image ? saveUpload(d.image, { scope: 'public' }) : null;
-    const id = db.prepare('INSERT INTO food_items (restaurant_id,category_id,name,description,image_path,base_price_paise,prep_time_min,available,diet) VALUES (?,?,?,?,?,?,?,?,?)').run(req.restaurantId, d.category_id ?? null, d.name, d.description ?? null, im, d.base_price_paise, d.prep_time_min, d.available === false ? 0 : 1, d.diet ?? null).lastInsertRowid;
-    res.status(201).json({ id }); }));
-  r.put('/menu/:id', wrap((req, res) => { const d = parse(itemSchema.partial().extend({ name: z.string().trim().min(1).max(80) }), req, res); if (!d) return;
-    const cur = db.prepare('SELECT * FROM food_items WHERE id=? AND restaurant_id=? AND deleted=0').get(req.params.id, req.restaurantId);
-    if (!cur) return res.status(404).json({ error: 'Item not found.' });
-    const willShow = d.available === undefined ? !!cur.available : !!d.available;
-    // publishing (sold out -> available) needs a photo; items published before this rule keep working and are flagged in the menu screen
-    if (willShow && !cur.available && !d.image && !cur.image_path) return res.status(400).json({ error: NEED_PHOTO, code: 'PHOTO_REQUIRED' });
-    const im = d.image ? saveUpload(d.image, { scope: 'public' }) : cur.image_path;
-    if (d.category_id !== undefined && !ownCat(req, d.category_id)) return res.status(400).json({ error: 'Unknown category.' });
-    db.prepare('UPDATE food_items SET name=?,description=?,image_path=?,base_price_paise=?,prep_time_min=?,available=?,category_id=?,diet=? WHERE id=?').run(d.name, d.description ?? cur.description, im, d.base_price_paise ?? cur.base_price_paise, d.prep_time_min ?? cur.prep_time_min, d.available === undefined ? cur.available : d.available ? 1 : 0, d.category_id === undefined ? cur.category_id : d.category_id, d.diet === undefined ? cur.diet : d.diet, cur.id);
-    res.json({ ok: true }); }));
-  r.delete('/menu/:id', (req, res) => { const c = db.prepare('UPDATE food_items SET deleted=1 WHERE id=? AND restaurant_id=?').run(req.params.id, req.restaurantId).changes; c ? res.json({ ok: true }) : res.status(404).json({ error: 'Item not found.' }); });
-
-
-  // menu categories
-  r.post('/categories', wrap((req, res) => { const d = parse(z.object({ name: z.string().trim().min(1).max(40), sort_order: z.number().int().min(0).max(999).optional() }), req, res); if (!d) return;
-    res.status(201).json({ id: db.prepare('INSERT INTO food_categories (restaurant_id,name,sort_order) VALUES (?,?,?)').run(req.restaurantId, d.name, d.sort_order ?? 0).lastInsertRowid }); }));
-  r.put('/categories/:id', wrap((req, res) => { const d = parse(z.object({ name: z.string().trim().min(1).max(40), sort_order: z.number().int().min(0).max(999).optional() }), req, res); if (!d) return;
-    const c = db.prepare('UPDATE food_categories SET name=?, sort_order=COALESCE(?,sort_order) WHERE id=? AND restaurant_id=?').run(d.name, d.sort_order ?? null, req.params.id, req.restaurantId).changes; c ? res.json({ ok: true }) : res.status(404).json({ error: 'Category not found.' }); }));
-  r.delete('/categories/:id', (req, res) => { db.prepare('UPDATE food_items SET category_id=NULL WHERE category_id=? AND restaurant_id=?').run(req.params.id, req.restaurantId);
-    const c = db.prepare('DELETE FROM food_categories WHERE id=? AND restaurant_id=?').run(req.params.id, req.restaurantId).changes; c ? res.json({ ok: true }) : res.status(404).json({ error: 'Category not found.' }); });
+  mountMenu(r, db);
 
   // orders
   const placedAt = (o) => db.prepare("SELECT created_at FROM order_events WHERE order_id=? AND event_type='PAYMENT_SUCCESS' ORDER BY id LIMIT 1").pluck().get(o.id) || o.created_at;
