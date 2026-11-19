@@ -1,8 +1,6 @@
 (function () {
-  const e = PL.esc, rs = PL.rs, S = PL.state; S.otab = 'new'; let pending = [];
+  const e = PL.esc, rs = PL.rs, S = PL.state; let pending = [];
   const paise = (v) => Math.round(Number(v || 0) * 100);
-  const ST = { new: ['PLACED'], accepted: ['ACCEPTED'], preparing: ['PREPARING'], ready: ['READY'], picked: ['PICKED_UP'], done: ['DELIVERED'], rejected: ['REJECTED', 'CANCELLED'] };
-  const TABS = [['new', 'New'], ['accepted', 'Accepted'], ['preparing', 'Preparing'], ['ready', 'Ready'], ['picked', 'Picked up'], ['done', 'Completed'], ['rejected', 'Rejected']];
 
   // ---------- real-time alerts (1s poll; backend is the authority) ----------
   // One alert card at a time, docked above the bottom navigation. Every PLACED order stays in the queue (and in the
@@ -32,9 +30,12 @@
       <div class="timer" data-placed="${e(o.placed_at || o.created_at)}" aria-live="polite"></div>
       <div class="rq-items">${o.items.map((it) => `<div class="kv"><span>${it.qty} × ${e(it.name)}</span><span class="mute small">~${it.prep_time_min} min</span></div>`).join('')}</div>
       <div class="kv tot"><span>Order amount</span><span>${rs(o.total_items_paise)}</span></div><div class="small mute">You receive ${rs(o.payout_paise)} after commission</div>
-      ${soundBtn}<div class="row mt2"><button class="btn danger grow" data-act="reject" data-id="${o.id}">Reject</button><button class="btn grow" data-act="accept" data-id="${o.id}">Accept order</button></div></div>`;
+      ${soundBtn}<div class="row mt2"><button class="btn danger grow" data-act="reject" data-id="${o.id}">Reject</button><button class="btn green grow" data-act="accept" data-id="${o.id}">${PL.icon('check')} Accept</button></div></div>`;
     if (box.dataset.h !== html) { box.dataset.h = html; box.innerHTML = html; }
-    box.classList.toggle('hide', !n); setAlertSpace(box); PL.sound.sync(n > 0); paintTimers();
+    // on the Orders screen the "New orders" box is the alert (same buttons); the pop-up is for the other screens. The ring plays everywhere.
+    const onOrders = document.body.dataset.route === '/orders';
+    box.classList.toggle('hide', !n || onOrders); setAlertSpace(box); PL.sound.sync(n > 0); paintTimers();
+    const sb = PL.$('#k-sound'); if (sb) sb.classList.toggle('hide', !n || PL.sound.unlocked);
   }
   // Response timer. The limit is the admin setting "restaurant_accept_timeout_min"; with no setting only the waiting time is shown.
   // Only the text is updated each second (the card itself is not redrawn, so buttons never move under a finger).
@@ -55,10 +56,12 @@
   PL.actions['rq-expand'] = () => { collapsed = false; alertTick(); };
   addEventListener('resize', () => { const b = PL.$('#alerts'); if (b) setAlertSpace(b); });
   PL.actions['sound-on'] = async () => { await PL.sound.enable(); const b = PL.$('#sbtn'); if (b) b.innerHTML = PL.icon('sound'); alertTick(); };
-  PL.actions.accept = (el) => PL.busy(el, async () => { await PL.run(() => PL.post(`/api/restaurant/orders/${el.dataset.id}/accept`), 'Order accepted'); await alertTick(); PL.rerender(); });
+  // one tap: accept and start cooking (the customer sees both steps); if the second step fails the order still shows under Cooking
+  PL.actions.accept = (el) => PL.busy(el, async () => { const id = el.dataset.id; const r = await PL.run(() => PL.post(`/api/restaurant/orders/${id}/accept`));
+    if (r) { await PL.post(`/api/restaurant/orders/${id}/preparing`).catch(() => {}); PL.toast('Order accepted. Start cooking!'); } await alertTick(); PL.rerender(); });
   PL.actions.reject = (el) => PL.modal(`<h3>Reject this order?</h3><p class="small mute">The customer is notified and a refund is started.</p><form data-form="reject" data-id="${el.dataset.id}"><label>Reason</label><select name="reason" required><option value="">Choose a reason</option>${['Items unavailable', 'Restaurant too busy', 'Restaurant temporarily closed', 'Technical issue', 'Other'].map((r) => `<option>${r}</option>`).join('')}</select><label>Details (optional)</label><textarea name="note" maxlength="300"></textarea><button class="btn danger block mt" type="submit">Reject order</button></form>`);
   PL.forms.reject = async (f) => { const v = PL.form(f); const r = await PL.run(() => PL.post(`/api/restaurant/orders/${f.dataset.id}/reject`, { reason: v.reason, note: v.note }), 'Order rejected'); if (r) { PL.closeModal(); await alertTick(); setTimeout(PL.rerender, 80); } };
-  PL.actions.step = (el) => PL.busy(el, async () => { await PL.run(() => PL.post(`/api/restaurant/orders/${el.dataset.id}/${el.dataset.step}`), el.dataset.step === 'ready' ? 'Marked ready. Riders are being notified.' : 'Preparing started'); PL.rerender(); });
+  PL.actions.step = (el) => PL.busy(el, async () => { await PL.run(() => PL.post(`/api/restaurant/orders/${el.dataset.id}/${el.dataset.step}`), el.dataset.step === 'ready' ? 'Food is ready. Give the code to the rider.' : 'Cooking started'); PL.rerender(); });
 
   // ---------- orders + open/close ----------
   const statusCard = (s) => `<div class="card"><div class="row between"><div><div class="small mute">Restaurant status</div><h2>${s.is_open ? 'Open for orders' : 'Closed'}</h2>${!s.is_open ? `<div class="small mute">${s.reopen_mode === 'auto' && s.reopen_at ? `Reopens automatically at ${PL.dt(s.reopen_at)}` : 'Stays closed until you reopen'}</div>` : ''}</div>
@@ -69,31 +72,47 @@
       <label class="row mt" style="font-weight:700"><input type="radio" name="mode" value="manual" style="width:22px;min-height:22px"> Stay closed until I reopen manually</label><button class="btn block mt" type="submit">Close restaurant</button></form>`); };
   PL.forms.close = async (f) => { const v = PL.form(f); const b = { open: false, mode: v.mode }; if (v.mode === 'auto') Object.assign(b, { days: +v.days || 0, hours: +v.hours || 0, minutes: +v.minutes || 0 });
     const r = await PL.run(() => PL.post('/api/restaurant/status', b), 'Restaurant closed'); if (r) { PL.closeModal(); setTimeout(PL.rerender, 80); } };
-  PL.actions.otab = (el) => { S.otab = el.dataset.t; PL.rerender(); };
-  const orderCard = (o) => `<div class="card r-ticket st-${e(o.status)}"><div class="row between" style="align-items:flex-start"><div><div class="r-code">#${e(String(o.order_code).slice(-6))}</div><div class="small mute">${PL.code(o.order_code)} · ${e(PL.ago(o.created_at))}</div></div>${PL.chip(o.status)}</div>
-        <ul class="r-items">${o.items.map((i) => `<li><b>${i.qty}×</b><span>${e(i.name)}</span><small>~${i.prep_time_min} min</small></li>`).join('')}</ul><div class="r-pay"><span>You receive</span><b>${rs(o.payout_paise)}</b></div><div class="small mute">After ${rs(o.commission_paise)} commission</div>
-        ${o.rejection_reason ? `<div class="small" style="color:var(--bad)">${o.status === 'CANCELLED' ? '' : 'Rejected: '}${e(o.rejection_reason)} ${o.refund ? PL.chip(o.refund) : ''}</div>` : ''}
-        ${o.status === 'PLACED' ? `<div class="row mt2"><button class="btn danger grow" data-act="reject" data-id="${o.id}">Reject</button><button class="btn grow" data-act="accept" data-id="${o.id}">Accept</button></div>` : ''}
-        ${o.status === 'ACCEPTED' ? `<div class="row mt2"><button class="btn ghost grow" data-act="step" data-step="preparing" data-id="${o.id}">${PL.icon('chef')} Start preparing</button><button class="btn grow" data-act="step" data-step="ready" data-id="${o.id}">${PL.icon('box')} Food ready</button></div>` : ''}
-        ${o.status === 'PREPARING' ? `<button class="btn block lg mt2" data-act="step" data-step="ready" data-id="${o.id}">${PL.icon('box')} Mark ready for pickup</button>` : ''}
-        ${o.status === 'READY' ? `<div class="mt2 small mute">Give this pickup code to the rider${o.rider ? ' (' + e(o.rider.name) + ')' : ''}</div><div class="otp">${e(o.pickup_otp)}</div>${o.rider ? '' : '<div class="small mute mt2">Waiting for a rider to accept…</div>'}` : ''}
-        ${o.status === 'PICKED_UP' && o.rider ? `<div class="small mt2">Picked up by ${e(o.rider.name)}</div>` : ''}</div>`;
+  // ---------- orders: one screen, three boxes, two taps (Accept -> Food is ready). No tabs. ----------
+  const COOK = ['ACCEPTED', 'PREPARING'], PAST = ['PICKED_UP', 'DELIVERED', 'REJECTED', 'CANCELLED'];
+  const sc = (o) => '#' + e(String(o.order_code).slice(-6));
+  const itemsList = (o) => `<ul class="k-items">${o.items.map((i) => `<li><b>${i.qty}×</b><span>${e(i.name)}</span></li>`).join('')}</ul>`;
+  const newCard = (o) => `<div class="k-card k-new"><div class="k-top"><b class="k-code">${sc(o)}</b><span class="timer" data-placed="${e(o.placed_at || o.created_at)}"></span></div>
+      ${itemsList(o)}<div class="k-pay"><span>You get</span><b>${rs(o.payout_paise)}</b></div>
+      <div class="k-acts"><button class="btn danger" data-act="reject" data-id="${o.id}">Reject</button><button class="btn green lg" data-act="accept" data-id="${o.id}">${PL.icon('check')} Accept</button></div></div>`;
+  const cookCard = (o) => `<div class="k-card k-cook"><div class="k-top"><b class="k-code">${sc(o)}</b><span class="small mute">Accepted ${e(PL.ago(o.created_at))}</span></div>
+      ${itemsList(o)}<button class="btn block lg k-big" data-act="step" data-step="ready" data-id="${o.id}">${PL.icon('box')} Food is ready</button></div>`;
+  const readyCard = (o) => `<div class="k-card k-ready"><div class="k-top"><b class="k-code">${sc(o)}</b><span class="k-rider">${PL.icon('bike')} ${o.rider ? `${e(o.rider.name)} is coming` : 'Finding a rider…'}</span></div>
+      ${itemsList(o)}<div class="k-pick"><span>Give this code to the rider</span><div class="k-otp">${String(o.pickup_otp || '').split('').map((d) => `<i>${e(d)}</i>`).join('')}</div></div></div>`;
+  const pastRow = (o) => `<div class="k-past"><div class="grow"><b>${sc(o)}</b> <span class="small mute">${e(PL.dt(o.created_at))}</span><div class="small">${o.items.map((i) => `${i.qty}× ${e(i.name)}`).join(', ')}</div>
+      ${o.rejection_reason ? `<div class="small" style="color:var(--bad)">${o.status === 'CANCELLED' ? '' : 'Rejected: '}${e(o.rejection_reason)}${o.refund ? ' ' + PL.chip(o.refund) : ''}</div>` : ''}${o.status === 'PICKED_UP' && o.rider ? `<div class="small mute">Picked up by ${e(o.rider.name)}</div>` : ''}</div>
+      <div class="right">${PL.chip(o.status)}<div class="small mt2">${['REJECTED', 'CANCELLED'].includes(o.status) ? '' : rs(o.payout_paise)}</div></div></div>`;
+  const anyCard = (o) => (o.status === 'PLACED' ? newCard(o) : COOK.includes(o.status) ? cookCard(o) : o.status === 'READY' ? readyCard(o) : `<div class="k-card">${pastRow(o)}</div>`);
+  const box = (cls, title, hint, list, card, emptyText) => `<section class="k-sec ${cls}"><div class="k-h"><h2>${title}</h2><span class="k-n">${list.length}</span></div><p class="k-hint">${hint}</p>
+      ${list.length ? `<div class="k-list">${list.map(card).join('')}</div>` : `<div class="k-empty">${emptyText}</div>`}</section>`;
   // today's earnings change only when an order is delivered: refresh at most every 30 s, not on every 2 s order refresh
   const earnToday = async () => { if (!S.et || Date.now() - S.et.t > 30000) { try { S.et = { t: Date.now(), d: (await PL.api('/api/restaurant/earnings')).today }; } catch { S.et = S.et || { t: Date.now(), d: null }; } } return S.et.d; };
+  const headCard = (me, today) => { const st = me.status, r = me.restaurant;
+    return `<div class="card r-head"><div class="row">${PL.img(r.logo_path, 'r-logo')}<div class="grow"><h2 class="ellip">${e(r.name)}</h2><div class="small mute">${today ? `Earned today <b style="color:var(--ok)">${rs(today.payout_paise)}</b>` : e(r.cuisine || '')}</div></div>
+      <div class="r-open ${st.is_open ? 'on' : ''}"><span><i></i>${st.is_open ? 'Open' : 'Closed'}</span><button class="sw ${st.is_open ? 'on' : ''}" data-act="toggle-open" aria-label="${st.is_open ? 'Close restaurant' : 'Open restaurant'}"><i></i></button></div></div>
+      ${!st.is_open ? `<div class="small mute mt2">${st.reopen_mode === 'auto' && st.reopen_at ? `Reopens automatically at ${PL.dt(st.reopen_at)}` : 'Customers can’t order until you reopen.'}</div>` : ''}</div>`; };
   async function orders() {
-    const [me, { orders }, today] = await Promise.all([PL.api('/api/restaurant/me'), PL.api('/api/restaurant/orders'), earnToday()]); const list = orders.filter((o) => ST[S.otab].includes(o.status));
+    const [me, { orders }, today] = await Promise.all([PL.api('/api/restaurant/me'), PL.api('/api/restaurant/orders'), earnToday()]);
     const warn = !me.restaurant.admin_visible || !me.restaurant.approved ? '<div class="banner warn">Pakka Local has hidden your restaurant from customers. Contact support.</div>' : '';
-    const n = (k) => orders.filter((o) => ST[k].includes(o.status)).length, st = me.status, r = me.restaurant;
-    const head = `<div class="card r-head"><div class="row">${PL.img(r.logo_path, 'r-logo')}<div class="grow"><h2 class="ellip">${e(r.name)}</h2><div class="small mute ellip">${e(r.cuisine || r.address || '')}</div></div>
-        <div class="r-open ${st.is_open ? 'on' : ''}"><span><i></i>${st.is_open ? 'Open' : 'Closed'}</span><button class="sw ${st.is_open ? 'on' : ''}" data-act="toggle-open" aria-label="${st.is_open ? 'Close restaurant' : 'Open restaurant'}"><i></i></button></div></div>
-        ${!st.is_open ? `<div class="small mute mt2">${st.reopen_mode === 'auto' && st.reopen_at ? `Reopens automatically at ${PL.dt(st.reopen_at)}` : 'Customers can’t order until you reopen.'}</div>` : ''}</div>`;
-    const kpi = (v, l, cls, t) => `<button class="r-kpi ${cls}" ${t ? `data-act="otab" data-t="${t}"` : 'tabindex="-1"'}><b>${v}</b><span>${l}</span></button>`;
-    const kpis = `<div class="r-kpis">${kpi(pending.length, 'New orders', pending.length ? 'hot' : '', 'new')}${kpi(n('accepted') + n('preparing'), 'In the kitchen', '', n('accepted') ? 'accepted' : 'preparing')}${kpi(n('ready'), 'Ready for pickup', '', 'ready')}${kpi(today ? rs(today.payout_paise) : '–', today ? `Earned today · ${today.orders} order${today.orders === 1 ? '' : 's'}` : 'Earned today', 'money')}</div>`;
-    return `${warn}${S.push === 'on' ? '' : PL.push.card('restaurant')}${head}${kpis}<div class="tabs">${TABS.map(([k, l]) => { const c = k === 'new' ? pending.length : n(k); return `<button class="${S.otab === k ? 'on' : ''}" data-act="otab" data-t="${k}">${l}${c && !['done', 'rejected'].includes(k) ? `<b class="tcount">${c}</b>` : ''}</button>`; }).join('')}</div>
-      ${list.length ? `<div class="r-board">${list.map(orderCard).join('')}</div>` : `<div class="empty">${PL.icon(S.otab === 'new' ? 'receipt' : 'box', 'width="36" height="36"')}<b>${S.otab === 'new' ? 'No new orders right now' : 'Nothing here'}</b><span class="small">${S.otab === 'new' ? (st.is_open ? 'New orders ring and appear here instantly.' : 'You’re closed. Open the restaurant to receive orders.') : 'Orders move here as you update them.'}</span></div>`}`;
+    const fresh = orders.filter((o) => o.status === 'PLACED').sort((a, b) => a.id - b.id), cook = orders.filter((o) => COOK.includes(o.status)).sort((a, b) => a.id - b.id), ready = orders.filter((o) => o.status === 'READY').sort((a, b) => a.id - b.id);
+    const dayKey = (t) => new Date(String(t).replace(' ', 'T') + (/Z|[+-]\d\d:?\d\d$/.test(t) ? '' : 'Z')).toDateString(), todayKey = new Date().toDateString();
+    const doneToday = orders.filter((o) => PAST.includes(o.status) && dayKey(o.created_at) === todayKey).length;
+    return `${warn}${S.push === 'on' ? '' : PL.push.card('restaurant')}${headCard(me, today)}
+      <button id="k-sound" class="btn block mt2 ${fresh.length && !PL.sound.unlocked ? '' : 'hide'}" data-act="sound-on">${PL.icon('sound')} Tap to turn on the new-order ring</button>
+      <div class="k-board">
+      ${box('s-new', 'New orders', 'Check the items, then tap Accept. Cooking starts right away.', fresh, newCard, me.status.is_open ? 'No new orders. New orders ring and appear here.' : 'You are closed. Open the restaurant to get orders.')}
+      ${box('s-cook', 'Cooking', 'When the food is packed, tap “Food is ready”.', cook, cookCard, 'Nothing cooking right now.')}
+      ${box('s-ready', 'Ready – give code to rider', 'Show the code to the rider when they arrive. The order disappears once it is picked up.', ready, readyCard, 'No orders waiting for pickup.')}</div>
+      <button class="k-pastlink" data-act="go" data-path="/past">${PL.icon('receipt')}<span class="grow"><b>Past orders</b><small>${doneToday} finished today · picked up, delivered and rejected orders</small></span>${PL.icon('chev')}</button>`;
   }
+  async function past() { const { orders } = await PL.api('/api/restaurant/orders'); const list = orders.filter((o) => PAST.includes(o.status));
+    return `<p class="small mute">Your last ${list.length} finished orders (picked up, delivered or rejected).</p>${list.map((o) => `<div class="card">${pastRow(o)}</div>`).join('') || '<div class="empty">No past orders yet.</div>'}`; }
   // deep link target for notification taps
-  async function oneOrder({ id }) { try { const { order } = await PL.api('/api/restaurant/orders/' + id); return orderCard(order); } catch { return '<div class="empty">That order was not found.<br><button class="btn mt" data-act="go" data-path="/orders">Back to orders</button></div>'; } }
+  async function oneOrder({ id }) { try { const { order } = await PL.api('/api/restaurant/orders/' + id); return `<div class="k-board">${anyCard(order)}</div><button class="btn ghost block mt" data-act="go" data-path="/orders">All orders</button>`; } catch { return '<div class="empty">That order was not found.<br><button class="btn mt" data-act="go" data-path="/orders">Back to orders</button></div>'; } }
 
   // ---------- menu ----------
   async function menu() { const { items, categories } = await PL.api('/api/restaurant/menu'); const known = new Set(categories.map((c) => c.id)), noPhoto = items.filter((i) => !i.image_path && i.available).length;
@@ -149,5 +168,5 @@
     right: () => `<button class="iconbtn" id="sbtn" data-act="sound-toggle" aria-label="Alert sound">${PL.icon(PL.sound.enabled() && PL.sound.unlocked ? 'sound' : 'mute')}</button>`,
     tabs: [{ path: '/orders', label: 'Orders', icon: 'orders' }, { path: '/menu', label: 'Menu', icon: 'menu' }, { path: '/earnings', label: 'Earnings', icon: 'wallet' }, { path: '/more', label: 'More', icon: 'gear' }],
     onReady: () => { alertTick(); const iv = setInterval(alertTick, 1000); PL.hooks.stop = [() => { clearInterval(iv); const b = PL.$('#alerts'); if (b) { b.innerHTML = ''; b.dataset.h = ''; b.classList.add('hide'); setAlertSpace(b); } }]; },
-    routes: { '/orders': { title: 'Orders', render: orders, poll: 2000, skel: 'dash' }, '/order/:id': { title: 'Order', render: oneOrder, poll: 2000 }, '/menu': { title: 'Menu', render: menu }, '/earnings': { title: 'Earnings', render: earnings, poll: 5000, skel: 'dash' }, '/more': { title: 'More', render: more } } });
+    routes: { '/orders': { title: 'Orders', render: orders, poll: 2000, skel: 'dash', after: () => alertTick() }, '/order/:id': { title: 'Order', render: oneOrder, poll: 2000 }, '/past': { title: 'Past orders', render: past, poll: 10000 }, '/menu': { title: 'Menu', render: menu }, '/earnings': { title: 'Earnings', render: earnings, poll: 5000, skel: 'dash' }, '/more': { title: 'More', render: more } } });
 })();
