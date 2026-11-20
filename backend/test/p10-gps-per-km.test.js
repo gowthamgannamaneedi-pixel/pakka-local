@@ -17,17 +17,18 @@ test('off by default: GPS addresses keep the fixed charge', async () => {
   assert.deepEqual([q.delivery_pricing, q.delivery_paise], ['gps_fixed', 4000]);
 });
 
-test('₹10 per km: charged on the exact distance, every metre counted', async () => {
+test('₹10 per km: charged on the exact distance, every metre counted, rounded off to the nearest rupee', async () => {
   assert.equal((await set({ gps_per_km_paise: '1000' })).status, 200);
   for (const p of [{ lat: 17.394, lng: 78.4867 }, { lat: 17.4300, lng: 78.4867 }, { lat: 17.3901, lng: 78.4911 }]) {
     const m = Math.round(metres(R, p)), q = (await quote(await gpsAddr(p.lat, p.lng))).body;
     assert.equal(q.delivery_pricing, 'gps_per_km');
-    assert.equal(q.delivery_paise, Math.round(m * 1000 / 1000), `${m} m at ₹10/km = ${m} paise`);       // ₹10/km = 1 paisa per metre
+    assert.equal(q.delivery_paise, Math.round(m / 100) * 100, `${m} m at ₹10/km = ₹${m / 100} -> rounded ₹${Math.round(m / 100)}`);
+    assert.equal(q.delivery_paise % 100, 0, 'whole rupees only');
     assert.match(q.delivery_band, /km × ₹10\/km \(straight distance\)/);
   }
   // about 5 km -> about ₹50 (not a band, not a fixed value)
   const five = { lat: R.lat + 5000 / 111195, lng: R.lng }, q5 = (await quote(await gpsAddr(five.lat, five.lng))).body;
-  assert.ok(Math.abs(q5.delivery_paise - 5000) <= 2, `5 km ≈ ₹50, got ${q5.delivery_paise}`);
+  assert.equal(q5.delivery_paise, 5000, `5 km = ₹50, got ${q5.delivery_paise}`);
 });
 
 test('listed places keep their own charge', async () => {
@@ -43,7 +44,7 @@ test('optional minimum charge and maximum distance; order stores the distance an
   assert.equal(o.status, 201);
   const row = W.db.prepare('SELECT delivery_pricing, delivery_paise, delivery_distance_m, delivery_route_source FROM orders WHERE order_code=?').get(o.body.order_code);
   assert.deepEqual([row.delivery_pricing, row.delivery_route_source], ['gps_per_km', 'gps_straight']); assert.equal(row.delivery_distance_m, Math.round(metres(R, { lat: 17.394, lng: 78.4867 })));
-  assert.equal(row.delivery_paise, Math.max(1500, row.delivery_distance_m));
+  assert.equal(row.delivery_paise, Math.max(1500, Math.round(row.delivery_distance_m / 100) * 100));
 });
 
 test('settings are validated, audited, and empty switches back to the fixed charge', async () => {

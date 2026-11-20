@@ -22,7 +22,7 @@ const DEFAULTS = { tax_bps: '0', gps_delivery_fee_paise: '4000', rider_payout_pa
   // Distance-based delivery charges (off by default; ranges live in distance_fee_bands). Empty = not set: no maximum,
   // no minimum, and no fallback (an order whose road distance cannot be worked out is refused rather than guessed).
   distance_pricing_enabled: '0', distance_max_km: '', distance_min_fee_paise: '', distance_fallback_fee_paise: '', route_cache_days: '30',
-  // GPS addresses not on the list: charge per km from the restaurant, every metre counted (e.g. 1000 = ₹10 per km, so 1.234 km = ₹12.34).
+  // GPS addresses not on the list: charge per km from the restaurant, every metre counted, then rounded off to the nearest rupee (1000 = ₹10 per km: 1.234 km = ₹12).
   // Empty = off: the fixed GPS charge (gps_delivery_fee_paise) applies. Optional minimum charge and maximum distance.
   gps_per_km_paise: '', gps_min_fee_paise: '', gps_max_km: '' };
 export const SETTING_KEYS = Object.keys(DEFAULTS);
@@ -134,7 +134,7 @@ export function quote(db, input) {
     const road = Number.isFinite(input.route?.distance_m), m = Math.round(road ? input.route.distance_m : straightM(pk, point)), rate = Number(getSetting(db, 'gps_per_km_paise'));
     const maxKm = Number(getSetting(db, 'gps_max_km')) || null, minFee = Number(getSetting(db, 'gps_min_fee_paise')) || 0, km = m / 1000;
     if (maxKm && km > maxKm) return { error: `This address is ${km.toFixed(1)} km from the restaurant. Pakka Local delivers up to ${maxKm} km.`, status: 409, code: 'OUT_OF_RANGE' };
-    fee = Math.max(Math.round(m * rate / 1000), minFee); pricing = 'gps_per_km';
+    fee = Math.max(Math.round(m * rate / 1000 / 100) * 100, minFee); pricing = 'gps_per_km';      // rounded off to the nearest whole rupee (₹23.40 -> ₹23, ₹23.50 -> ₹24)
     priced = { distance_m: m, band: `${km.toFixed(2)} km × ${PLrs(rate)}/km${road ? ' by road' : ' (straight distance)'}${fee === minFee && minFee ? ` · minimum ${PLrs(minFee)}` : ''}`, source: road ? input.route.source : 'gps_straight', pricing };
   } else { fee = loc ? loc.delivery_fee_paise : Number(getSetting(db, 'gps_delivery_fee_paise')); pricing = loc ? 'listed' : 'gps_fixed'; }
   const delivery = r.free_delivery_above_paise && base + markup >= r.free_delivery_above_paise ? 0 : fee;     // restaurant-specific delivery rule
