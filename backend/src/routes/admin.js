@@ -13,7 +13,8 @@ import { newSecret, encrypt, decrypt, verifyTotp, otpauthUri } from '../totp.js'
 import { audienceUsers, campaignStats, processCampaigns } from '../services/push.js';
 import { saveUpload } from '../services/core.js';
 import { USERNAME_RE } from './auth.js';
-import { mountMenu, ADDR, saveAddress } from './restaurant.js';
+import { mountMenu, ADDR, saveAddress, putHours, setStatus } from './restaurant.js';
+import { restaurantStep } from '../services/core.js';
 import * as Hours from '../services/hours.js';
 import * as Coupons from '../services/coupons.js';
 import * as Refunds from '../services/refunds.js';
@@ -265,6 +266,27 @@ export function adminRoutes(db) {
   // full bank account / UPI ID: fresh authentication and an audit entry every time
   r.post('/riders/:id/payout-details', fresh, wrap((req, res) => { const p = revealPayout(db, Number(req.params.id)); if (!p) return res.status(404).json({ error: 'Delivery agent not found.' });
     audit(db, req, 'rider.payout_details_viewed', 'rider', req.params.id); res.json({ payout: p }); }));
+  // ---------- full admin control: restaurant hours, open/close, order steps on a restaurant's behalf, user details ----------
+  const restOk = (id) => db.prepare('SELECT id FROM restaurants WHERE id=?').get(id);
+  r.get('/restaurants/:id(\\d+)/hours', (req, res) => { if (!restOk(req.params.id)) return res.status(404).json({ error: 'Restaurant not found.' });
+    const id = Number(req.params.id); res.json({ days: Hours.weekOut(Hours.getHours(db, id)), availability: Hours.availability(db, id), status: db.prepare('SELECT is_open,reopen_mode,reopen_at FROM restaurant_operating_status WHERE restaurant_id=?').get(id) || { is_open: 0 } }); });
+  r.put('/restaurants/:id(\\d+)/hours', wrap((req, res) => restOk(req.params.id) ? send(res, putHours(db, req, Number(req.params.id))) : res.status(404).json({ error: 'Restaurant not found.' })));
+  r.post('/restaurants/:id(\\d+)/status', wrap((req, res) => restOk(req.params.id) ? send(res, setStatus(db, req, Number(req.params.id))) : res.status(404).json({ error: 'Restaurant not found.' })));
+  // accept / start cooking / ready / reject for a restaurant that cannot do it itself; same rules as the restaurant portal, recorded as admin
+  r.post('/orders/:id(\\d+)/restaurant/:step(accept|preparing|ready|reject)', wrap((req, res) => {
+    const o = db.prepare('SELECT id, restaurant_id, order_code FROM orders WHERE id=?').get(req.params.id); if (!o) return res.status(404).json({ error: 'Order not found.' });
+    const out = restaurantStep(db, { id: req.user.id, role: 'admin' }, o.restaurant_id, o.id, req.params.step, req.body || {});
+    if (!out.error) audit(db, req, `order.restaurant_${req.params.step}`, 'order', o.id, { order_code: o.order_code, on_behalf_of_restaurant: o.restaurant_id, reason: req.body?.reason });
+    send(res, out); }));
+  // change a customer's / rider's / restaurant login's name and mobile number (signs them out so the change takes effect)
+  r.put('/users/:id(\\d+)', wrap((req, res) => {
+    const d = parse(z.object({ name: z.string().trim().min(1).max(80), phone: z.string().trim().regex(/^\+[1-9]\d{9,14}$/, 'Use international format, e.g. +919876543210') }).strict(), req, res); if (!d) return;
+    const u = db.prepare('SELECT id, role, name, phone FROM users WHERE id=?').get(req.params.id); if (!u) return res.status(404).json({ error: 'Account not found.' });
+    if (u.role === 'admin' && u.id !== req.user.id) return res.status(403).json({ error: 'Other admin accounts can only be changed by that admin.' });
+    if (d.phone !== u.phone && db.prepare('SELECT 1 FROM users WHERE phone=? AND id<>?').get(d.phone, u.id)) return res.status(409).json({ error: 'That mobile number is already registered to another account.' });
+    db.prepare(`UPDATE users SET name=?, phone=?${d.phone !== u.phone ? ', token_version=token_version+1' : ''} WHERE id=?`).run(d.name, d.phone, u.id);
+    audit(db, req, 'user.update', 'user', u.id, { role: u.role, changed: { ...(d.name !== u.name && { name: { from: u.name, to: d.name } }), ...(d.phone !== u.phone && { phone: { from: u.phone, to: d.phone } }) } });
+    res.json({ ok: true }); }));
   r.post('/users/:id/active', wrap((req, res) => { const a = req.body?.active ? 1 : 0; if (Number(req.params.id) === req.user.id) return res.status(400).json({ error: 'You cannot deactivate your own account.' });
     db.prepare('UPDATE users SET active=?, token_version=token_version+1 WHERE id=?').run(a, req.params.id); audit(db, req, 'user.active', 'user', req.params.id, { active: a }); res.json({ ok: true }); }));
 

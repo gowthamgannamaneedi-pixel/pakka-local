@@ -47,6 +47,31 @@ export const ADDR = z.object({ line: z.string().trim().min(3, 'Enter the street 
   area: z.string().trim().min(2, 'Enter the area or locality.').max(100), city: z.string().trim().min(2, 'Enter the city.').max(60), state: z.string().trim().min(2, 'Enter the state.').max(60),
   pin: z.string().trim().regex(/^[1-9][0-9]{5}$/, 'Enter a 6-digit PIN code.') }).strict();
 export const saveAddress = (db, rid, a) => db.prepare('UPDATE restaurants SET address=?, addr_building=?, addr_area=?, addr_city=?, addr_state=?, addr_pin=? WHERE id=?').run(a.line, a.building, a.area, a.city, a.state, a.pin, rid);
+const statusRowOf = (db, rid) => db.prepare('SELECT is_open,reopen_mode,reopen_at FROM restaurant_operating_status WHERE restaurant_id=?').get(rid) || { is_open: 0, reopen_mode: 'manual', reopen_at: null };
+// Weekly hours save (restaurant owner or admin): validated, replaces the older single opening time, audited
+export function putHours(db, req, rid) {
+  const v = Hours.validateWeek(req.body?.days); if (v.error) return { error: v.error, status: 400, code: 'BAD_HOURS' };
+  const before = Hours.getHours(db, rid);
+  Hours.saveWeek(db, rid, v.ok); db.prepare('UPDATE restaurants SET opens_at=NULL, closes_at=NULL WHERE id=?').run(rid);
+  audit(db, req, 'restaurant.hours', 'restaurant', rid, { from: Hours.weekOut(before).map((d) => d.closed ? 'closed' : d.set ? `${d.open}-${d.close}` : 'not set'), to: Hours.weekOut(v.ok).map((d) => d.closed ? 'closed' : `${d.open}-${d.close}`) });
+  return { days: Hours.weekOut(v.ok), availability: Hours.availability(db, rid) };
+}
+// Open / close switch (restaurant owner or admin). Closing can reopen automatically after a set time (holidays).
+const STATUS = z.object({ open: z.boolean(), mode: z.enum(['auto', 'manual']).optional(), days: z.number().int().min(0).max(30).optional(), hours: z.number().int().min(0).max(23).optional(), minutes: z.number().int().min(0).max(59).optional() });
+export function setStatus(db, req, rid) {
+  const p = STATUS.safeParse(req.body ?? {}); if (!p.success) return { error: p.error.issues[0].message, status: 400 }; const d = p.data;
+  if (d.open && !db.prepare('SELECT pickup_lat IS NOT NULL AND location_confirmed_at IS NOT NULL FROM restaurants WHERE id=?').pluck().get(rid))
+    return { error: 'Add the restaurant’s location before opening, so riders can find it and customers get correct distances.', status: 409, code: 'LOCATION_REQUIRED' };
+  let mode = null, at = null; const open = d.open ? 1 : 0;
+  if (!d.open) {
+    mode = d.mode || 'manual';
+    if (mode === 'auto') { const mins = (d.days || 0) * 1440 + (d.hours || 0) * 60 + (d.minutes || 0); if (mins < 1) return { error: 'Choose how long to stay closed.', status: 400 }; at = new Date(Date.now() + mins * 60_000).toISOString(); }
+  }
+  db.prepare(`INSERT INTO restaurant_operating_status (restaurant_id,is_open,reopen_mode,reopen_at,updated_at) VALUES (?,?,?,?,?)
+    ON CONFLICT(restaurant_id) DO UPDATE SET is_open=excluded.is_open,reopen_mode=excluded.reopen_mode,reopen_at=excluded.reopen_at,updated_at=excluded.updated_at`).run(rid, open, mode, at, iso());
+  audit(db, req, open ? 'restaurant.open' : 'restaurant.close', 'restaurant', rid, { mode, at });
+  return { status: statusRowOf(db, rid), availability: Hours.availability(db, rid) };
+}
 export function restaurantRoutes(db) {
   const r = Router();
   r.use(authenticate(db), requireRole('restaurant'), (req, res, next) => {
@@ -62,13 +87,7 @@ export function restaurantRoutes(db) {
     status: statusRow(req.restaurantId), availability: Hours.availability(db, req.restaurantId), hours: Hours.weekOut(Hours.getHours(db, req.restaurantId)) }));
   // weekly opening hours (Asia/Kolkata): each day on/off with its own times; closing at or before opening = closes after midnight
   r.get('/hours', (req, res) => res.json({ days: Hours.weekOut(Hours.getHours(db, req.restaurantId)), availability: Hours.availability(db, req.restaurantId) }));
-  r.put('/hours', wrap((req, res) => {
-    const v = Hours.validateWeek(req.body?.days); if (v.error) return res.status(400).json({ error: v.error, code: 'BAD_HOURS' });
-    const before = Hours.getHours(db, req.restaurantId);
-    Hours.saveWeek(db, req.restaurantId, v.ok); db.prepare('UPDATE restaurants SET opens_at=NULL, closes_at=NULL WHERE id=?').run(req.restaurantId);
-    audit(db, req, 'restaurant.hours', 'restaurant', req.restaurantId, { from: Hours.weekOut(before).map((d) => d.closed ? 'closed' : d.set ? `${d.open}-${d.close}` : 'not set'), to: Hours.weekOut(v.ok).map((d) => d.closed ? 'closed' : `${d.open}-${d.close}`) });
-    res.json({ days: Hours.weekOut(v.ok), availability: Hours.availability(db, req.restaurantId) });
-  }));
+  r.put('/hours', wrap((req, res) => send(res, putHours(db, req, req.restaurantId))));
   r.put('/me', wrap((req, res) => {
     const d = parse(z.object({ name: z.string().trim().min(1).max(80), description: z.string().max(300).optional(), address: z.string().max(200).optional(), phone: z.string().max(20).optional(),
       cuisine: z.string().max(60).optional(), operating_info: z.string().max(200).optional(), logo: img, image: img,
@@ -98,20 +117,7 @@ export function restaurantRoutes(db) {
     audit(db, req, 'restaurant.location', 'restaurant', req.restaurantId, { from: old, to: { lat, lng }, source: d.source, accuracy_m: d.accuracy_m ?? null, address: d.address ?? undefined });
     res.json({ ok: true, location: { lat, lng } });
   }));
-  r.post('/status', wrap((req, res) => {
-    const d = parse(z.object({ open: z.boolean(), mode: z.enum(['auto', 'manual']).optional(), days: z.number().int().min(0).max(30).optional(), hours: z.number().int().min(0).max(23).optional(), minutes: z.number().int().min(0).max(59).optional() }), req, res); if (!d) return;
-    if (d.open && !db.prepare('SELECT pickup_lat IS NOT NULL AND location_confirmed_at IS NOT NULL FROM restaurants WHERE id=?').pluck().get(req.restaurantId))
-      return res.status(409).json({ error: 'Add your restaurant’s location before opening, so riders can find you and customers get correct distances.', code: 'LOCATION_REQUIRED' });
-    let open = d.open ? 1 : 0, mode = null, at = null;
-    if (!d.open) {
-      mode = d.mode || 'manual';
-      if (mode === 'auto') { const mins = (d.days || 0) * 1440 + (d.hours || 0) * 60 + (d.minutes || 0); if (mins < 1) return res.status(400).json({ error: 'Choose how long to stay closed.' }); at = new Date(Date.now() + mins * 60_000).toISOString(); }
-    }
-    db.prepare(`INSERT INTO restaurant_operating_status (restaurant_id,is_open,reopen_mode,reopen_at,updated_at) VALUES (?,?,?,?,?)
-      ON CONFLICT(restaurant_id) DO UPDATE SET is_open=excluded.is_open,reopen_mode=excluded.reopen_mode,reopen_at=excluded.reopen_at,updated_at=excluded.updated_at`).run(req.restaurantId, open, mode, at, iso());
-    audit(db, req, open ? 'restaurant.open' : 'restaurant.close', 'restaurant', req.restaurantId, { mode, at });
-    res.json({ status: statusRow(req.restaurantId), availability: Hours.availability(db, req.restaurantId) });
-  }));
+  r.post('/status', wrap((req, res) => send(res, setStatus(db, req, req.restaurantId))));
 
   mountMenu(r, db);
 
