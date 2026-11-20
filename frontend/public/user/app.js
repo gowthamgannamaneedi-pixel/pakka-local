@@ -43,21 +43,26 @@
   const empty = (art, title, text, btn = '') => `<div class="u-empty">${ART[art] || ''}<b>${title}</b><div>${text}</div>${btn}</div>`;
 
   // ---------- login: photo welcome -> mobile number -> code ----------
+  // The server says how login codes are sent right now: 'whatsapp', 'sms' or 'test' (staging fixed code). Wording follows it.
+  const isSms = () => S.loginChannel === 'sms';
+  const via = () => (isSms() ? 'by SMS' : 'on WhatsApp');
+  const startLabel = () => (isSms() ? `${I('phone')} Continue with mobile number` : `${WA} Continue with WhatsApp`);
+  const loadChannel = () => PL.api('/api/public/config').then((c) => { S.loginChannel = c?.loginChannel || 'whatsapp'; const b = PL.$('[data-act="to-login"].btn'); if (b) b.innerHTML = startLabel(); return c; }).catch(() => null);
   function loginView(root) {
     const pics = ['biryani', 'dosa', 'pizza', 'momos', 'curry', 'burger', 'thali', 'noodles', 'rolls', 'cakes', 'idli', 'chai'];
     root.innerHTML = `<div class="splash" id="splash"><img src="/assets/logo.png" alt="Pakka Local"><div class="bar"></div></div>
       <div class="u-login"><div class="u-collage" aria-hidden="true"><div class="grid">${pics.map((k, i) => `<img src="${catPic(k)}" alt="" style="animation-delay:${i * 50}ms">`).join('')}</div>
         <div class="brand"><span class="lg"><img src="/assets/logo.png" alt=""></span><p>Your neighbourhood, delivered.</p><span>Hot food from kitchens near your PG, hostel or college</span></div></div>
-      <div class="u-lsheet" id="u-lsheet"><h2>Hungry? Let’s get started</h2><p class="s">Log in or sign up with your mobile number.</p><button class="btn block lg" data-act="to-login">${WA} Continue with WhatsApp</button>
+      <div class="u-lsheet" id="u-lsheet"><h2>Hungry? Let’s get started</h2><p class="s">Log in or sign up with your mobile number.</p><button class="btn block lg" data-act="to-login">${startLabel()}</button>
         <p class="fine">Online payment only · Live order tracking</p></div></div>`;
-    setTimeout(() => PL.$('#splash')?.classList.add('out'), 1100); setTimeout(() => PL.$('#splash')?.remove(), 1600);
+    loadChannel(); setTimeout(() => PL.$('#splash')?.classList.add('out'), 1100); setTimeout(() => PL.$('#splash')?.remove(), 1600);
   }
   const sheet = (html) => { const s = PL.$('#u-lsheet'); if (s) { s.innerHTML = html; s.style.animation = 'none'; void s.offsetWidth; s.style.animation = ''; return; } loginView(PL.$('#root')); PL.$('#splash')?.remove(); PL.$('#u-lsheet').innerHTML = html; };
-  PL.actions['to-login'] = () => {
-    sheet(`<h2>Log in or sign up</h2><p class="s">Enter your WhatsApp number. We’ll send a 6-digit code on WhatsApp.</p>
-      <form data-form="otp-request"><label for="c-ph" class="small mute">WhatsApp mobile number</label><div class="field pre"><span>+91</span><input id="c-ph" name="phone" inputmode="numeric" autocomplete="tel-national" maxlength="14" placeholder="98765 43210" value="${e(S.lastPhone ? S.lastPhone.slice(3) : '')}" required autofocus></div>
-        <div class="u-lerr" id="lg-err" role="alert"></div><button class="btn block lg mt wa" type="submit">${WA} Send WhatsApp OTP</button></form><div id="email-login"></div>
-      <p class="fine">By continuing you agree to receive your login code and order updates on WhatsApp.</p>`);
+  PL.actions['to-login'] = async () => { if (!S.loginChannel) await loadChannel();
+    sheet(`<h2>Log in or sign up</h2><p class="s">${isSms() ? 'Enter your mobile number. We’ll send a 6-digit code by SMS.' : 'Enter your WhatsApp number. We’ll send a 6-digit code on WhatsApp.'}</p>
+      <form data-form="otp-request"><label for="c-ph" class="small mute">${isSms() ? 'Mobile number' : 'WhatsApp mobile number'}</label><div class="field pre"><span>+91</span><input id="c-ph" name="phone" inputmode="numeric" autocomplete="tel-national" maxlength="14" placeholder="98765 43210" value="${e(S.lastPhone ? S.lastPhone.slice(3) : '')}" required autofocus></div>
+        <div class="u-lerr" id="lg-err" role="alert"></div>${isSms() ? '<button class="btn block lg mt" type="submit">Send OTP by SMS</button>' : `<button class="btn block lg mt wa" type="submit">${WA} Send WhatsApp OTP</button>`}</form><div id="email-login"></div>
+      <p class="fine">${isSms() ? 'By continuing you agree to receive your login code by SMS.' : 'By continuing you agree to receive your login code and order updates on WhatsApp.'}</p>`);
     // STAGING ONLY: the server says whether allow-listed testers may sign in by e-mail (never on production)
     PL.api('/api/public/config').then((c) => { const el = PL.$('#email-login'); if (el && c?.emailLogin) el.innerHTML = `<div class="u-note info small">${I('info')}<span>Staging test login: approved testers can get the code by email instead.</span></div><button class="btn ghost block" data-act="to-email-login">Use a test email</button>`; }).catch(() => {});
   };
@@ -85,17 +90,20 @@
   const lerr = (msg) => { const el = PL.$('#lg-err'); if (el) { el.textContent = msg || ''; el.classList.toggle('on', !!msg); } else if (msg) PL.toast(msg, true); };
   PL.forms['otp-request'] = async (f) => { const phone = normPhone(PL.form(f).phone); lerr('');
     if (!phone) return lerr('Enter your 10-digit mobile number.');
-    try { const r = await PL.post('/api/auth/customer/otp/request', { phone }); S.lastPhone = phone; otpView(phone, r.resendAfterSec, r.channel); }
+    try { const r = await PL.post('/api/auth/customer/otp/request', { phone }); S.lastPhone = phone; if (r.channel) S.loginChannel = r.channel; otpView(phone, r.resendAfterSec, r.channel); }
     catch (x) { if (x.code === 'WAIT' && S.lastPhone === phone && PL.$('#lg-err')) { otpView(phone, x.retryAfterSec || 30); return; } lerr(x.message); } };
-  const DELIV = { sent: ['', 'Sent on WhatsApp. It usually arrives within a few seconds.'], delivered: ['ok', 'Delivered to your WhatsApp.'], read: ['ok', 'Delivered to your WhatsApp.'],
-    failed: ['bad', 'WhatsApp could not deliver the code to this number. Check the number, or resend.'] };
+  const DELIVERY = { whatsapp: { sent: ['', 'Sent on WhatsApp. It usually arrives within a few seconds.'], delivered: ['ok', 'Delivered to your WhatsApp.'], read: ['ok', 'Delivered to your WhatsApp.'],
+      failed: ['bad', 'WhatsApp could not deliver the code to this number. Check the number, or resend.'] },
+    sms: { sent: ['', 'SMS sent. It usually arrives within a few seconds.'], delivered: ['ok', 'SMS delivered to your phone.'],
+      failed: ['bad', 'The SMS could not be delivered to this number. Check the number, or resend.'] } };
+  const DELIV = new Proxy({}, { get: (_, k) => DELIVERY[isSms() ? 'sms' : 'whatsapp'][k] });
   let delivT = null;
   const watchDelivery = (phone) => { clearInterval(delivT); let n = 0;
     delivT = setInterval(async () => { const el = PL.$('#lg-deliv'); if (!el || ++n > 40) return clearInterval(delivT);
       try { const { status } = await PL.api('/api/auth/customer/otp/status?phone=' + encodeURIComponent(phone)); const d = DELIV[status]; if (d) { el.className = 'u-deliv ' + d[0]; el.textContent = d[1]; if (status === 'failed') clearInterval(delivT); } } catch {} }, 3000); };
   function otpView(phone, wait, channel) {
     const pretty = phone.replace(/^\+91(\d{5})(\d{5})$/, '+91 $1 $2');
-    sheet(`<h2>Enter the 6-digit code</h2><p class="s">${channel === 'test' ? 'Staging test login: enter your tester code for' : 'We sent a code on WhatsApp to'} <b>${e(pretty)}</b> <button class="u-lnkbtn" data-act="to-login">Edit</button></p>
+    sheet(`<h2>Enter the 6-digit code</h2><p class="s">${channel === 'test' ? 'Staging test login: enter your tester code for' : `We sent a code ${via()} to`} <b>${e(pretty)}</b> <button class="u-lnkbtn" data-act="to-login">Edit</button></p>
       ${channel === 'test' ? '' : `<div class="u-deliv" id="lg-deliv">${DELIV.sent[1]}</div>`}
       <form data-form="otp-verify" data-phone="${e(phone)}"><input class="otp-in" placeholder="••••••" name="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="\\d{6}" required autofocus aria-label="6-digit code" data-autosubmit="6">
       <div class="u-lerr" id="lg-err" role="alert"></div><button class="btn block lg mt" type="submit">Verify and continue</button></form>
@@ -104,10 +112,10 @@
   }
   document.addEventListener('input', (ev) => { const t = ev.target; if (t.dataset?.autosubmit && t.value.replace(/\D/g, '').length === Number(t.dataset.autosubmit)) { t.value = t.value.replace(/\D/g, ''); t.form?.requestSubmit(); } });
   PL.actions.resend = async (el) => { if (el.disabled) return; el.disabled = true; lerr('');
-    try { const r = await PL.post('/api/auth/customer/otp/request', { phone: el.dataset.phone }); PL.toast('New code sent on WhatsApp', 'ok'); otpView(el.dataset.phone, r.resendAfterSec, r.channel); }
+    try { const r = await PL.post('/api/auth/customer/otp/request', { phone: el.dataset.phone }); PL.toast(`New code sent ${via()}`, 'ok'); otpView(el.dataset.phone, r.resendAfterSec, r.channel); }
     catch (x) { lerr(x.message); if (x.retryAfterSec) countdown(x.retryAfterSec); else el.disabled = false; } };
   PL.forms['otp-verify'] = async (f) => { const v = PL.form(f); lerr('');
-    if (!/^\d{6}$/.test(v.otp)) return lerr('Enter the 6-digit code from WhatsApp.');
+    if (!/^\d{6}$/.test(v.otp)) return lerr(`Enter the 6-digit code ${isSms() ? 'from the SMS' : 'from WhatsApp'}.`);
     try { const r = await PL.post('/api/auth/customer/otp/verify', { phone: f.dataset.phone, otp: v.otp }); clearInterval(delivT);
       PL.toast(r.is_new ? 'Number verified. Welcome to Pakka Local!' : 'Verified. Welcome back!', 'ok');
       PL.setSession(r); history.replaceState({ idx: 0 }, '', location.hash || '#'); PL.boot(); }

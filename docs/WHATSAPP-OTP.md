@@ -7,7 +7,63 @@ Only the **customer** login uses this. Restaurant, rider and Super Admin logins 
 Login codes are separate from pickup and delivery codes: different table, different checks. A login code can never
 complete a delivery and a delivery code can never log anyone in (tested).
 
-## Chosen provider: MSG91 (WhatsApp)
+## SMS login codes now: StartMessaging (no own DLT) — status 20 Nov 2026
+
+Set `OTP_PROVIDER=startmessaging`. StartMessaging sends through its own pre-registered DLT routes and shared approved
+templates, so Pakka Local needs no DLT registration (provider's own statement). Pakka Local still makes and checks the code;
+documented call (dashboard → API Docs): `POST https://api.startmessaging.com/otp/send`, header `X-API-Key`, body
+`phoneNumber`, `templateId`, `variables {otp, appName, expiry}`; status: `GET /messages/:id`.
+
+Customers receive: *"Your Pakka Local OTP is 123456, valid for 5 minutes. Do not share this code with anyone. Powered by Start Messaging."*
+
+| Step | Status |
+|---|---|
+| Account + KYC (Udyam) | Approved; ₹10 balance |
+| App code | Done and tested with a simulated StartMessaging (not deployed) |
+| Real SMS on a phone | Pending: needs the API key in hPanel and a deploy |
+
+| Setting (hPanel, server only) | Value |
+|---|---|
+| `OTP_PROVIDER` | `startmessaging` |
+| `STARTMESSAGING_API_KEY` | StartMessaging → API Keys (secret: never in chat, GitHub or the app) |
+| `STARTMESSAGING_TEMPLATE_ID` | optional; default `6990f1b1-6a28-4cb4-a8ed-35a450a6b59d` (app name + validity) |
+| `STARTMESSAGING_APP_NAME` | optional; default `Pakka Local` |
+
+Cost: ₹0.25 per SMS (provider's price; check GST on their invoice). Top up in StartMessaging → Add Money.
+The login screens switch their wording to SMS automatically (`/api/public/config` → `loginChannel`).
+When WhatsApp (Fast2SMS) is approved, switch `OTP_PROVIDER` to `fast2sms`.
+
+## Chosen provider: Fast2SMS (WhatsApp) — status 20 Nov 2026
+
+Set `OTP_PROVIDER=fast2sms`. Fast2SMS is an official Meta WhatsApp provider; Pakka Local still makes and checks the code,
+Fast2SMS only delivers it with Meta's approved authentication template (documented route
+`POST https://www.fast2sms.com/dev/whatsapp/v26.0/{phone_number_id}/messages`, API key in the `Authorization` header).
+
+| Step | Status |
+|---|---|
+| Fast2SMS account | Created (₹50 free credit) |
+| WhatsApp number +91 89771 02457 | Connected in Fast2SMS (moved from MSG91) — business shown as *Unverified* |
+| Login-code template `pakka_login_code` | **Blocked by Meta**: "This WhatsApp Business account does not have permission to create message template" — Meta allows authentication templates only after **business verification** |
+| App code | Done and tested with a simulated Fast2SMS (not yet deployed) |
+
+To finish: complete Meta business verification (business.facebook.com → Settings → Security Centre → Start verification),
+then submit the template again (Fast2SMS → WhatsApp Manager → Templates → Add Template → Authentication → Copy code,
+name `pakka_login_code`, security line on, expiry 5 min). When it shows **APPROVED**, add the settings below.
+
+| Setting (hPanel, server only) | Value |
+|---|---|
+| `OTP_PROVIDER` | `fast2sms` |
+| `FAST2SMS_API_KEY` | Fast2SMS → API Key (secret: never in chat, GitHub or the app) |
+| `FAST2SMS_WA_PHONE_NUMBER_ID` | Fast2SMS → WhatsApp Manager → Numbers → *Phone Number ID* |
+| `FAST2SMS_WA_TEMPLATE_NAME` | `pakka_login_code` |
+| `FAST2SMS_WA_TEMPLATE_LANG` | `en` (as shown for the template) |
+| `FAST2SMS_WA_API_VERSION` | optional, default `v26.0` |
+| `FAST2SMS_WA_COPY_BUTTON` | `1` (default; template has a Copy code button) |
+
+Then remove `TEST_OTP_CODE`, `TEST_OTP_PHONES`, `ALLOW_TEST_OTP`, redeploy, and test with a real phone.
+Cost (Fast2SMS dashboard): Authentication ₹0.25 per delivered message, no monthly/setup fee; ₹100 minimum top-up + 18% GST.
+
+## Alternative provider: MSG91 (WhatsApp)
 
 Set `OTP_PROVIDER=msg91`. MSG91 sends the same WhatsApp authentication template from the WhatsApp number you connect in
 your MSG91 account (the code is generated, checked and limited by Pakka Local's server, exactly as described below).

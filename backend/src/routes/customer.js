@@ -11,6 +11,7 @@ import * as Addr from '../services/addresses.js';
 import { customerRefund, submitUpi } from '../services/refunds.js';
 import * as Coupons from '../services/coupons.js';
 import * as Chat from '../services/chat.js';
+import { loginChannel } from '../otpProviders.js';
 import { freshness } from '../services/tracking.js';
 
 // An order always goes to one of the customer's own saved GPS addresses, and the customer confirms that delivery point.
@@ -24,7 +25,7 @@ const breakdown = (q) => ({ delivery_type: q.feeSource, delivery_location: q.des
 
 export function publicRoutes(db) {
   const r = Router();
-  r.get('/config', (req, res) => res.json({ emailLogin: !!config.emailOtp.enabled, testPayments: config.sandboxPayments, paymentsAvailable: config.sandboxPayments, ridersAvailable: eligibleRiderCount(db) > 0, noRiderMessage: NO_RIDER_MSG }));
+  r.get('/config', (req, res) => res.json({ loginChannel: loginChannel(), emailLogin: !!config.emailOtp.enabled, testPayments: config.sandboxPayments, paymentsAvailable: config.sandboxPayments, ridersAvailable: eligibleRiderCount(db) > 0, noRiderMessage: NO_RIDER_MSG }));
   r.get('/locations', (req, res) => res.json({ locations: db.prepare('SELECT id,name,kind,address,area,delivery_fee_paise,distance_km FROM delivery_locations WHERE active=1 ORDER BY name').all() }));
   r.get('/restaurants', (req, res) => { reopenDue(db);
     res.json({ restaurants: db.prepare(`SELECT r.id,r.name,r.description,r.cuisine,r.logo_path,r.image_path,r.rating,r.packing_buffer_min, COALESCE(s.is_open,0) AS is_open, s.reopen_at, s.reopen_mode,

@@ -5,7 +5,7 @@
 // - Expiry, attempts per code, resend wait, codes per hour and a temporary block after repeated wrong codes are configurable.
 import crypto from 'node:crypto';
 import { config } from '../config.js';
-import { getOtpProvider, OtpSendError } from '../otpProviders.js';
+import { getOtpProvider, OtpSendError, loginChannel } from '../otpProviders.js';
 
 const iso = (t = Date.now()) => new Date(t).toISOString();
 export const hashOtp = (phone, otp) => crypto.createHmac('sha256', config.jwtSecret).update(`${phone}:${otp}`).digest('hex');
@@ -41,12 +41,18 @@ const SEND_MSG = {
   rate_limited: [429, 'WhatsApp is busy right now. Please try again in a minute.', 'WHATSAPP_BUSY'],
   unavailable: [503, 'WhatsApp login is not available right now. Please try again shortly.', 'WHATSAPP_UNAVAILABLE'],
 };
+const SMS_MSG = {
+  invalid_number: [400, 'We couldn’t send an SMS to this number. Check the number and try again.', 'BAD_NUMBER'],
+  not_allowed: [403, 'SMS login is not available for this number.', 'SMS_NOT_ALLOWED'],
+  rate_limited: [429, 'SMS service is busy right now. Please try again in a minute.', 'SMS_BUSY'],
+  unavailable: [503, 'SMS login is not available right now. Please try again shortly.', 'SMS_UNAVAILABLE'],
+};
 
 export async function requestCode(db, rawPhone, now = Date.now()) {
   const phone = normalizePhone(rawPhone);
   if (!phone) return err(400, 'Enter a valid 10-digit mobile number.', 'BAD_NUMBER');
   const prov = getOtpProvider();
-  if (!prov.fixedFor && ['whatsapp', 'msg91'].includes(config.otpProvider) && !realMobile(phone)) return err(400, 'Enter a valid 10-digit Indian mobile number.', 'BAD_NUMBER');
+  if (!prov.fixedFor && ['whatsapp', 'msg91', 'fast2sms', 'startmessaging'].includes(config.otpProvider) && !realMobile(phone)) return err(400, 'Enter a valid 10-digit Indian mobile number.', 'BAD_NUMBER');
   const wait = blocked(db, phone, now);
   if (wait) return err(429, `Too many wrong codes. Try again in ${mins(wait)} minute${mins(wait) > 1 ? 's' : ''}.`, 'BLOCKED', { retryAfterSec: Math.ceil(wait / 1000) });
   let otp = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
@@ -69,10 +75,10 @@ export async function requestCode(db, rawPhone, now = Date.now()) {
   } catch (e) {
     db.prepare("UPDATE otp_challenges SET used=1, delivery='failed', delivery_error=? WHERE id=?").run(String(e.message).slice(0, 200), made.id);
     console.error('Login code could not be sent:', e.message);                                            // never contains the code
-    const [status, msg, code] = SEND_MSG[e instanceof OtpSendError ? e.kind : 'unavailable'];
+    const [status, msg, code] = (loginChannel() === 'sms' ? SMS_MSG : SEND_MSG)[e instanceof OtpSendError ? e.kind : 'unavailable'];
     return err(status, msg, code);
   }
-  return { ok: true, phone, resendAfterSec: config.otp.resendCooldownMs / 1000, expiresInSec: config.otp.ttlMs / 1000, channel: prov.fixedFor ? 'test' : 'whatsapp' };
+  return { ok: true, phone, resendAfterSec: config.otp.resendCooldownMs / 1000, expiresInSec: config.otp.ttlMs / 1000, channel: loginChannel() };
 }
 
 // Returns { phone } when the code is right (the code is used up), or an error.
@@ -97,11 +103,19 @@ export function checkCode(db, rawPhone, otp, now = Date.now()) {
   return { phone };
 }
 
-// What the code screen shows while waiting: sent / delivered / read / failed (from Meta's delivery reports).
-export function deliveryStatus(db, rawPhone) {
+// What the code screen shows while waiting: sent / delivered / read / failed. WhatsApp: from Meta's delivery reports (webhook).
+// SMS providers with a status lookup (StartMessaging): asked at most every 5 s per code while it is still on its way.
+const lastAsk = new Map();
+export async function deliveryStatus(db, rawPhone) {
   const phone = normalizePhone(rawPhone); if (!phone) return { status: 'unknown' };
-  const ch = db.prepare('SELECT delivery, used, created_at FROM otp_challenges WHERE phone=? ORDER BY id DESC LIMIT 1').get(phone);
+  const ch = db.prepare('SELECT id, delivery, used, created_at, wa_message_id FROM otp_challenges WHERE phone=? ORDER BY id DESC LIMIT 1').get(phone);
   if (!ch || Date.now() - Date.parse(ch.created_at) > config.otp.ttlMs) return { status: 'unknown' };
+  const prov = getOtpProvider();
+  if (prov.status && ch.wa_message_id && (!ch.delivery || ch.delivery === 'sent') && Date.now() - (lastAsk.get(ch.id) || 0) > 5000) {
+    lastAsk.set(ch.id, Date.now()); if (lastAsk.size > 500) lastAsk.clear();
+    const st = await prov.status(ch.wa_message_id);
+    if (st === 'delivered' || st === 'failed') { db.prepare('UPDATE otp_challenges SET delivery=?, delivery_at=? WHERE id=?').run(st, iso(), ch.id); return { status: st }; }
+  }
   return { status: ch.delivery || 'sent' };
 }
 

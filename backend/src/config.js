@@ -102,12 +102,29 @@ export const config = {
   msg91: {
     authKey: (env.MSG91_AUTH_KEY || '').trim(), number: (env.MSG91_WHATSAPP_NUMBER || '').replace(/\D/g, ''), template: (env.MSG91_WHATSAPP_TEMPLATE || '').trim(),
     language: env.MSG91_WHATSAPP_TEMPLATE_LANG || 'en', namespace: (env.MSG91_WHATSAPP_NAMESPACE || '').trim(), copyButton: env.MSG91_WHATSAPP_COPY_BUTTON !== '0'
+  },
+  // OTP_PROVIDER=fast2sms: WhatsApp login codes through Fast2SMS (API key from Fast2SMS -> API Key; Phone Number ID from
+  // Fast2SMS -> WhatsApp Manager -> Numbers; template name from WhatsApp Manager -> Templates once it is APPROVED)
+  fast2sms: {
+    apiKey: (env.FAST2SMS_API_KEY || '').trim(), phoneNumberId: (env.FAST2SMS_WA_PHONE_NUMBER_ID || '').replace(/\D/g, ''),
+    template: (env.FAST2SMS_WA_TEMPLATE_NAME || '').trim(), language: env.FAST2SMS_WA_TEMPLATE_LANG || 'en',
+    apiVersion: env.FAST2SMS_WA_API_VERSION || 'v26.0', copyButton: env.FAST2SMS_WA_COPY_BUTTON !== '0'
+  },
+  // OTP_PROVIDER=startmessaging: SMS login codes through StartMessaging (no own DLT needed). API key from its dashboard ->
+  // API Keys. Default template: "Your {{appName}} OTP is {{otp}}, valid for {{expiry}} minutes. ... Powered by Start Messaging."
+  startMessaging: {
+    apiKey: (env.STARTMESSAGING_API_KEY || '').trim(), templateId: (env.STARTMESSAGING_TEMPLATE_ID || '6990f1b1-6a28-4cb4-a8ed-35a450a6b59d').trim(),
+    appName: (env.STARTMESSAGING_APP_NAME || 'Pakka Local').trim().slice(0, 30)
   }
 };
 // Real customers must always get a real WhatsApp code: the fixed test code is refused outright on production.
 if (appEnv === 'production' && ['testcode', 'test'].includes(config.otpProvider)) throw new Error(`OTP_PROVIDER=${config.otpProvider} is not allowed when APP_ENV=production. Use OTP_PROVIDER=whatsapp.`);
 config.whatsapp.configured = !!(config.whatsapp.token && config.whatsapp.phoneId && config.whatsapp.template);
 config.msg91.configured = !!(config.msg91.authKey && config.msg91.number && config.msg91.template);
+config.fast2sms.configured = !!(config.fast2sms.apiKey && config.fast2sms.phoneNumberId && config.fast2sms.template);
+config.startMessaging.configured = !!(config.startMessaging.apiKey && config.startMessaging.templateId);
+if (appEnv === 'production' && config.otpProvider === 'startmessaging' && !config.startMessaging.configured) console.warn('WARNING: StartMessaging SMS OTP is not configured (STARTMESSAGING_API_KEY). Customers cannot log in until it is.');
+if (appEnv === 'production' && config.otpProvider === 'fast2sms' && !config.fast2sms.configured) console.warn('WARNING: Fast2SMS WhatsApp OTP is not configured (FAST2SMS_API_KEY, FAST2SMS_WA_PHONE_NUMBER_ID, FAST2SMS_WA_TEMPLATE_NAME). Customers cannot log in until it is.');
 if (appEnv === 'production' && config.otpProvider === 'msg91' && !config.msg91.configured) console.warn('WARNING: MSG91 WhatsApp OTP is not configured (MSG91_AUTH_KEY, MSG91_WHATSAPP_NUMBER, MSG91_WHATSAPP_TEMPLATE). Customers cannot log in until it is.');
 if (appEnv === 'production' && config.otpProvider === 'whatsapp' && !config.whatsapp.configured) console.warn('WARNING: WhatsApp OTP is not configured (WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_OTP_TEMPLATE_NAME). Customers cannot log in until it is.');
 if (isProd && config.otpProvider === 'testcode' && env.ALLOW_TEST_OTP !== '1') throw new Error('OTP_PROVIDER=testcode in production requires ALLOW_TEST_OTP=1 (pilot testing only)');

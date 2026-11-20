@@ -68,7 +68,7 @@ export function authRoutes(db) {
     res.json({ ok: true, resendAfterSec: out.resendAfterSec, expiresInSec: out.expiresInSec, channel: out.channel });   // never returns the code
   });
   // delivery state of the latest code (sent / delivered / read / failed), so the code screen can say if WhatsApp could not deliver it
-  r.get('/customer/otp/status', limiter(120), (req, res) => res.json(deliveryStatus(db, req.query.phone)));
+  r.get('/customer/otp/status', limiter(120), async (req, res) => { try { res.json(await deliveryStatus(db, req.query.phone)); } catch { res.json({ status: 'unknown' }); } });
   r.post('/customer/otp/verify', limiter(20), (req, res) => {
     const p = z.object({ phone: z.string().max(20), otp: z.string().max(10), name: z.string().trim().min(1).max(80).optional() }).safeParse(req.body);
     if (!p.success) return res.status(400).json({ error: 'Enter the 6-digit code.' });

@@ -67,6 +67,69 @@ test('MSG91: sends the WhatsApp authentication template through MSG91; failures 
   } finally { globalThis.fetch = real; Object.assign(config.msg91, saved); config.otpProvider = prov; }
 });
 
+test('Fast2SMS: documented authentication-template call; code logs in; errors explained; secret never in a reply', async () => {
+  const saved = { ...config.fast2sms }, prov = config.otpProvider, real = globalThis.fetch; let sent;
+  Object.assign(config.fast2sms, { apiKey: 'f2s-test-key', phoneNumberId: '1316506818206826', template: 'pakka_login_code', language: 'en', apiVersion: 'v26.0', copyButton: true }); config.otpProvider = 'fast2sms';
+  const fake = (status, body) => async (url, o) => { if (!String(url).startsWith('https://www.fast2sms.com/')) return real(url, o); sent = { url: String(url), headers: o.headers, body: JSON.parse(o.body) };
+    return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }); };
+  globalThis.fetch = fake(200, { messaging_product: 'whatsapp', contacts: [{ input: 'x', wa_id: 'x' }], messages: [{ id: 'wamid.F2S1' }] });
+  try {
+    const phone = W.ph(570), r = await req(phone.slice(3)); assert.equal(r.status, 200); assert.equal(r.body.channel, 'whatsapp');
+    assert.ok(!JSON.stringify(r.body).includes('f2s-test-key') && !/\b\d{6}\b/.test(JSON.stringify(r.body)), 'no key or code in the reply');
+    assert.equal(sent.url, 'https://www.fast2sms.com/dev/whatsapp/v26.0/1316506818206826/messages'); assert.equal(sent.headers.Authorization, 'f2s-test-key');
+    assert.equal(sent.body.messaging_product, 'whatsapp'); assert.equal(sent.body.type, 'template'); assert.equal(sent.body.to, phone.slice(1));
+    assert.equal(sent.body.template.name, 'pakka_login_code'); assert.deepEqual(sent.body.template.language, { code: 'en' });
+    const code = sent.body.template.components[0].parameters[0].text; assert.match(code, /^\d{6}$/);
+    assert.equal(sent.body.template.components[1].sub_type, 'url'); assert.equal(sent.body.template.components[1].parameters[0].text, code);
+    assert.equal(W.db.prepare('SELECT wa_message_id FROM otp_challenges WHERE phone=? ORDER BY id DESC').pluck().get(phone), 'wamid.F2S1');
+    assert.equal((await ver(phone, code)).status, 200, 'the code sent through Fast2SMS logs in');
+    assert.equal((await ver(phone, code)).status, 401, 'and cannot be reused');
+    globalThis.fetch = fake(400, { error: { code: 131026, message: 'Message undeliverable' } });
+    const bad = await req(W.ph(571)); assert.equal(bad.status, 400); assert.equal(bad.body.code, 'NOT_ON_WHATSAPP');
+    globalThis.fetch = fake(401, { return: false, status_code: 401, message: 'Invalid Authorization key' });
+    const auth = await req(W.ph(572)); assert.equal(auth.status, 503); assert.ok(!JSON.stringify(auth.body).includes('f2s-test-key'));
+    globalThis.fetch = fake(200, { return: false, message: 'Template not approved' });
+    assert.equal((await req(W.ph(573))).status, 503, 'a 200 reply without a message id is still a failure');
+    globalThis.fetch = async (url, o) => { if (String(url).startsWith('https://www.fast2sms.com/')) throw Object.assign(new Error('t'), { name: 'TimeoutError' }); return real(url, o); };
+    assert.equal((await req(W.ph(574))).status, 503, 'timeout handled, app keeps running');
+    assert.equal(W.db.prepare("SELECT COUNT(*) FROM otp_challenges WHERE phone IN (?,?,?,?) AND used=0").pluck().get(W.ph(571), W.ph(572), W.ph(573), W.ph(574)), 0, 'failed sends leave no usable code');
+    config.fast2sms.apiKey = ''; assert.equal((await req(W.ph(575))).status, 503, 'not configured: refused, never faked');
+    assert.equal((await req('5123456789')).body.code, 'BAD_NUMBER');
+  } finally { globalThis.fetch = real; Object.assign(config.fast2sms, saved); config.otpProvider = prov; }
+});
+
+test('StartMessaging SMS: documented call with our own code; status lookup; SMS wording; errors handled; key never exposed', async () => {
+  const saved = { ...config.startMessaging }, prov = config.otpProvider, real = globalThis.fetch; let sent, statusCalls = 0, msgStatus = 'queued';
+  Object.assign(config.startMessaging, { apiKey: 'sm_live_testkey', templateId: '6990f1b1-6a28-4cb4-a8ed-35a450a6b59d', appName: 'Pakka Local' }); config.otpProvider = 'startmessaging';
+  const fake = (status, body) => async (url, o) => { const u = String(url); if (!u.startsWith('https://api.startmessaging.com/')) return real(url, o);
+    if (u.includes('/messages/')) { statusCalls++; return new Response(JSON.stringify({ success: true, data: { status: msgStatus } }), { status: 200 }); }
+    sent = { url: u, headers: o.headers, body: JSON.parse(o.body) }; return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }); };
+  globalThis.fetch = fake(201, { success: true, statusCode: 201, data: { otpRequestId: 'r1', messageId: 'msg-1', status: 'queued' } });
+  try {
+    assert.equal((await W.raw('GET', '/api/public/config')).body.loginChannel, 'sms', 'app is told to show SMS wording');
+    const phone = W.ph(580), r = await req(phone.slice(3)); assert.equal(r.status, 200); assert.equal(r.body.channel, 'sms');
+    assert.ok(!JSON.stringify(r.body).includes('sm_live_testkey') && !/\b\d{6}\b/.test(JSON.stringify(r.body)), 'no key or code in the reply');
+    assert.equal(sent.url, 'https://api.startmessaging.com/otp/send'); assert.equal(sent.headers['X-API-Key'], 'sm_live_testkey');
+    assert.equal(sent.body.phoneNumber, phone); assert.equal(sent.body.templateId, '6990f1b1-6a28-4cb4-a8ed-35a450a6b59d');
+    assert.equal(sent.body.variables.appName, 'Pakka Local'); assert.equal(sent.body.variables.expiry, '5'); const code = sent.body.variables.otp; assert.match(code, /^\d{6}$/);
+    const st = async () => (await W.raw('GET', `/api/auth/customer/otp/status?phone=${encodeURIComponent(phone)}`)).body.status;
+    assert.equal(await st(), 'sent'); assert.equal(await st(), 'sent'); assert.equal(statusCalls, 1, 'status asked at most every 5 s');
+    msgStatus = 'delivered'; W.db.prepare("UPDATE otp_challenges SET created_at=? WHERE phone=?").run(new Date(Date.now() - 6000).toISOString(), phone);
+    await new Promise((ok) => setTimeout(ok, 5100)); assert.equal(await st(), 'delivered');
+    assert.equal((await ver(phone, code)).status, 200, 'the code sent by SMS logs in'); assert.equal((await ver(phone, code)).status, 401, 'no reuse');
+    globalThis.fetch = fake(402, { success: false, message: 'Insufficient balance' });
+    const poor = await req(W.ph(581)); assert.equal(poor.status, 503); assert.equal(poor.body.code, 'SMS_UNAVAILABLE'); assert.match(poor.body.error, /SMS/);
+    globalThis.fetch = fake(401, { success: false, message: 'Invalid API key' }); assert.equal((await req(W.ph(582))).status, 503);
+    globalThis.fetch = fake(429, { success: false, message: 'Rate limit exceeded' }); assert.equal((await req(W.ph(583))).body.code, 'SMS_BUSY');
+    globalThis.fetch = fake(400, { success: false, message: 'Invalid phone number' }); assert.equal((await req(W.ph(584))).status, 400);
+    globalThis.fetch = async (url, o) => { if (String(url).startsWith('https://api.startmessaging.com/')) throw Object.assign(new Error('t'), { name: 'TimeoutError' }); return real(url, o); };
+    assert.equal((await req(W.ph(585))).status, 503, 'timeout handled');
+    assert.equal(W.db.prepare('SELECT COUNT(*) FROM otp_challenges WHERE phone IN (?,?,?,?,?) AND used=0').pluck().get(W.ph(581), W.ph(582), W.ph(583), W.ph(584), W.ph(585)), 0, 'failed sends leave no usable code');
+    config.startMessaging.apiKey = ''; assert.equal((await req(W.ph(586))).status, 503, 'not configured: refused, never faked');
+    assert.equal((await req('5123456789')).body.code, 'BAD_NUMBER');
+  } finally { globalThis.fetch = real; Object.assign(config.startMessaging, saved); config.otpProvider = prov; }
+});
+
 test('existing customer logs into the same account; no duplicate', async () => {
   const before = W.db.prepare('SELECT COUNT(*) FROM users WHERE phone=?').pluck().get(W.ph(301));
   age(W.ph(301), 60_000); assert.equal((await req(W.ph(301))).status, 200); const r = await ver(W.ph(301), lastCode());

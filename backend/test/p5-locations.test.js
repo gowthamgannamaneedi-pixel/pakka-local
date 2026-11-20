@@ -153,7 +153,8 @@ test('rider sees the listed place name and a navigation link to the right point;
   const d = (await call('GET', '/api/rider/active', null, S.rider)).body.active.find((x) => x.id === oid).destination;
   assert.deepEqual([d.kind, d.location_name, d.coord_source, d.room, d.block], ['listed', 'PG A', 'location', '204', 'C']);
   assert.equal(new URL(d.nav_url).searchParams.get('destination'), '17.3395,78.3082');
-  assert.ok(!/17\.3395|204|PG A/.test((await call('GET', '/api/restaurant/orders', null, S.rest)).raw.replace(/"name":"Meal"/g, '')));
+  // timestamps and order codes are removed first: "...:56.204Z" or "PL2026...204..." must not count as the room number 204
+  assert.ok(!/17\.3395|\b204\b|PG A/.test((await call('GET', '/api/restaurant/orders', null, S.rest)).raw.replace(/"name":"Meal"/g, '').replace(/\d{4}-\d\d-\d\dT[\d:.]+Z/g, 'T').replace(/PL\d{8}[A-F0-9]+/g, 'PL')));
 });
 
 test('CSV import of the owner sheet: preview first, then create; re-import updates by reference, never duplicates', async () => {
