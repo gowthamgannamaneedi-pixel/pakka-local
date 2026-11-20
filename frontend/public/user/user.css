@@ -629,3 +629,14 @@ body.p-user input[type=search]::-webkit-search-cancel-button{-webkit-appearance:
 .u-install .how{margin:10px 0 0;font-size:.85rem;color:var(--u-sub)}
 
 .u-trip{display:flex;align-items:center;gap:8px;margin:8px 0 4px;font-size:.86rem;color:var(--u-sub)}.u-trip svg{width:16px;height:16px;color:var(--brand)}.u-trip b{color:var(--u-ink)}
+
+/* "Deliver to": one question, two big plain choices */
+.u-pickq{margin:10px 0 4px;font-weight:700;font-size:1.02rem}
+.u-picklbl{margin:14px 0 6px;font-size:.78rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--u-mute)}
+.u-pick{display:flex;align-items:center;gap:12px;width:100%;margin-top:10px;padding:14px;border:1.5px solid #e3e4e9;border-radius:16px;background:#fff;color:inherit;text-align:left;cursor:pointer;transition:border-color .15s,background .15s,transform .1s}
+.u-pick:hover{border-color:var(--brand)}.u-pick:active{transform:scale(.99);background:#fff7f2}
+.u-pick .ic{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:#fff1e8;color:var(--brand);flex:none}.u-pick .ic svg{width:22px;height:22px}
+.u-pick .txt{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}.u-pick .txt b{font-size:1rem}.u-pick .txt small{color:var(--u-mute);font-size:.84rem}
+.u-pick>svg:last-child{width:18px;height:18px;color:var(--u-mute);flex:none}
+.u-deliver.flash{animation:uflash 1s ease}@keyframes uflash{0%,100%{box-shadow:none}30%{box-shadow:0 0 0 3px var(--brand)}}
+.u-deliver h3{display:flex;align-items:center;gap:8px;margin:0}.u-deliver h3 svg{width:20px;height:20px;color:var(--brand);flex:none}

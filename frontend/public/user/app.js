@@ -343,10 +343,7 @@
     if (!ad.some((x) => x.id === S.addrId)) { S.addrId = (ad.find((x) => x.is_default) || ad[0])?.id || null; save('pl.addr', S.addrId); S.confirmed = false; }
     let sel = ad.find((x) => x.id === S.addrId);
     if (!S.method) S.method = sel ? (sel.kind === 'listed' ? 'list' : 'gps') : places.length ? 'list' : 'gps';
-    if (sel && (sel.kind === 'listed') !== (S.method === 'list')) {                                // selection must match the chosen method:
-      sel = ad.filter((x) => (x.kind === 'listed') === (S.method === 'list')).sort((p, q) => q.is_default - p.is_default)[0] || null;   // use that method's default/latest address
-      S.addrId = sel?.id ?? S.addrId; if (sel) save('pl.addr', S.addrId); }
-    const mine = ad.filter((x) => (S.method === 'list' ? x.kind === 'listed' : x.kind !== 'listed'));
+    const mine = [...ad].sort((p, q) => q.is_default - p.is_default);
     let q = null, err = null;
     if (sel) { try { q = await PL.post('/api/customer/quote', body());
       if (q.coupon_error && S.coupon) { S.couponErr = `${S.coupon}: ${q.coupon_error}`; S.coupon = null; q = await PL.post('/api/customer/quote', body()); }      // the server said no: show why and price without it
@@ -356,18 +353,15 @@
       <div class="mt2">${Object.entries(S.cart.items).map(([id, i]) => `<div class="u-cline"><div class="nm"><b>${i.diet ? dietMark(i.diet) : ''}<span>${e(i.name)}</span></b><small>${rs(i.price)} each</small></div><div class="rt"><div class="u-step sm ${S.popId == id ? 'pop' : ''}"><button data-act="dec" data-id="${id}" aria-label="Remove one ${e(i.name)}">−</button><span>${i.qty}</span><button data-act="inc" data-id="${id}" aria-label="Add one ${e(i.name)}">+</button></div><span class="amt">${rs(i.price * i.qty)}</span></div></div>`).join('')}</div>
       <button class="u-addmore" data-act="go" data-path="/r/${S.cart.rid}">${I('plus')} Add more items</button>
       <textarea class="u-ta" data-bind="instr" maxlength="300" placeholder="Add a note for the restaurant (optional)" aria-label="Note for this order">${e(S.instr)}</textarea></div>`;
-    const tabs = `<div class="u-seg" role="tablist">
-      <button role="tab" aria-selected="${S.method === 'list'}" class="${S.method === 'list' ? 'on' : ''}" data-act="method" data-m="list">${I('shop')}<span><b>PG / hostel / college</b><small>From Pakka Local’s list</small></span></button>
-      <button role="tab" aria-selected="${S.method === 'gps'}" class="${S.method === 'gps' ? 'on' : ''}" data-act="method" data-m="gps">${I('pin')}<span><b>My GPS location</b><small>Place not on the list</small></span></button></div>`;
     const acard = (x) => { const pl = placeOf(x), on = sel && x.id === sel.id; return `<label class="u-addr addr-pick ${on ? 'on' : ''}"><input type="radio" name="addr" value="${x.id}" ${on ? 'checked' : ''}><span class="t"><b>${e(x.kind === 'listed' ? (pl?.name || x.place_name) : LBL[x.label])}</b>${x.is_default ? ' <span class="u-pill" style="height:20px;font-size:.66rem">Default</span>' : ''}
       <div class="l1">${e(addrLine(x, x.kind === 'listed'))}</div>${x.entrance || x.landmark ? `<div class="l2">${e([x.entrance, x.landmark].filter(Boolean).join(' · '))}</div>` : ''}<div class="l2">${x.lat != null ? `GPS ±${Math.round(x.accuracy_m)} m` : 'Uses the place’s map point'}</div></span>
       <span class="fee">${x.kind === 'listed' ? (pl ? rs(pl.delivery_fee_paise) : 'Unavailable') : rs(gpsFee)}</span></label>`; };
-    const addrPart = S.method === 'list'
-      ? `${places.length ? '' : `<div class="u-note">${I('info')}<span>There are no places on the list yet. Use your GPS location instead.</span></div>`}${mine.map(acard).join('')}
-        ${places.length ? `<button class="u-lnk" data-act="go" data-path="/places?back=cart">${I('search')} ${mine.length ? 'Choose another place from the list' : 'Find my PG, hostel or college'}</button>` : ''}
-        <p class="small mute mt2" style="text-align:center">Can’t find your place? <a href="#" data-act="method" data-m="gps">Use your GPS location instead</a>.</p>`
-      : `<div class="u-note info">${I('info')}<span>Delivery charge for places not on the list: <b>${rs(gpsFee)}</b></span></div>${mine.map(acard).join('')}
-        <button class="u-lnk" data-act="go" data-path="/addresses/new?back=cart">${I('pin')} ${mine.length ? 'Add a new GPS address' : 'Add address with my GPS location'}</button>${sel ? `<button class="u-lnk" data-act="go" data-path="/addresses/${sel.id}?back=cart&gps=1">${I('refresh')} I’ve moved: update GPS</button>` : ''}`;
+    // one question, two plain answers; each goes straight to the screen that finishes it
+    const choice = (path, icon, title, sub) => `<button class="u-pick" data-act="go" data-path="${path}"><span class="ic">${I(icon)}</span><span class="txt"><b>${title}</b><small>${sub}</small></span>${I('chev')}</button>`;
+    const addrPart = `${mine.length ? `<div class="u-picklbl">Your saved addresses</div>${mine.map(acard).join('')}<div class="u-picklbl">Or add a new one</div>` : '<p class="u-pickq">Where should we deliver?</p>'}
+      ${places.length ? choice('/places?back=cart', 'shop', 'My PG, hostel or college', 'Search its name and pick it') : ''}
+      ${choice('/addresses/new?back=cart', 'pin', places.length ? 'Somewhere else' : 'My current location', `Use your phone’s location · delivery ${rs(gpsFee)}`)}
+      ${sel && sel.kind !== 'listed' ? `<button class="u-lnk" data-act="go" data-path="/addresses/${sel.id}?back=cart&gps=1">${I('refresh')} I’ve moved: update my location</button>` : ''}`;
     const offTxt = (c) => (c.discount_type === 'percent' ? `${c.value / 100}% off` : `${rs(c.value)} off`) + (c.max_discount_paise ? ` up to ${rs(c.max_discount_paise)}` : '') + (c.min_order_paise ? ` on orders above ${rs(c.min_order_paise)}` : '');
     const coupon = `<div class="u-box u-coupon"><h3>${I('receipt')} Offers & coupons</h3>${q?.coupon_code ? `<div class="u-capplied"><span class="tk">${I('check')}</span><span class="txt"><b>${e(q.coupon_code)} applied</b><small>You save ${rs(q.discount_paise)} on this order</small></span><button class="btn ghost sm" data-act="coupon-off">Remove</button></div>`
       : `<form class="u-cform" data-form="coupon"><input name="code" data-bind="couponTry" placeholder="Enter coupon code" autocomplete="off" autocapitalize="characters" maxlength="24" aria-label="Coupon code" value="${e(S.couponTry || '')}"><button class="btn sm" type="submit">Apply</button></form>
@@ -381,15 +375,16 @@
         <div class="kv tot"><span>To pay</span><span>${rs(q.total_paise)}</span></div></div>${q.trip_km != null ? `<div class="u-trip">${I('nav')}<span>${q.trip_by_road ? `<b>${q.trip_km} km</b> by road from ${e(S.cart.rname)}` : `About <b>${q.trip_km} km</b> from ${e(S.cart.rname)} <small>(straight line)</small>`}</span></div>` : ''}<div class="small mute">Estimated delivery in ~${q.prep_min + 8 + q.delivery_min} min${q.trip_km != null ? '' : ' (restaurant location not set)'}</div></div>` : '';
     // compact "Deliver to" card; the full chooser opens only when changing it
     const open = !sel || S.addrOpen, spl = sel && placeOf(sel);
-    const deliver = open ? `<div class="u-box u-deliver"><div class="row between"><h3>${I('pin')} Deliver to</h3>${sel ? '<button class="btn ghost sm" data-act="addr-done">Done</button>' : ''}</div>${tabs}${addrPart}</div>`
-      : `<div class="u-box u-deliver"><div class="u-dto"><span class="ic">${I(sel.kind === 'listed' ? 'shop' : 'pin')}</span><span class="txt"><small>Deliver to</small><b>${e(sel.kind === 'listed' ? (spl?.name || sel.place_name) : LBL[sel.label])}</b><span>${e(addrLine(sel, sel.kind === 'listed'))}</span>${sel.entrance || sel.landmark ? `<span class="mute">${e([sel.entrance, sel.landmark].filter(Boolean).join(' · '))}</span>` : ''}</span><button class="btn ghost sm" data-act="addr-change">Change</button></div>${confirm}</div>`;
+    const deliver = open ? `<div class="u-box u-deliver" id="u-deliver"><div class="row between"><h3>${I('pin')} Deliver to</h3>${sel ? '<button class="btn ghost sm" data-act="addr-done">Done</button>' : ''}</div>${addrPart}</div>`
+      : `<div class="u-box u-deliver" id="u-deliver"><div class="u-dto"><span class="ic">${I(sel.kind === 'listed' ? 'shop' : 'pin')}</span><span class="txt"><small>Deliver to</small><b>${e(sel.kind === 'listed' ? (spl?.name || sel.place_name) : LBL[sel.label])}</b><span>${e(addrLine(sel, sel.kind === 'listed'))}</span>${sel.entrance || sel.landmark ? `<span class="mute">${e([sel.entrance, sel.landmark].filter(Boolean).join(' · '))}</span>` : ''}</span><button class="btn ghost sm" data-act="addr-change">Change</button></div>${confirm}</div>`;
     return `<div class="u-pg u-checkout">${deliver}${items}${coupon}
       ${err ? `<div class="u-note ${err.code === 'NO_RIDERS' ? '' : 'bad'}">${I('alert')}<span>${e(err.message)}${err.code === 'NO_MAP_POINT' && sel ? `<br><button class="btn sm mt2" data-act="go" data-path="/addresses/${sel.id}?back=cart&gps=1">Add my GPS location</button>` : ''}</span></div>` : ''}
       ${bill}
       <div class="u-cod">${I('shield')} Online payment only. Cash on delivery is not available.</div></div>
-      <div class="u-paybar"><span class="l"><b>${q ? rs(q.total_paise) : rs(cartTotal())}</b><small>${q ? (q.discount_paise ? `To pay · saved ${rs(q.discount_paise)}` : 'To pay') : 'Item total'}</small></span><button class="go" data-act="place" ${q && !err && S.confirmed ? '' : 'disabled'}>${!sel ? 'Choose delivery place' : !S.confirmed ? 'Confirm delivery point' : q ? `Continue to payment ${I('chev')}` : 'Not available'}</button></div>`;
+      <div class="u-paybar"><span class="l"><b>${q ? rs(q.total_paise) : rs(cartTotal())}</b><small>${q ? (q.discount_paise ? `To pay · saved ${rs(q.discount_paise)}` : 'To pay') : 'Item total'}</small></span><button class="go" data-act="${!sel || !S.confirmed ? 'to-deliver' : 'place'}" ${!sel || (!S.confirmed && q && !err) || (q && !err && S.confirmed) ? '' : 'disabled'}>${!sel ? 'Choose where to deliver' : !S.confirmed ? 'Confirm delivery point' : q ? `Continue to payment ${I('chev')}` : 'Not available'}</button></div>`;
   }
   PL.actions['addr-change'] = () => { S.addrOpen = true; PL.rerender(); };
+  PL.actions['to-deliver'] = () => { const b = document.getElementById('u-deliver'); if (b) { b.scrollIntoView({ behavior: 'smooth', block: 'start' }); b.classList.remove('flash'); void b.offsetWidth; b.classList.add('flash'); } };
   PL.actions['addr-done'] = () => { S.addrOpen = false; PL.rerender(); };
   // coupons: the code is only sent; the server decides whether it applies and by how much
   const tryCoupon = (code) => { code = String(code || '').trim().toUpperCase(); if (!code) return PL.toast('Enter a coupon code.', true); S.coupon = code; S.couponTry = code; S.couponErr = null; PL.rerender(); };
