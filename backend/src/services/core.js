@@ -21,7 +21,10 @@ const DEFAULTS = { tax_bps: '0', gps_delivery_fee_paise: '4000', rider_payout_pa
   gps_accuracy_warn_m: '', gps_capture_timeout_sec: '20', gps_fix_max_age_min: '10',
   // Distance-based delivery charges (off by default; ranges live in distance_fee_bands). Empty = not set: no maximum,
   // no minimum, and no fallback (an order whose road distance cannot be worked out is refused rather than guessed).
-  distance_pricing_enabled: '0', distance_max_km: '', distance_min_fee_paise: '', distance_fallback_fee_paise: '', route_cache_days: '30' };
+  distance_pricing_enabled: '0', distance_max_km: '', distance_min_fee_paise: '', distance_fallback_fee_paise: '', route_cache_days: '30',
+  // GPS addresses not on the list: charge per km from the restaurant, every metre counted (e.g. 1000 = ₹10 per km, so 1.234 km = ₹12.34).
+  // Empty = off: the fixed GPS charge (gps_delivery_fee_paise) applies. Optional minimum charge and maximum distance.
+  gps_per_km_paise: '', gps_min_fee_paise: '', gps_max_km: '' };
 export const SETTING_KEYS = Object.keys(DEFAULTS);
 export const getSetting = (db, k) => db.prepare('SELECT value FROM app_settings WHERE key = ?').pluck().get(k) ?? DEFAULTS[k];
 export const allSettings = (db) => Object.fromEntries(SETTING_KEYS.map(k => [k, getSetting(db, k)]));
@@ -124,6 +127,15 @@ export function quote(db, input) {
     if (input.route === undefined) return { error: 'Delivery distance was not calculated.', status: 500 };
     priced = priceFor(dcfg, input.route); if (priced.error) return priced;
     fee = priced.fee; pricing = priced.pricing;
+  } else if (!loc && Number(getSetting(db, 'gps_per_km_paise')) > 0) {
+    // per-km charge for a GPS address: road distance when a routing service measured it, otherwise the straight GPS distance
+    // between the restaurant's saved point and the customer's point. Every metre counts (no rounding up to whole km).
+    const pk = r.pickup_lat != null ? { lat: r.pickup_lat, lng: r.pickup_lng } : null; if (!pk) return { error: 'This restaurant is not taking orders yet.', status: 409, code: 'RESTAURANT_CLOSED', reason: 'no_location' };
+    const road = Number.isFinite(input.route?.distance_m), m = Math.round(road ? input.route.distance_m : straightM(pk, point)), rate = Number(getSetting(db, 'gps_per_km_paise'));
+    const maxKm = Number(getSetting(db, 'gps_max_km')) || null, minFee = Number(getSetting(db, 'gps_min_fee_paise')) || 0, km = m / 1000;
+    if (maxKm && km > maxKm) return { error: `This address is ${km.toFixed(1)} km from the restaurant. Pakka Local delivers up to ${maxKm} km.`, status: 409, code: 'OUT_OF_RANGE' };
+    fee = Math.max(Math.round(m * rate / 1000), minFee); pricing = 'gps_per_km';
+    priced = { distance_m: m, band: `${km.toFixed(2)} km × ${PLrs(rate)}/km${road ? ' by road' : ' (straight distance)'}${fee === minFee && minFee ? ` · minimum ${PLrs(minFee)}` : ''}`, source: road ? input.route.source : 'gps_straight', pricing };
   } else { fee = loc ? loc.delivery_fee_paise : Number(getSetting(db, 'gps_delivery_fee_paise')); pricing = loc ? 'listed' : 'gps_fixed'; }
   const delivery = r.free_delivery_above_paise && base + markup >= r.free_delivery_above_paise ? 0 : fee;     // restaurant-specific delivery rule
   const now = iso();
@@ -144,7 +156,7 @@ export function quote(db, input) {
   const trip = tripInfo(r.pickup_lat != null ? { lat: r.pickup_lat, lng: r.pickup_lng } : null, point, priced?.distance_m ?? input.route?.distance_m ?? undefined);
   const deliveryMin = trip ? tripMinutes(db, trip) : loc?.distance_km ? Math.round(loc.distance_km * perKm) + 3 : Number(getSetting(db, 'default_delivery_min'));
   return { restaurant: r, lines, dest, locationId: loc?.id ?? null, feeSource: loc ? 'listed' : 'gps', baseDeliveryFee: fee, pricing,
-    distanceM: priced?.distance_m ?? null, band: priced?.band ?? null, routeSource: priced ? (priced.pricing === 'distance' ? priced.source : `none:${priced.reason}`) : null, base, markup, delivery, surge, tax, total, discount, coupon, couponError, commissionBps: r.commission_bps, commission,
+    distanceM: priced?.distance_m ?? null, band: priced?.band ?? null, routeSource: priced ? (priced.pricing === 'distance' || priced.pricing === 'gps_per_km' ? priced.source : `none:${priced.reason}`) : null, base, markup, delivery, surge, tax, total, discount, coupon, couponError, commissionBps: r.commission_bps, commission,
     restaurantPayout: base - commission, riderPayout: Number(getSetting(db, 'rider_payout_paise')), prepMin: prep + r.packing_buffer_min, deliveryMin, trip };
 }
 const etaFrom = (db, prepMin, deliveryMin, stage) => {

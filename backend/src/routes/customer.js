@@ -57,7 +57,7 @@ export function customerRoutes(db) {
   // ---------- saved delivery addresses (own addresses only; every query is scoped to the signed-in customer) ----------
   const noStore = (req, res, next) => { res.set('Cache-Control', 'no-store, private'); next(); };
   r.get('/addresses', noStore, (req, res) => res.json({ addresses: Addr.list(db, req.user.id), policy: Addr.gpsPolicy(db), max: Addr.MAX_ADDRESSES,
-    gps_fee_paise: Number(getSetting(db, 'gps_delivery_fee_paise')) }));      // fixed charge for places not on the list (shown before choosing)
+    gps_fee_paise: Number(getSetting(db, 'gps_delivery_fee_paise')), gps_per_km_paise: Number(getSetting(db, 'gps_per_km_paise')) || null, gps_min_fee_paise: Number(getSetting(db, 'gps_min_fee_paise')) || null }));      // fixed charge for places not on the list (shown before choosing)
   r.post('/addresses', noStore, wrap((req, res) => send(res, Addr.create(db, req.user.id, req.body), 201)));
   r.put('/addresses/:id(\\d+)', noStore, wrap((req, res) => send(res, Addr.update(db, req.user.id, Number(req.params.id), req.body))));
   r.delete('/addresses/:id(\\d+)', noStore, wrap((req, res) => send(res, Addr.remove(db, req.user.id, Number(req.params.id)))));
