@@ -12,6 +12,8 @@ import { customerRefund, submitUpi } from '../services/refunds.js';
 import * as Coupons from '../services/coupons.js';
 import * as Chat from '../services/chat.js';
 import { loginChannel } from '../otpProviders.js';
+import { providerName } from '../services/routing.js';
+import { availability } from '../services/hours.js';
 import { freshness } from '../services/tracking.js';
 
 // An order always goes to one of the customer's own saved GPS addresses, and the customer confirms that delivery point.
@@ -20,22 +22,25 @@ const cartSchema = z.object({ restaurant_id: z.number().int(), items: z.array(z.
   confirm_destination: z.boolean().optional(), instructions: z.string().max(300).optional(), coupon: z.string().max(30).optional() });   // unknown fields (e.g. a client-sent total) are ignored; prices come from the server
 const qIn = (d, address, route) => ({ restaurantId: d.restaurant_id, items: d.items, address, instructions: d.instructions, route, coupon: d.coupon || null });
 const breakdown = (q) => ({ delivery_type: q.feeSource, delivery_location: q.dest.locationName, delivery_fee_before_offers_paise: q.baseDeliveryFee,
-  delivery_pricing: q.pricing, delivery_distance_km: q.distanceM == null ? null : Math.round(q.distanceM / 10) / 100, delivery_band: q.band, delivery_fallback: q.pricing === 'distance_fallback', items_base_paise: q.base, markup_paise: q.markup, delivery_paise: q.delivery, surge_paise: q.surge, tax_paise: q.tax, discount_paise: q.discount, coupon_code: q.coupon?.code ?? null, coupon_error: q.couponError, total_paise: q.total, prep_min: q.prepMin, delivery_min: q.deliveryMin,
+  delivery_pricing: q.pricing, delivery_distance_km: q.distanceM == null ? null : Math.round(q.distanceM / 10) / 100, delivery_band: q.band, delivery_fallback: q.pricing === 'distance_fallback', items_base_paise: q.base, markup_paise: q.markup, delivery_paise: q.delivery, surge_paise: q.surge, tax_paise: q.tax, discount_paise: q.discount, coupon_code: q.coupon?.code ?? null, coupon_error: q.couponError, total_paise: q.total, prep_min: q.prepMin, delivery_min: q.deliveryMin, trip_km: q.trip?.km ?? null, trip_by_road: q.trip?.byRoad ?? null,
   lines: q.lines.map(l => ({ name: l.name, qty: l.qty, price_paise: l.price })) });
 
 export function publicRoutes(db) {
   const r = Router();
   r.get('/config', (req, res) => res.json({ loginChannel: loginChannel(), emailLogin: !!config.emailOtp.enabled, testPayments: config.sandboxPayments, paymentsAvailable: config.sandboxPayments, ridersAvailable: eligibleRiderCount(db) > 0, noRiderMessage: NO_RIDER_MSG }));
   r.get('/locations', (req, res) => res.json({ locations: db.prepare('SELECT id,name,kind,address,area,delivery_fee_paise,distance_km FROM delivery_locations WHERE active=1 ORDER BY name').all() }));
+  // what customers see: open only when the switch is on, it is within today's hours and the location is confirmed
+  const openInfo = (id) => { const a = availability(db, id); return { is_open: a.open ? 1 : 0, closed_reason: a.open ? null : a.reason, today_hours: a.today ?? null, next_open_at: a.next_open_at ?? null }; };
   r.get('/restaurants', (req, res) => { reopenDue(db);
     res.json({ restaurants: db.prepare(`SELECT r.id,r.name,r.description,r.cuisine,r.logo_path,r.image_path,r.rating,r.packing_buffer_min, COALESCE(s.is_open,0) AS is_open, s.reopen_at, s.reopen_mode,
-      (SELECT MIN(prep_time_min) FROM food_items f WHERE f.restaurant_id=r.id AND f.deleted=0) AS min_prep, (SELECT CAST(AVG(prep_time_min) AS INTEGER) FROM food_items f WHERE f.restaurant_id=r.id AND f.deleted=0 AND f.available=1) AS avg_prep, r.rating_count, r.operating_info, r.opens_at, r.closes_at, r.min_order_paise, r.free_delivery_above_paise,
+      (SELECT MIN(prep_time_min) FROM food_items f WHERE f.restaurant_id=r.id AND f.deleted=0) AS min_prep, (SELECT CAST(AVG(prep_time_min) AS INTEGER) FROM food_items f WHERE f.restaurant_id=r.id AND f.deleted=0 AND f.available=1) AS avg_prep, r.rating_count, r.operating_info, r.opens_at, r.closes_at, r.min_order_paise, ROUND(r.pickup_lat, 4) AS lat, ROUND(r.pickup_lng, 4) AS lng, r.free_delivery_above_paise,
       (SELECT substr(group_concat(f.name, ' | '), 1, 600) FROM food_items f WHERE f.restaurant_id=r.id AND f.deleted=0 AND f.available=1) AS dish_names,
       (SELECT COUNT(*) > 0 AND SUM(f.diet = 'veg') = COUNT(*) FROM food_items f WHERE f.restaurant_id=r.id AND f.deleted=0 AND f.available=1) AS veg_only FROM restaurants r LEFT JOIN restaurant_operating_status s ON s.restaurant_id=r.id
-      WHERE r.approved=1 AND r.admin_visible=1 ORDER BY is_open DESC, r.name`).all().map((x) => ({ ...x, eta_min: x.avg_prep ? x.avg_prep + x.packing_buffer_min + Number(getSetting(db, 'rider_to_restaurant_min')) + Number(getSetting(db, 'default_delivery_min')) : null })) }); });
+      WHERE r.approved=1 AND r.admin_visible=1 ORDER BY r.name`).all().map((x) => ({ ...x, ...openInfo(x.id), eta_min: x.avg_prep ? x.avg_prep + x.packing_buffer_min + Number(getSetting(db, 'rider_to_restaurant_min')) + Number(getSetting(db, 'default_delivery_min')) : null })).sort((a, b) => b.is_open - a.is_open) }); });
   r.get('/restaurants/:id/menu', (req, res) => {
     const rest = db.prepare('SELECT r.id,r.name,r.description,r.cuisine,r.logo_path,r.image_path,r.markup_paise,r.operating_info,r.opens_at,r.closes_at,r.min_order_paise,r.free_delivery_above_paise,r.rating,r.rating_count,COALESCE(s.is_open,0) AS is_open FROM restaurants r LEFT JOIN restaurant_operating_status s ON s.restaurant_id=r.id WHERE r.id=? AND r.approved=1 AND r.admin_visible=1').get(req.params.id);
     if (!rest) return res.status(404).json({ error: 'Restaurant not found.' });
+    Object.assign(rest, openInfo(rest.id));
     const items = db.prepare('SELECT id,name,description,image_path,base_price_paise,prep_time_min,available,category_id,diet FROM food_items WHERE restaurant_id=? AND deleted=0 AND NOT (available=0 AND image_path IS NULL) ORDER BY name').all(rest.id)
       .map(i => ({ ...i, restaurant_price_paise: i.base_price_paise, price_paise: i.base_price_paise + rest.markup_paise, base_price_paise: undefined }));
     const categories = db.prepare('SELECT id,name FROM food_categories WHERE restaurant_id=? ORDER BY sort_order, name').all(rest.id);
@@ -58,7 +63,8 @@ export function customerRoutes(db) {
   r.delete('/addresses/:id(\\d+)', noStore, wrap((req, res) => send(res, Addr.remove(db, req.user.id, Number(req.params.id)))));
   const withAddress = (d, req, res) => { const a = Addr.forOrder(db, req.user.id, d.address_id); if (!a) { res.status(404).json({ error: 'That address was not found. Choose or add a delivery address.', code: 'ADDRESS_REQUIRED' }); return null; } return a; };
   // Road distance (only when distance pricing is on): restaurant pickup point -> the address's map point, looked up here on the server.
-  const routeFor = async (d, a) => { if (!Pricing.getConfig(db).enabled) return undefined; const ap = addressPoint(db, a); if (ap.error) return { distance_m: null, reason: 'invalid_delivery_point' }; return Pricing.routeFor(db, d.restaurant_id, ap.point); };
+  // road distance: for distance pricing, and also for the delivery-time estimate whenever a routing service exists
+  const routeFor = async (d, a) => { if (!Pricing.getConfig(db).enabled && providerName() === 'none') return undefined; const ap = addressPoint(db, a); if (ap.error) return { distance_m: null, reason: 'invalid_delivery_point' }; return Pricing.routeFor(db, d.restaurant_id, ap.point); };
   r.get('/coupons', wrap((req, res) => res.json({ coupons: Coupons.visibleCoupons(db, req.user.id, req.query.restaurant_id ? Number(req.query.restaurant_id) : null) })));
   r.post('/quote', wrapA(async (req, res) => { const d = parse(cartSchema, req, res); if (!d) return; const a = withAddress(d, req, res); if (!a) return; const q = quote(db, { ...qIn(d, a, await routeFor(d, a)), customerId: req.user.id }); q.error ? send(res, q) : res.json(breakdown(q)); }));
   r.post('/orders', wrapA(async (req, res) => {

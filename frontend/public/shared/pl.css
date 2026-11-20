@@ -615,3 +615,22 @@ body.p-admin .tbl td .btn.sm{white-space:nowrap}
 @keyframes pl-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
 @media (prefers-reduced-motion:reduce){.pl-mk-3d .r3d,.pl-mk-3d .ring{animation:none}}
 .pl-route{animation:pl-dash 1.2s linear infinite}@keyframes pl-dash{to{stroke-dashoffset:-11}}
+
+/* maps keep their own layers inside the map box, so sheets and the notification panel always cover them */
+.leaflet-container{isolation:isolate;z-index:0}
+
+/* restaurant location required card */
+.r-loc{border-color:#f3c3a8;background:#fff8f3}
+.r-loc-ic{flex:none;width:40px;height:40px;border-radius:12px;background:var(--brand);color:#fff;display:grid;place-items:center}.r-loc-ic svg{width:20px;height:20px}
+
+/* location picker + opening hours */
+.lp-map{height:280px;border-radius:14px;overflow:hidden;border:1px solid var(--line,#e5e5e5);background:#eef2ef}
+.lp-pin{background:none;border:0}.lp-pin svg{filter:drop-shadow(0 2px 3px rgba(0,0,0,.35))}
+.lp-pt a{color:var(--brand);font-weight:600}
+.r-locmap{height:150px;padding:0;overflow:hidden}
+.r-cust{display:block;width:100%;text-align:left;background:none;border:0;padding:0;color:var(--mute,#666);cursor:pointer;font:inherit}.r-cust u{color:var(--brand)}
+.ok-t{color:var(--ok);font-weight:700}.bad-t{color:var(--bad);font-weight:700}
+.r-hrow{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line,#eee);flex-wrap:wrap}
+.r-hday{display:flex;align-items:center;gap:8px;font-weight:700;min-width:120px;margin:0}.r-hday input{width:22px;min-height:22px}
+.r-htimes{display:flex;align-items:center;gap:6px;flex:1;min-width:200px}.r-htimes input{flex:1;min-width:0}
+.r-hclosed{display:none;color:var(--mute,#888);font-weight:600}.r-hrow.off .r-htimes{display:none}.r-hrow.off .r-hclosed{display:inline}

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config.js';
 import * as Coupons from './coupons.js';
+import { availability } from './hours.js';
 
 export const NO_RIDER_MSG = 'Sorry, we are not currently accepting orders as delivery partners are not available. Please check after some time.';
 export const iso = () => new Date().toISOString();
@@ -85,7 +86,9 @@ export function quote(db, input) {
   reopenDue(db);
   const r = db.prepare('SELECT * FROM restaurants WHERE id=?').get(input.restaurantId);
   if (!r || !r.approved || !r.admin_visible) return { error: 'This restaurant is not available right now.', status: 409 };
-  if (!db.prepare('SELECT is_open FROM restaurant_operating_status WHERE restaurant_id=?').pluck().get(r.id)) return { error: 'This restaurant is currently closed.', status: 409 };
+  // new orders only: the owner's Open switch, today's opening hours (Asia/Kolkata) and a confirmed location. Orders already placed are never touched.
+  const av = availability(db, r.id);
+  if (!av.open) return { error: av.reason === 'no_location' ? 'This restaurant is not taking orders yet.' : av.reason === 'outside_hours' ? 'This restaurant is closed right now (outside its opening hours).' : 'This restaurant is currently closed.', status: 409, code: 'RESTAURANT_CLOSED', reason: av.reason, next_open_at: av.next_open_at ?? null };
   if (eligibleRiderCount(db) === 0) return { error: NO_RIDER_MSG, status: 409, code: 'NO_RIDERS' };
   const want = new Map();
   for (const it of Array.isArray(input.items) ? input.items : []) {
@@ -137,21 +140,36 @@ export function quote(db, input) {
     if (ev.error) couponError = ev.error; else { coupon = ev.coupon; discount = ev.discount; total -= discount; }
   }
   const perKm = Number(getSetting(db, 'minutes_per_km'));
-  const deliveryMin = loc?.distance_km ? Math.round(loc.distance_km * perKm) + 3 : Number(getSetting(db, 'default_delivery_min'));
+  // estimate from the restaurant's saved location to this delivery point (road distance when routing measured it)
+  const trip = tripInfo(r.pickup_lat != null ? { lat: r.pickup_lat, lng: r.pickup_lng } : null, point, priced?.distance_m ?? input.route?.distance_m ?? undefined);
+  const deliveryMin = trip ? tripMinutes(db, trip) : loc?.distance_km ? Math.round(loc.distance_km * perKm) + 3 : Number(getSetting(db, 'default_delivery_min'));
   return { restaurant: r, lines, dest, locationId: loc?.id ?? null, feeSource: loc ? 'listed' : 'gps', baseDeliveryFee: fee, pricing,
     distanceM: priced?.distance_m ?? null, band: priced?.band ?? null, routeSource: priced ? (priced.pricing === 'distance' ? priced.source : `none:${priced.reason}`) : null, base, markup, delivery, surge, tax, total, discount, coupon, couponError, commissionBps: r.commission_bps, commission,
-    restaurantPayout: base - commission, riderPayout: Number(getSetting(db, 'rider_payout_paise')), prepMin: prep + r.packing_buffer_min, deliveryMin };
+    restaurantPayout: base - commission, riderPayout: Number(getSetting(db, 'rider_payout_paise')), prepMin: prep + r.packing_buffer_min, deliveryMin, trip };
 }
 const etaFrom = (db, prepMin, deliveryMin, stage) => {
   const rider = Number(getSetting(db, 'rider_to_restaurant_min'));
   const mins = stage === 'PICKED_UP' ? deliveryMin : stage === 'READY' ? rider + deliveryMin : prepMin + rider + deliveryMin;
   return new Date(Date.now() + mins * 60_000).toISOString();
 };
+// Restaurant -> customer trip: the road distance when a routing service measured it, otherwise the straight-line distance
+// between the two saved points (labelled as such; never invented). null when either point is missing.
+const R_EARTH = 6371000, rad = (x) => (x * Math.PI) / 180;
+export const straightM = (a, b) => { const h = Math.sin(rad(b.lat - a.lat) / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(rad(b.lng - a.lng) / 2) ** 2; return 2 * R_EARTH * Math.asin(Math.sqrt(h)); };
+export function tripInfo(from, to, roadM) {
+  if (Number.isFinite(roadM)) return { km: Math.round(roadM / 100) / 10, byRoad: true };
+  if (!from || from.lat == null || from.lng == null || !to || to.lat == null || to.lng == null) return null;
+  return { km: Math.round(straightM(from, to) / 100) / 10, byRoad: false };
+}
+// travel minutes for a trip: admin "minutes per km" over the road distance; a straight line is ~30% shorter than the road, so it is scaled
+const tripMinutes = (db, t) => Math.max(1, Math.round((t.byRoad ? t.km : t.km * 1.3) * Number(getSetting(db, 'minutes_per_km')))) + 3;
 const orderMins = (db, o) => {
   const prep = db.prepare('SELECT MAX(prep_time_min) FROM order_items WHERE order_id=?').pluck().get(o.id) || 15;
   const buf = db.prepare('SELECT packing_buffer_min FROM restaurants WHERE id=?').pluck().get(o.restaurant_id);
   const km = o.delivery_location_id ? db.prepare('SELECT distance_km FROM delivery_locations WHERE id=?').pluck().get(o.delivery_location_id) : null;
-  return { prep: prep + buf, del: km ? Math.round(km * Number(getSetting(db, 'minutes_per_km'))) + 3 : Number(getSetting(db, 'default_delivery_min')) };
+  const pk = db.prepare('SELECT pickup_lat AS lat, pickup_lng AS lng FROM restaurants WHERE id=?').get(o.restaurant_id);
+  const trip = tripInfo(pk, { lat: o.dest_lat, lng: o.dest_lng }, o.delivery_distance_m ?? undefined);
+  return { prep: prep + buf, del: trip ? tripMinutes(db, trip) : km ? Math.round(km * Number(getSetting(db, 'minutes_per_km'))) + 3 : Number(getSetting(db, 'default_delivery_min')) };
 };
 const refreshEta = (db, o, stage) => { const m = orderMins(db, o); db.prepare('UPDATE orders SET eta_at=? WHERE id=?').run(etaFrom(db, m.prep, m.del, stage), o.id); };
 

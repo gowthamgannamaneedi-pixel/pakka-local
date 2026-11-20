@@ -34,8 +34,10 @@
     p.sync({ online, active, token: tok, api: location.origin }).catch(() => {});
     if (tok && p.getPushToken) p.getPushToken().then((r) => { if (r?.token && S.fcmSent !== r.token + tok) PL.post('/api/push/fcm', { token: r.token, label: 'Pakka Rider app' }).then(() => { S.fcmSent = r.token + tok; S.fcmTok = r.token; }).catch(() => {}); }).catch(() => {}); };
 
+  // restaurant -> customer distance: by road when measured, otherwise the straight line between the two saved points (labelled)
+  const tripTxt = (o) => (o.trip ? (o.trip.by_road ? `${o.trip.km} km by road · ` : `~${o.trip.km} km (straight line) · `) : o.distance_km ? o.distance_km + ' km · ' : '');
   const detail = (o, full) => `<div class="row between"><div>${PL.code(o.order_code)}</div><span class="d-fee">${rs(o.fee_paise)}<small>you earn</small></span></div>
-    <div class="small mute">${o.distance_km ? o.distance_km + ' km · ' : ''}${o.eta_at ? 'Customer expects ~' + PL.time(o.eta_at) : ''}</div>
+    <div class="small mute">${tripTxt(o)}${o.eta_at ? 'Customer expects ~' + PL.time(o.eta_at) : ''}</div>
     <div class="sec">Pickup</div><b>${e(o.restaurant.name)}</b><div class="small">${e(o.restaurant.address || '')}</div><div class="row wrap mt2">${PL.mapsBtn(o.restaurant.maps_link, 'Map')}${o.restaurant.phone ? `<a class="btn ghost sm" href="tel:${e(o.restaurant.phone)}">${PL.icon('phone', 'width="18" height="18"')} Call</a>` : ''}</div>
     <div class="sec">Items</div>${o.items.map((i) => `<div class="kv"><span>${i.qty} × ${e(i.name)}</span></div>`).join('')}
     <div class="sec">Drop-off</div>${o.destination.area_only ? `<b>${e(o.destination.text)}</b><div class="small mute">Exact address, phone number and instructions appear after you accept.</div>`
@@ -59,7 +61,7 @@
   let curId = null, collapsed = false;
   const setAlertSpace = (box) => document.documentElement.style.setProperty('--alert-h', box.classList.contains('hide') ? '0px' : box.offsetHeight + 'px');
   const brief = (o) => `<div class="row between mt2 wrap">${PL.code(o.order_code)}<span class="d-fee">${rs(o.fee_paise)}<small>you earn</small></span></div>
-    <div class="small mute">${o.distance_km ? o.distance_km + ' km · ' : ''}${o.eta_at ? 'Customer expects ~' + PL.time(o.eta_at) : ''}</div>
+    <div class="small mute">${tripTxt(o)}${o.eta_at ? 'Customer expects ~' + PL.time(o.eta_at) : ''}</div>
     <div class="rq-items"><div class="kv"><span class="mute small">Pickup</span><span class="right"><b>${e(o.restaurant.name)}</b><br><span class="small">${e(o.restaurant.address || '')}</span></span></div>
     <div class="kv"><span class="mute small">Drop-off</span><span class="right small">${e(o.destination.text || '')}</span></div>
     <div class="kv"><span class="mute small">Items</span><span class="right small">${o.items.map((i) => `${i.qty} × ${e(i.name)}`).join(', ')}</span></div></div>

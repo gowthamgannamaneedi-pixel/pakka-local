@@ -51,15 +51,21 @@ export function pushRoutes(db) {
   });
   // In-app notification centre for every portal: the caller's own notifications only (read-only, plus "mark all read").
   r.get('/inbox', auth, (req, res) => res.json({
-    notifications: db.prepare('SELECT id,title,body,deep_link,kind,created_at,read_at FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 40').all(req.user.id),
+    notifications: db.prepare('SELECT id,event_id,title,body,deep_link,kind,created_at,read_at FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 40').all(req.user.id),
     unread: db.prepare('SELECT COUNT(*) FROM notifications WHERE user_id=? AND read_at IS NULL').pluck().get(req.user.id) }));
+  // one notification, opened from the in-app list: the caller's own only
+  r.post('/inbox/:id(\\d+)/read', lim, auth, (req, res) => { const c = db.prepare('UPDATE notifications SET read_at=COALESCE(read_at, ?) WHERE id=? AND user_id=?').run(new Date().toISOString(), Number(req.params.id), req.user.id).changes;
+    c ? res.json({ ok: true, unread: db.prepare('SELECT COUNT(*) FROM notifications WHERE user_id=? AND read_at IS NULL').pluck().get(req.user.id) }) : res.status(404).json({ error: 'Not found.' }); });
+  // latest unread offer/announcement for the in-app banner (customers; promotional notifications from the last 7 days)
+  r.get('/banner', auth, (req, res) => res.json({ banner: db.prepare("SELECT id,title,body,deep_link,created_at FROM notifications WHERE user_id=? AND kind='promo' AND read_at IS NULL AND created_at>=? ORDER BY id DESC LIMIT 1")
+    .get(req.user.id, new Date(Date.now() - 7 * 864e5).toISOString()) || null }));
   r.post('/inbox/read', lim, auth, (req, res) => { db.prepare('UPDATE notifications SET read_at=? WHERE user_id=? AND read_at IS NULL').run(new Date().toISOString(), req.user.id); res.json({ ok: true }); });
   r.get('/devices', auth,(req, res) => res.json({ devices: db.prepare('SELECT id,device_label,created_at FROM push_subscriptions WHERE user_id=?').all(req.user.id) }));
   // click tracking: called by the service worker, authenticated by a signed per-notification token
   r.post('/click', lim, (req, res) => {
     const nid = Number(req.body?.nid);
     if (!Number.isInteger(nid) || !verifyClick(nid, req.body?.t)) return res.status(400).json({ error: 'Invalid request.' });
-    db.prepare('UPDATE notifications SET clicked_at=COALESCE(clicked_at, ?) WHERE id=?').run(new Date().toISOString(), nid); res.json({ ok: true });
+    const now = new Date().toISOString(); db.prepare('UPDATE notifications SET clicked_at=COALESCE(clicked_at, ?), read_at=COALESCE(read_at, ?) WHERE id=?').run(now, now, nid); res.json({ ok: true });      // opening it from the phone also marks it read
   });
   return r;
 }

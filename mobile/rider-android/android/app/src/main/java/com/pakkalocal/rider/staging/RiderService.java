@@ -154,7 +154,31 @@ public class RiderService extends Service {
             final int n = now.size(); final boolean ring = fresh && !seenOnScreen && System.currentTimeMillis() - PakkaFcmService.lastOfferRing > 20000; final String text = first;      // skip if Firebase already rang for it
             if (nAct != active) { active = nAct; main.post(() -> { startLocation(); refreshStatus(); }); }
             main.post(() -> { bubble.setAlert(n > 0); if (ring) offerNotification(n, text); if (n == 0) cancelOffer(); });
+            if (++rounds % 2 == 0) pollInbox();
         } catch (Exception ignored) { /* no network: try again on the next round */ }
+    }
+
+    // ---------- customer messages, cancellations, reassignments (works with the app in the background) ----------
+    // Every second round (~16 s) the rider's own notifications are checked. Each one is shown once (the last seen id is kept
+    // across restarts; the first check after sign-in only sets the starting point, so old items never ring). Offers are
+    // handled above; anything already read, or shown while the rider is looking at the app, is skipped.
+    private int rounds = 0;
+    private void pollInbox() {
+        try {
+            String[] r = http("GET", "/api/push/inbox", null);
+            if (Integer.parseInt(r[0]) != 200) return;
+            JSONArray list = new JSONObject(r[1]).optJSONArray("notifications"); if (list == null) return;
+            android.content.SharedPreferences sp = getSharedPreferences("rider_bg", MODE_PRIVATE);
+            long last = sp.getLong("inbox_last", -1), max = last;
+            for (int k = list.length() - 1; k >= 0; k--) {                         // oldest first
+                JSONObject n = list.getJSONObject(k); long id = n.optLong("id"); if (id > max) max = id;
+                if (last < 0 || id <= last) continue;
+                String kind = n.optString("kind", ""), title = n.optString("title", "Pakka Rider"), body = n.optString("body", ""), tag = n.optString("event_id", "n" + id);
+                if ("rider_offer".equals(kind) || !n.isNull("read_at") || inFront()) continue;
+                main.post(() -> showPush(this, title, body, false, tag));
+            }
+            if (max != last) sp.edit().putLong("inbox_last", max).apply();
+        } catch (Exception ignored) { /* try again next time */ }
     }
 
     private static String describe(JSONObject o) {

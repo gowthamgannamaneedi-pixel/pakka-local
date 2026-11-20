@@ -33,7 +33,10 @@
   const dietMark = (d) => (d ? `<span class="diet ${e(d)}" role="img" aria-label="${{ veg: 'Veg', nonveg: 'Non-veg', egg: 'Contains egg' }[d] || ''}"></span>` : '');
   const offerOf = (x) => (x.free_delivery_above_paise ? `<span class="of"><small>Free delivery</small>above ${rs(x.free_delivery_above_paise)}</span>` : '');
   const hm = (t) => { if (!t) return ''; const [h, m] = t.split(':').map(Number); return `${h % 12 || 12}${m ? ':' + String(m).padStart(2, '0') : ''} ${h < 12 ? 'AM' : 'PM'}`; };
-  const hoursOf = (x) => (x.opens_at && x.closes_at ? `${hm(x.opens_at)} – ${hm(x.closes_at)}` : '');
+  // today's opening hours (India time) from the server; '' when the restaurant has not set any
+  const hoursOf = (x) => (x.today_hours ? (x.today_hours.closed ? 'Closed today' : `${hm(x.today_hours.open)} – ${hm(x.today_hours.close)}`) : '');
+  const opensTxt = (iso) => { if (!iso) return ''; const d = new Date(iso), day = (t) => t.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }), tm = d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' });
+    return `Opens ${day(d) === day(new Date()) ? '' : day(d) === day(new Date(Date.now() + 864e5)) ? 'tomorrow ' : d.toLocaleDateString('en-IN', { weekday: 'short', timeZone: 'Asia/Kolkata' }) + ' '}${tm}`; };
   const greet = () => { const h = new Date().getHours(); return h < 11 ? 'Good morning' : h < 16 ? 'Good afternoon' : h < 22 ? 'Good evening' : 'Late-night cravings?'; };
   const ART = {      // simple original illustrations for empty states (no emoji, no downloaded art)
     bowl: '<svg class="art" viewBox="0 0 160 110" fill="none"><ellipse cx="80" cy="98" rx="58" ry="7" fill="#f1ece6"/><path d="M22 52h116c0 28-26 44-58 44S22 80 22 52z" fill="#ffd9c2"/><path d="M22 52h116" stroke="#d0450b" stroke-width="4" stroke-linecap="round"/><path d="M58 40c0-8 6-8 6-16M80 40c0-8 6-8 6-16M102 40c0-8 6-8 6-16" stroke="#f2a375" stroke-width="3.5" stroke-linecap="round"/></svg>',
@@ -73,8 +76,20 @@
       <button class="btn ghost block mt2" data-act="to-login">Use mobile number instead</button>`);
   };
   PL.forms['email-otp-request'] = async (f) => { const email = PL.form(f).email.trim().toLowerCase(); const r = await PL.run(() => PL.post('/api/auth/customer/email-otp/request', { email })); if (r) emailOtpView(email, r.resendAfterSec); };
+  // six separate digit boxes; the hidden "otp" field holds the full code that is sent to the server
+  const otpBoxes = () => `<div class="u-otp6" role="group" aria-label="6-digit code">${[0, 1, 2, 3, 4, 5].map((i) => `<input class="u-d" inputmode="numeric" pattern="[0-9]*" maxlength="${i ? 1 : 6}" ${i ? '' : 'autocomplete="one-time-code" autofocus'} aria-label="Digit ${i + 1}" data-i="${i}">`).join('')}</div><input type="hidden" name="otp">`;
+  const otpSync = (box) => { const f = box.closest('form'), ds = [...f.querySelectorAll('.u-d')], v = ds.map((d) => d.value).join(''); f.otp.value = v; ds.forEach((d) => d.classList.toggle('on', !!d.value)); if (v.length === 6) f.requestSubmit(); };
+  const otpFill = (ds, from, digits) => { let k = from; for (const ch of digits) { if (k > 5) break; ds[k++].value = ch; } ds[Math.min(k, 5)].focus(); };
+  document.addEventListener('input', (ev) => { const t = ev.target; if (!t.classList?.contains('u-d')) return; const ds = [...t.closest('.u-otp6').querySelectorAll('.u-d')], i = Number(t.dataset.i), v = t.value.replace(/\D/g, '');
+    if (v.length > 1) { t.value = ''; otpFill(ds, i, v); } else { t.value = v; if (v && i < 5) ds[i + 1].focus(); } otpSync(t); });
+  document.addEventListener('keydown', (ev) => { const t = ev.target; if (!t.classList?.contains('u-d')) return; const ds = [...t.closest('.u-otp6').querySelectorAll('.u-d')], i = Number(t.dataset.i);
+    if (ev.key === 'Backspace' && !t.value && i > 0) { ev.preventDefault(); ds[i - 1].value = ''; ds[i - 1].focus(); otpSync(t); }
+    else if (ev.key === 'ArrowLeft' && i > 0) ds[i - 1].focus(); else if (ev.key === 'ArrowRight' && i < 5) ds[i + 1].focus(); });
+  document.addEventListener('paste', (ev) => { const t = ev.target; if (!t.classList?.contains('u-d')) return; const v = (ev.clipboardData?.getData('text') || '').replace(/\D/g, '').slice(0, 6); if (!v) return;
+    ev.preventDefault(); const ds = [...t.closest('.u-otp6').querySelectorAll('.u-d')]; ds.forEach((d) => { d.value = ''; }); otpFill(ds, 0, v); otpSync(t); });
+  const otpReset = (f) => { f.querySelectorAll('.u-d').forEach((d) => { d.value = ''; d.classList.remove('on'); }); f.otp.value = ''; f.querySelector('.u-d')?.focus(); };
   const codeForm = (form, attr, sentTo, note) => `<h2>Enter the 6-digit code</h2><p class="s">Sent to <b>${e(sentTo)}</b>${note ? `. ${note}` : ''}</p>
-      <form data-form="${form}" ${attr}><input class="otp-in" placeholder="••••••" name="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="\\d{6}" required autofocus aria-label="6-digit code">
+      <form data-form="${form}" ${attr}>${otpBoxes()}
       <button class="btn block lg mt" type="submit">Verify and continue</button></form>`;
   function emailOtpView(email, wait) {
     sheet(`${codeForm('email-otp-verify', `data-email="${e(email)}"`, email, 'Check spam too. It expires in 5 minutes')}
@@ -105,7 +120,7 @@
     const pretty = phone.replace(/^\+91(\d{5})(\d{5})$/, '+91 $1 $2');
     sheet(`<h2>Enter the 6-digit code</h2><p class="s">${channel === 'test' ? 'Staging test login: enter your tester code for' : `We sent a code ${via()} to`} <b>${e(pretty)}</b> <button class="u-lnkbtn" data-act="to-login">Edit</button></p>
       ${channel === 'test' ? '' : `<div class="u-deliv" id="lg-deliv">${DELIV.sent[1]}</div>`}
-      <form data-form="otp-verify" data-phone="${e(phone)}"><input class="otp-in" placeholder="••••••" name="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="\\d{6}" required autofocus aria-label="6-digit code" data-autosubmit="6">
+      <form data-form="otp-verify" data-phone="${e(phone)}">${otpBoxes()}
       <div class="u-lerr" id="lg-err" role="alert"></div><button class="btn block lg mt" type="submit">Verify and continue</button></form>
       <button class="btn ghost block mt2" id="resend" data-act="resend" data-phone="${e(phone)}" disabled>Resend code in ${wait}s</button><button class="btn ghost block mt2" data-act="to-login">Change number</button>`);
     countdown(wait); if (channel !== 'test') watchDelivery(phone);
@@ -119,7 +134,7 @@
     try { const r = await PL.post('/api/auth/customer/otp/verify', { phone: f.dataset.phone, otp: v.otp }); clearInterval(delivT);
       PL.toast(r.is_new ? 'Number verified. Welcome to Pakka Local!' : 'Verified. Welcome back!', 'ok');
       PL.setSession(r); history.replaceState({ idx: 0 }, '', location.hash || '#'); PL.boot(); }
-    catch (x) { lerr(x.message); f.otp.value = ''; f.otp.focus(); if (['EXPIRED', 'TOO_MANY_TRIES', 'BLOCKED'].includes(x.code)) { const b = PL.$('#resend'); if (b && x.code !== 'BLOCKED' && !/in \d+s/.test(b.textContent)) b.disabled = false; } } };
+    catch (x) { lerr(x.message); otpReset(f); if (['EXPIRED', 'TOO_MANY_TRIES', 'BLOCKED'].includes(x.code)) { const b = PL.$('#resend'); if (b && x.code !== 'BLOCKED' && !/in \d+s/.test(b.textContent)) b.disabled = false; } } };
 
 
   // ---------- "What should we call you?" (required once; never asked again when a real name is saved) ----------
@@ -147,11 +162,14 @@
   const LBL = { home: 'Home', hostel: 'Hostel', pg: 'PG', college: 'College', other: 'Other' };
   const addrLine = (a, noPlace) => [!noPlace && a.place_name, a.building, a.block && `Block ${a.block}`, a.floor && `Floor ${a.floor}`, a.room && `Room ${a.room}`].filter(Boolean).join(', ') || 'Saved location';
   const homeMode = () => document.body.classList.toggle('c-home', /^#\/home(\?|$)|^#?$/.test(location.hash)); window.addEventListener('hashchange', homeMode); homeMode();
+  // distance from the chosen delivery address to the restaurant's saved location (straight line; shown only when both are known)
+  const kmAway = (x) => { const p = S.curPt; if (!p || x.lat == null || x.lng == null) return ''; const r = Math.PI / 180, h = Math.sin((x.lat - p.lat) * r / 2) ** 2 + Math.cos(p.lat * r) * Math.cos(x.lat * r) * Math.sin((x.lng - p.lng) * r / 2) ** 2, km = 12742 * Math.asin(Math.sqrt(h));
+    return km < 1 ? `${Math.max(100, Math.round(km * 10) * 100)} m away` : `${km.toFixed(1)} km away`; };
   const card = (x, i) => { const cats = catsOf(textOf(x)), eta = etaOf(x);
     return `<button class="u-rrow ${x.is_open ? '' : 'u-closed'}" style="--i:${Math.min(i, 8)}" data-act="go" data-path="/r/${x.id}" data-s="${e(textOf(x).toLowerCase())}" data-cats="${cats.join(' ')}" data-open="${x.is_open ? 1 : 0}" data-r="${x.rating || 0}" data-eta="${x.eta_min || 999}" data-veg="${x.veg_only ? 1 : 0}" data-o="${i}">
-      <span class="im">${img(coverOf(x), '', '')}${x.is_open ? offerOf(x) : `<span class="cl">Closed${x.reopen_at ? `<br>Opens ${PL.time(x.reopen_at)}` : x.opens_at ? `<br>Opens ${hm(x.opens_at)}` : ''}</span>`}</span>
+      <span class="im">${img(coverOf(x), '', '')}${x.is_open ? offerOf(x) : `<span class="cl">Closed${x.next_open_at ? `<br>${opensTxt(x.next_open_at)}` : ''}</span>`}</span>
       <span class="tx"><h3>${e(x.name)}</h3><span class="mt">${rateBadge(x)}${x.rating_count ? `<span class="small mute" style="font-weight:600;margin-right:2px">(${kfmt(x.rating_count)})</span>` : ''}${eta && x.is_open ? `<span class="u-dot"></span>${eta}` : ''}</span>
-        <span class="cu">${e(x.cuisine || 'Local favourites')}</span>${hoursOf(x) ? `<span class="u-hrs">${I('clock')}${hoursOf(x)}</span>` : ''}${x.description ? `<span class="ds">${e(x.description)}</span>` : ''}
+        <span class="cu">${e(x.cuisine || 'Local favourites')}${kmAway(x) ? ` · ${kmAway(x)}` : ''}</span>${hoursOf(x) ? `<span class="u-hrs">${I('clock')}${hoursOf(x)}</span>` : ''}${x.description ? `<span class="ds">${e(x.description)}</span>` : ''}
         <span class="tags">${x.veg_only ? `<span class="u-tag g">${dietMark('veg')} Pure veg</span>` : ''}${x.min_order_paise ? `<span class="u-tag">Min ${rs(x.min_order_paise)}</span>` : ''}</span></span></button>`; };
   // menus of open kitchens, cached for 5 minutes (home refreshes every few seconds; menus rarely change)
   const menusFor = async (ids) => { const c = (S.mcache ||= {}), now = Date.now();
@@ -164,7 +182,7 @@
   // Reorder: the same dishes at today's prices (only those still on the menu and available); the bill is calculated again in the cart
   PL.actions.reorder = async (el) => { if (el.disabled) return; el.disabled = true; el.classList.add('busy');
     try { const [o, m] = await Promise.all([PL.api('/api/customer/orders/' + el.dataset.code), PL.api(`/api/public/restaurants/${el.dataset.rid}/menu`)]); const r = m.restaurant;
-      if (!r.is_open) return PL.toast(`${r.name} is closed right now. Try again when it opens.`, true);
+      if (!r.is_open) return PL.toast(`${r.name} is closed right now.${r.next_open_at ? ' ' + opensTxt(r.next_open_at) + '.' : ''}`, true);
       const items = {}, missing = [];
       for (const it of o.items) { const d = m.items.find((x) => x.name === it.name && x.available); if (d) items[d.id] = { name: d.name, price: d.price_paise, qty: Math.min(20, (items[d.id]?.qty || 0) + it.qty), diet: d.diet, img: d.image_path }; else missing.push(it.name); }
       if (!Object.keys(items).length) return PL.toast('These dishes are not available right now.', true);
@@ -173,10 +191,17 @@
       PL.toast(missing.length ? `Added to cart. Not available now: ${missing.join(', ')}` : 'Added to your cart', missing.length ? 'info' : undefined); PL.go('/cart'); }
     catch (x) { PL.toast(x.message || 'Could not reorder right now.', true); }
     finally { el.disabled = false; el.classList.remove('busy'); } };
+  // admin offers (promotional notifications) as a banner on the home screen; opening or dismissing marks it read
+  const linkPath = (u) => { if (!u) return ''; try { const x = new URL(u, location.origin); if (x.origin !== location.origin || !x.pathname.startsWith('/user')) return ''; if (x.hash.startsWith('#/')) return x.hash.slice(1); const seg = x.pathname.split('/').filter(Boolean); return seg.length > 1 ? '/' + seg.slice(1).join('/') : '/home'; } catch { return ''; } };
+  const banDone = (id) => { (S.banDone ||= new Set()).add(Number(id)); if (PL.markInboxRead) PL.markInboxRead(id); PL.post(`/api/push/inbox/${id}/read`).catch(() => {}); };
+  PL.actions['ban-x'] = (el) => { banDone(el.dataset.id); el.closest('.u-offerbar')?.remove(); };
+  PL.actions['ban-open'] = (el) => { banDone(el.dataset.id); PL.go(el.dataset.path); };
   async function home() {
-    const [c, r, my, me, adr] = await Promise.all([PL.api('/api/public/config'), PL.api('/api/public/restaurants'), PL.api('/api/customer/orders').catch(() => ({ orders: [] })), PL.api('/api/customer/me').catch(() => ({ user: {} })), PL.api('/api/customer/addresses').catch(() => ({ addresses: [] }))]);
+    const [c, r, my, me, adr, ob] = await Promise.all([PL.api('/api/public/config'), PL.api('/api/public/restaurants'), PL.api('/api/customer/orders').catch(() => ({ orders: [] })), PL.api('/api/customer/me').catch(() => ({ user: {} })), PL.api('/api/customer/addresses').catch(() => ({ addresses: [] })), PL.api('/api/push/banner').catch(() => ({ banner: null }))]);
+    const offer = ob.banner && !S.banDone?.has(ob.banner.id) ? ob.banner : null;
     const all = r.restaurants, open = all.filter((x) => x.is_open), active = my.orders.filter((o) => ACTIVE.includes(o.status)), recent = my.orders.filter((o) => o.status === 'DELIVERED').slice(0, 8);
     const ad = adr.addresses, cur = ad.find((x) => x.id === S.addrId) || ad.find((x) => x.is_default) || ad[0];
+    S.curPt = cur && cur.lat != null && cur.lng != null ? { lat: cur.lat, lng: cur.lng } : null;
     const name = (me.user?.name || '').trim().split(' ')[0];
     const counts = Object.fromEntries(CATS.map(([k]) => [k, all.filter((x) => catsOf(textOf(x)).includes(k)).length]));
     const cats = CATS.filter(([k]) => counts[k]); S.words = cats.map(([, l]) => l.toLowerCase().split(' ')[0]).slice(0, 6);
@@ -195,6 +220,8 @@
     return `<div class="u-head" id="u-head"><div class="row1"><button class="u-loc" data-act="go" data-path="/addresses"><span class="pin">${I('pin')}</span><span class="txt"><b>${cur ? e(cur.kind === 'listed' ? cur.place_name || 'Selected place' : LBL[cur.label] || 'Home') : 'Set delivery location'}${I('chev')}</b><small>${cur ? e(addrLine(cur, cur.kind === 'listed')) : 'Choose your PG, hostel or college'}</small></span></button>${PL.inbox.btn()}<button class="u-av" data-act="go" data-path="/me" aria-label="Account">${e((name || 'P').charAt(0).toUpperCase())}</button></div>
         <a class="u-search" href="#/search" aria-label="Search for restaurants and dishes">${I('search')}<span class="ph">Search for ‘<i id="u-word">${e(S.words[0] || 'biryani')}</i>’</span></a></div>
       ${notes}
+      ${homeInstallHidden() ? '' : installCard('home')}
+      ${offer ? `<div class="u-offerbar" role="status"><span class="ic">${I('percent')}</span><span class="txt"><b>${e(offer.title)}</b><small>${e(offer.body)}</small></span>${linkPath(offer.deep_link) ? `<button class="btn sm" data-act="ban-open" data-id="${offer.id}" data-path="${e(linkPath(offer.deep_link))}">View</button>` : ''}<button class="x" data-act="ban-x" data-id="${offer.id}" aria-label="Dismiss offer">${I('x')}</button></div>` : ''}
       ${bans.length ? `<div class="u-bans" id="u-bans">${bans.join('')}</div><div class="u-bdots" id="u-bdots">${bans.map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</div>` : ''}
       ${cats.length ? `<div class="u-sec"><h2>${name ? `${e(name)}, what’s on your mind?` : 'What’s on your mind?'}</h2>${arrows('u-cats')}</div><div class="u-cats ${cats.length < 7 ? 'one' : ''}" id="u-cats">${cats.map(([k, l]) => `<button class="u-cat ${S.cat === k ? 'on' : ''}" data-act="cat" data-k="${k}" aria-pressed="${S.cat === k}"><span class="im"><img src="${catPic(k)}" alt="" loading="lazy"></span>${e(l)}</button>`).join('')}</div>` : ''}
       ${recent.length ? `<div class="u-sec"><h2>Order again<small>Your recent orders, one tap away</small></h2>${arrows('u-oa')}</div><div class="u-hscroll" id="u-oa">${recent.map((o) => oaCard(o)).join('')}</div>` : ''}
@@ -271,8 +298,8 @@
     return `<div class="u-hero">${img(cover, '', r.name)}<div class="tb"><button class="u-iconbtn" data-act="back" aria-label="Back">${I('chev', 'class="flip"')}</button><div class="grp"><button class="u-iconbtn" data-act="focus-mq" aria-label="Search the menu">${I('search')}</button></div></div></div>
       <div class="u-rinfo"><div class="r1"><div style="min-width:0"><h1>${e(r.name)}</h1><div class="cu">${e(r.cuisine || 'Local favourites')}</div></div><div class="rbox ${r.rating ? '' : 'new'}"><b>${r.rating ? star + Number(r.rating).toFixed(1) : 'New'}</b><span>${r.rating_count ? `${kfmt(r.rating_count)} ratings` : 'No ratings'}</span></div></div>
         ${r.description ? `<div class="ds">${e(r.description)}</div>` : ''}${r.operating_info ? `<div class="ds">${e(r.operating_info)}</div>` : ''}
-        <div class="facts"><div>${I('clock')}<span class="txt"><b>${prep ? `${prep + (r.packing_buffer_min || 0)} mins` : '–'}</b><small>to prepare</small></span></div><div>${I(r.is_open ? 'check' : 'clock')}<span class="txt"><b>${r.is_open ? 'Open now' : 'Closed'}</b><small>${hoursOf(r) ? `Hours ${hoursOf(r)}` : r.is_open ? 'Taking orders' : 'Opens later'}</small></span></div></div></div>
-      ${noRiders(c)}${r.is_open ? '' : `<div class="u-note bad">${I('clock')}<span>This restaurant is closed right now. You can browse the menu; ordering opens when it reopens.</span></div>`}
+        <div class="facts"><div>${I('clock')}<span class="txt"><b>${prep ? `${prep + (r.packing_buffer_min || 0)} mins` : '–'}</b><small>to prepare</small></span></div><div>${I(r.is_open ? 'check' : 'clock')}<span class="txt"><b>${r.is_open ? 'Open now' : 'Closed'}</b><small>${!r.is_open && r.next_open_at ? opensTxt(r.next_open_at) : hoursOf(r) ? `Today ${hoursOf(r)}` : r.is_open ? 'Taking orders' : 'Not taking orders'}</small></span></div></div></div>
+      ${noRiders(c)}${r.is_open ? '' : `<div class="u-note bad">${I('clock')}<span>This restaurant is closed right now${r.next_open_at ? ` · ${opensTxt(r.next_open_at)}` : ''}. You can browse the menu; ordering opens when it reopens.</span></div>`}
       <div class="u-offers">${offers.map(([ic, b, s]) => `<div class="u-offer"><span class="ic">${ic}</span><span class="txt"><b>${b}</b><small>${s}</small></span></div>`).join('')}</div>
       ${m.items.length ? `<div class="u-mbar"><label class="u-search">${I('search')}<input id="m-q" type="search" value="${e(S.mq || '')}" placeholder="Search for dishes" autocomplete="off" aria-label="Search dishes"></label>${hasDiet ? `<button class="u-veg ${S.veg ? 'on' : ''}" data-act="veg" aria-pressed="${!!S.veg}">${dietMark('veg')}<span>Veg</span><span class="tg"></span></button>` : ''}</div>` : ''}
       ${groups.map(([n, list], gi) => `<section class="u-msec ${col[gi] ? 'shut' : ''}" id="cat-${gi}"><button data-act="col" data-i="${gi}" data-r="${r.id}" aria-expanded="${!col[gi]}"><h2>${e(n)}<small>${list.length}</small></h2>${I('chev')}</button><div class="u-dishes" data-g="${gi}">${list.map(dish).join('')}</div></section>`).join('') || empty('bowl', 'Menu coming soon', 'This kitchen hasn’t added dishes yet.')}
@@ -349,7 +376,7 @@
         <div class="kv"><span>Delivery charge<small>${q.delivery_pricing === 'distance' ? `${e(q.delivery_distance_km)} km by road from ${e(S.cart.rname)}` : q.delivery_pricing === 'distance_fallback' ? 'Standard charge' : q.delivery_type === 'listed' ? e(q.delivery_location) : 'Fixed charge for places not on the list'}${q.delivery_paise < q.delivery_fee_before_offers_paise ? ' · free above the restaurant’s minimum' : ''}</small></span><span>${q.delivery_paise < q.delivery_fee_before_offers_paise ? `<s class="mute" style="font-weight:500;margin-right:6px">${rs(q.delivery_fee_before_offers_paise)}</s>` : ''}${rs(q.delivery_paise)}</span></div>
         ${q.delivery_fallback ? `<div class="u-note info small">${I('info')}<span>We couldn’t measure the road distance right now, so the standard delivery charge applies.</span></div>` : ''}${q.surge_paise ? `<div class="kv"><span>Surge charge</span><span>${rs(q.surge_paise)}</span></div>` : ''}${q.tax_paise ? `<div class="kv"><span>Taxes</span><span>${rs(q.tax_paise)}</span></div>` : ''}
         ${q.discount_paise ? `<div class="kv save"><span>Coupon ${e(q.coupon_code)}<small>Paid by Pakka Local</small></span><span>− ${rs(q.discount_paise)}</span></div>` : ''}
-        <div class="kv tot"><span>To pay</span><span>${rs(q.total_paise)}</span></div></div><div class="small mute">Estimated delivery in ~${q.prep_min + 8 + q.delivery_min} min</div></div>` : '';
+        <div class="kv tot"><span>To pay</span><span>${rs(q.total_paise)}</span></div></div>${q.trip_km != null ? `<div class="u-trip">${I('nav')}<span>${q.trip_by_road ? `<b>${q.trip_km} km</b> by road from ${e(S.cart.rname)}` : `About <b>${q.trip_km} km</b> from ${e(S.cart.rname)} <small>(straight line)</small>`}</span></div>` : ''}<div class="small mute">Estimated delivery in ~${q.prep_min + 8 + q.delivery_min} min${q.trip_km != null ? '' : ' (restaurant location not set)'}</div></div>` : '';
     // compact "Deliver to" card; the full chooser opens only when changing it
     const open = !sel || S.addrOpen, spl = sel && placeOf(sel);
     const deliver = open ? `<div class="u-box u-deliver"><div class="row between"><h3>${I('pin')} Deliver to</h3>${sel ? '<button class="btn ghost sm" data-act="addr-done">Done</button>' : ''}</div>${tabs}${addrPart}</div>`
@@ -560,17 +587,47 @@
   PL.forms['refund-upi'] = async (f) => { const v = PL.form(f); const r = await PL.run(() => PL.post(`/api/customer/orders/${f.dataset.code}/refund-upi`, { upi_id: v.upi_id.trim(), upi_name: v.upi_name.trim() || undefined }), 'Refund request sent. We’ll notify you when it’s paid.'); if (r) PL.rerender(); };
 
   // ---------- account ----------
-  async function account() { const [me, pf, my, adr] = await Promise.all([PL.api('/api/customer/me'), PL.api('/api/customer/preferences'), PL.api('/api/customer/orders'), PL.api('/api/customer/addresses').catch(() => ({ addresses: [] }))]); const u = me.user;
-    const delivered = my.orders.filter((o) => o.status === 'DELIVERED').length;
-    return `<div class="u-pg"><div class="u-prof"><div class="av">${e((u.name || 'P').trim().charAt(0).toUpperCase())}</div><div style="min-width:0"><h1>${e(u.name || 'Pakka Local customer')}</h1><small>${e(u.phone)}</small></div></div>
-      <div class="u-tiles"><button class="u-tile" data-act="go" data-path="/orders"><span class="ic">${I('orders')}</span><b>${my.orders.length}</b><small>Orders</small></button><button class="u-tile" data-act="go" data-path="/orders"><span class="ic">${I('check')}</span><b>${delivered}</b><small>Delivered</small></button><button class="u-tile" data-act="go" data-path="/addresses"><span class="ic">${I('pin')}</span><b>${adr.addresses.length}</b><small>Addresses</small></button></div>
-      <div class="u-menu"><button data-act="go" data-path="/orders"><span class="ic">${I('orders')}</span><span><b>My orders</b><small>Track active orders and see past ones</small></span><span class="chev">${I('chev')}</span></button>
-        <button data-act="go" data-path="/addresses"><span class="ic">${I('pin')}</span><span><b>Delivery addresses</b><small>Saved places with their GPS location</small></span><span class="chev">${I('chev')}</span></button>
-        <button data-act="inbox"><span class="ic">${I('bell')}</span><span><b>Notifications</b><small>Order updates and messages</small></span><span class="chev">${I('chev')}</span></button>
+  // ---------- Install Pakka Local (home-screen app) ----------
+  // Chrome/Edge on Android and desktop: the browser's real install prompt (beforeinstallprompt). iPhone Safari and other
+  // browsers have no prompt, so we show the exact manual steps instead of a button that does nothing.
+  const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } }, lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+  let installEvt = null;
+  const isInstalled = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true || lsGet('pl.installed') === '1';
+  const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  window.addEventListener('beforeinstallprompt', (ev) => { ev.preventDefault(); installEvt = ev; document.querySelectorAll('.u-install').forEach((c) => { c.outerHTML = installCard(c.dataset.where); }); });
+  window.addEventListener('appinstalled', () => { lsSet('pl.installed', '1'); installEvt = null; document.querySelectorAll('.u-install').forEach((c) => c.remove()); PL.toast('Pakka Local is installed on your phone', 'ok'); setTimeout(askNotify, 800); });
+  const homeInstallHidden = () => isInstalled() || Date.now() - Number(lsGet('pl.install.dismissed') || 0) < 30 * 864e5;      // "Not now" hides it on Home for 30 days
+  function installCard(where = 'account') {
+    if (isInstalled()) return '';
+    const head = `<span class="ic"><img src="/assets/icon-192.png" alt=""></span><span class="txt"><b>Install the Pakka Local app</b><small>Opens in one tap from your home screen, full screen, with order alerts.</small></span>`;
+    const notNow = where === 'home' ? '<button class="btn ghost sm" data-act="install-later">Not now</button>' : '';
+    if (installEvt) return `<div class="u-install" data-where="${where}"><div class="row1">${head}</div><div class="row2">${notNow}<button class="btn sm" data-act="install-go">${I('plus')} Install app</button></div></div>`;
+    const how = isIOS() ? 'In Safari, tap the <b>Share</b> button, then <b>Add to Home Screen</b>.' : 'Open your browser menu (<b>⋮</b>) and tap <b>Install app</b> or <b>Add to Home screen</b>.';
+    return `<div class="u-install" data-where="${where}"><div class="row1">${head}</div><p class="how">${how}</p>${notNow ? `<div class="row2">${notNow}</div>` : ''}</div>`;
+  }
+  PL.actions['install-go'] = async () => { if (!installEvt) return PL.toast('Use your browser menu: Install app / Add to Home screen.', 'info'); const e2 = installEvt; installEvt = null;
+    e2.prompt(); const r = await e2.userChoice.catch(() => null); if (r?.outcome === 'accepted') { lsSet('pl.installed', '1'); } else lsSet('pl.install.dismissed', String(Date.now())); document.querySelectorAll('.u-install').forEach((c) => c.remove()); };
+  PL.actions['install-later'] = (el) => { lsSet('pl.install.dismissed', String(Date.now())); el.closest('.u-install')?.remove(); };
+  // after installing (or the first time the installed app opens): explain, then ask for notification permission on a tap
+  function askNotify() {
+    if (!('Notification' in window) || Notification.permission !== 'default' || lsGet('pl.notify.asked') === '1' || !PL.session()) return;
+    lsSet('pl.notify.asked', '1');
+    PL.modal(`<div class="cf"><span class="cf-ic">${I('bell')}</span><h3>Get order updates on this phone?</h3><p class="small mute">We’ll tell you when the restaurant accepts, when your food is on the way and when it arrives. You can turn this off any time in Account.</p></div>
+      <div class="row mt"><button class="btn ghost grow" data-act="close-modal">Not now</button><button class="btn grow" data-act="notify-yes">Turn on</button></div>`); }
+  PL.actions['notify-yes'] = async () => { await PL.closeModalAsync(); try { await PL.push.enable(); PL.toast('Notifications are on', 'ok'); } catch (x) { PL.toast(x.message, true); } PL.rerender(); };
+  if (matchMedia('(display-mode: standalone)').matches) setTimeout(askNotify, 2500);
+
+  // Account: profile, notifications, offers, install. (Orders live in the Orders tab; addresses are chosen in the cart.)
+  async function account() { const [me, pf] = await Promise.all([PL.api('/api/customer/me'), PL.api('/api/customer/preferences')]); const u = me.user;
+    return `<div class="u-pg"><div class="u-prof"><div class="av">${e((u.name || 'P').trim().charAt(0).toUpperCase())}</div><div style="min-width:0"><h1>${e(u.name || 'Pakka Local customer')}</h1><small>${e(u.phone)}</small></div><button class="btn ghost sm" data-act="name-edit">Edit name</button></div>
+      ${installCard()}
+      <div class="u-menu"><button data-act="inbox"><span class="ic">${I('bell')}</span><span><b>Notifications</b><small>Order updates and messages</small></span><span class="chev">${I('chev')}</span></button>
         <div><span class="ic">${I('percent')}</span><span class="grow"><b>Offers and promotions</b><small>Order updates are always sent.</small></span><button class="sw ${pf.promo_opt_in ? 'on' : ''}" data-act="promo-toggle" data-v="${pf.promo_opt_in ? 0 : 1}" aria-label="Offers and promotions"><i></i></button></div></div>
       ${PL.push.card('user')}
-      <details class="u-box"><summary><span>Install Pakka Local on your phone</span>${I('chev')}</summary><p class="small mute mt2">Android: use the Install prompt in Chrome. iPhone: open in Safari, tap Share, then “Add to Home Screen”. Notifications on iPhone need iOS 16.4 or later and the installed app.</p></details>
       <button class="btn ghost block mt" data-act="logout">${I('logout')} Sign out</button></div>`; }
+  PL.actions['name-edit'] = () => PL.modal(`<h3>Your name</h3><form data-form="name-change"><input name="name" maxlength="60" required autocomplete="name"><button class="btn block mt" type="submit">Save</button></form>`);
+  PL.forms['name-change'] = async (f) => { const name = PL.form(f).name.trim(); const r = await PL.run(() => PL.post('/api/auth/name', { name }), 'Name saved'); if (!r) return;
+    const s = PL.session(); if (s) { s.user = { ...s.user, ...r.user }; PL.setSession(s); } await PL.closeModalAsync(); PL.rerender(); };
   PL.actions['promo-toggle'] = async (el) => { const r = await PL.run(() => PL.put('/api/customer/preferences', { promo_opt_in: el.dataset.v === '1' }), el.dataset.v === '1' ? 'Offers turned on' : 'Offers turned off'); if (r) PL.rerender(); };
   PL.actions.rate = async (el) => { const r = await PL.run(() => PL.post(`/api/customer/orders/${el.dataset.code}/rating`, { stars: Number(el.dataset.s) }), 'Thanks for rating'); if (r) PL.rerender(); };
   PL.actions.goorder = (el) => { const m = /orders\/([A-Z0-9]+)/.exec(el.dataset.link); if (m) PL.go('/orders/' + m[1]); };

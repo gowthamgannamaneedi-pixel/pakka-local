@@ -683,5 +683,36 @@ CREATE INDEX idx_otp_wamid ON otp_challenges(wa_message_id) WHERE wa_message_id 
 CREATE TABLE otp_blocks (
   phone TEXT PRIMARY KEY, fails INTEGER NOT NULL DEFAULT 0, window_start TEXT NOT NULL, blocked_until TEXT
 );`
+  },
+  {
+    // Restaurant location management (address parts, how/when the location was confirmed) and weekly opening hours.
+    // Existing coordinates are kept but marked unconfirmed until the owner or an admin confirms them; nothing is invented.
+    // The single opening/closing time added earlier (p9_002) is copied to all seven days so no restaurant loses its hours.
+    id: 'p10_001_location_and_hours',
+    sql: `
+ALTER TABLE restaurants ADD COLUMN addr_building TEXT;
+ALTER TABLE restaurants ADD COLUMN addr_area TEXT;
+ALTER TABLE restaurants ADD COLUMN addr_city TEXT;
+ALTER TABLE restaurants ADD COLUMN addr_state TEXT;
+ALTER TABLE restaurants ADD COLUMN addr_pin TEXT;
+ALTER TABLE restaurants ADD COLUMN location_source TEXT CHECK (location_source IS NULL OR location_source IN ('gps','map','manual','admin'));
+ALTER TABLE restaurants ADD COLUMN location_confirmed_at TEXT;
+ALTER TABLE restaurants ADD COLUMN location_confirmed_by INTEGER;
+CREATE TABLE restaurant_hours (
+  restaurant_id INTEGER NOT NULL REFERENCES restaurants(id),
+  dow INTEGER NOT NULL CHECK (dow BETWEEN 0 AND 6),              -- 0 = Sunday ... 6 = Saturday (Asia/Kolkata)
+  closed INTEGER NOT NULL DEFAULT 0,
+  open_min INTEGER CHECK (open_min IS NULL OR open_min BETWEEN 0 AND 1439),
+  close_min INTEGER CHECK (close_min IS NULL OR close_min BETWEEN 0 AND 1439),   -- close <= open means it closes after midnight
+  PRIMARY KEY (restaurant_id, dow)
+);
+INSERT INTO restaurant_hours (restaurant_id, dow, closed, open_min, close_min)
+  SELECT r.id, d.dow, 0, CAST(substr(r.opens_at,1,2) AS INTEGER)*60 + CAST(substr(r.opens_at,4,2) AS INTEGER),
+         CAST(substr(r.closes_at,1,2) AS INTEGER)*60 + CAST(substr(r.closes_at,4,2) AS INTEGER)
+  FROM restaurants r, (SELECT 0 AS dow UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION SELECT 5 UNION SELECT 6) d
+  WHERE r.opens_at IS NOT NULL AND r.closes_at IS NOT NULL AND r.opens_at <> r.closes_at;
+-- before this change only an admin could enter a pickup point (Distance page), so existing points count as confirmed by an admin
+UPDATE restaurants SET location_source='admin', location_confirmed_at=COALESCE(pickup_updated_at, datetime('now'))
+  WHERE pickup_lat IS NOT NULL AND pickup_lng IS NOT NULL;`
   }
 ];

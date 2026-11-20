@@ -38,7 +38,7 @@ test('creates the four accounts, test restaurant (visible, open, with menu), dra
     assert.equal((await login('rider', TEST.rider.phone, pwOf(txt, TEST.rider.phone))).status, 200);
     assert.equal((await login('admin', TEST.owner.phone, pwOf(txt, TEST.owner.phone))).status, 401, 'roles stay separate');
     const pub = await fetch(base + '/api/public/restaurants').then((r) => r.json());
-    const r = pub.restaurants.find((x) => x.name === TEST.restaurant.name); assert.ok(r, 'visible to customers'); assert.equal(r.is_open, 1);
+    const r = pub.restaurants.find((x) => x.name === TEST.restaurant.name); assert.ok(r, 'visible to customers'); assert.deepEqual([r.is_open, r.closed_reason], [0, 'no_location'], 'no location is invented: the owner sets it in the portal before customers can order');
     const menu = await fetch(`${base}/api/public/restaurants/${r.id}/menu`).then((x) => x.json()); assert.equal(menu.items?.length ?? menu.menu?.length, 2);
   } finally { srv.close(); }
 });

@@ -17,7 +17,7 @@ test('setup', async () => {
   admin = (await (await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ portal: 'admin', phone: '+919600000001', password: PW }) })).json()).token;
   assert.ok(admin);
   cust = db.prepare("INSERT INTO users (role,phone,name) VALUES ('customer','+919600000002','Cust')").run().lastInsertRowid;
-  rest = db.prepare("INSERT INTO restaurants (name,admin_visible,approved) VALUES ('R',1,1)").run().lastInsertRowid;
+  rest = db.prepare("INSERT INTO restaurants (pickup_lat,pickup_lng,location_source,location_confirmed_at,name,admin_visible,approved) VALUES (17.385,78.4867,'admin',datetime('now'),'R',1,1)").run().lastInsertRowid;
 });
 
 // one order with a fixed price snapshot; DELIVERED orders also get the platform ledger rows the delivery step writes

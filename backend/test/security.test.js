@@ -22,7 +22,7 @@ const S = {};
 
 test('setup', async () => {
   S.adminId = mk('admin', '+919800000001'); S.admin = (await login('admin', '+919800000001')).body.token;
-  for (const [i, n] of ['A', 'B'].entries()) { const r = db.prepare("INSERT INTO restaurants (name,admin_visible,approved) VALUES (?,1,1)").run(n).lastInsertRowid; S['r' + i] = r;
+  for (const [i, n] of ['A', 'B'].entries()) { const r = db.prepare("INSERT INTO restaurants (pickup_lat,pickup_lng,location_source,location_confirmed_at,name,admin_visible,approved) VALUES (17.385,78.4867,'admin',datetime('now'),?,1,1)").run(n).lastInsertRowid; S['r' + i] = r;
     const u = mk('restaurant', `+91980000010${i}`); db.prepare('INSERT INTO restaurant_users VALUES (?,?)').run(u, r); db.prepare('INSERT INTO restaurant_operating_status (restaurant_id,is_open) VALUES (?,1)').run(r); S['rt' + i] = (await login('restaurant', `+91980000010${i}`)).body.token; }
   S.item = db.prepare("INSERT INTO food_items (restaurant_id,name,base_price_paise) VALUES (?,'Dish',10000)").run(S.r0).lastInsertRowid;
   S.riderId = mk('rider', '+919800000201'); db.prepare("INSERT INTO riders (user_id,verification_status) VALUES (?,'approved')").run(S.riderId); S.rider = (await login('rider', '+919800000201')).body.token;

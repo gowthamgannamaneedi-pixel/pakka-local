@@ -23,7 +23,7 @@ export async function makeWorld(prefix = '9400') {
   W.admin = await staff('admin', ph(1));
   W.rest = (await call('POST', '/api/admin/restaurants', { name: 'Test Kitchen', commission_bps: 1000, markup_paise: 2000, admin_visible: true, approved: true }, W.admin)).body.id;
   await call('POST', '/api/admin/users', { role: 'restaurant', name: 'Owner', phone: ph(101), password: PW, restaurant_id: W.rest }, W.admin);
-  W.owner = await staff('restaurant', ph(101)); await call('POST', '/api/restaurant/status', { open: true }, W.owner);
+  W.owner = await staff('restaurant', ph(101)); await call('PUT', '/api/restaurant/location', { lat: 17.385, lng: 78.4867, source: 'manual' }, W.owner); await call('POST', '/api/restaurant/status', { open: true }, W.owner);
   W.item = (await call('POST', '/api/restaurant/menu', { name: 'Biryani', base_price_paise: 14000, prep_time_min: 20, image: PNG }, W.owner)).body.id;
   W.loc = (await call('POST', '/api/admin/locations', { name: 'Sunrise Hostel', address: 'Uppal Road', delivery_fee_paise: 4000, distance_km: 2 }, W.admin)).body.id;
   await call('POST', '/api/admin/users', { role: 'rider', name: 'Rahul', phone: ph(201), password: PW }, W.admin);

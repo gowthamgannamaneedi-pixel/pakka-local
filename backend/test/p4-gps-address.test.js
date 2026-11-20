@@ -20,7 +20,7 @@ const S = {};
 
 test('setup: restaurant, delivery area, two approved online riders, two customers', async () => {
   mk('admin', '+919700000001'); S.admin = await staff('admin', '+919700000001');
-  S.rid = db.prepare("INSERT INTO restaurants (name,admin_visible,approved,markup_paise,commission_bps) VALUES ('R',1,1,0,1000)").run().lastInsertRowid;
+  S.rid = db.prepare("INSERT INTO restaurants (pickup_lat,pickup_lng,location_source,location_confirmed_at,name,admin_visible,approved,markup_paise,commission_bps) VALUES (17.385,78.4867,'admin',datetime('now'),'R',1,1,0,1000)").run().lastInsertRowid;
   db.prepare('INSERT INTO restaurant_operating_status (restaurant_id,is_open) VALUES (?,1)').run(S.rid);
   const ru = mk('restaurant', '+919700000002'); db.prepare('INSERT INTO restaurant_users VALUES (?,?)').run(ru, S.rid); S.rest = await staff('restaurant', '+919700000002');
   S.item = db.prepare("INSERT INTO food_items (restaurant_id,name,base_price_paise,image_path) VALUES (?,'Meal',10000,'x.png')").run(S.rid).lastInsertRowid;

@@ -13,7 +13,8 @@ import { newSecret, encrypt, decrypt, verifyTotp, otpauthUri } from '../totp.js'
 import { audienceUsers, campaignStats, processCampaigns } from '../services/push.js';
 import { saveUpload } from '../services/core.js';
 import { USERNAME_RE } from './auth.js';
-import { mountMenu } from './restaurant.js';
+import { mountMenu, ADDR, saveAddress } from './restaurant.js';
+import * as Hours from '../services/hours.js';
 import * as Coupons from '../services/coupons.js';
 import * as Refunds from '../services/refunds.js';
 
@@ -165,7 +166,7 @@ export function adminRoutes(db) {
     res.json({ records: db.prepare("SELECT t.kind,t.amount_paise,t.created_at,o.order_code FROM platform_transactions t LEFT JOIN orders o ON o.id=t.order_id WHERE t.account_type=? AND t.account_id=? ORDER BY t.id DESC LIMIT 30").all(c.account_type, c.account_id), balance: balances(db, c.account_type, c.account_id) }); });
 
   // restaurants
-  r.get('/restaurants', (req, res) => res.json({ restaurants: db.prepare(`SELECT r.*, COALESCE(s.is_open,0) AS is_open, (SELECT u.phone FROM restaurant_users ru JOIN users u ON u.id=ru.user_id WHERE ru.restaurant_id=r.id LIMIT 1) AS owner_phone FROM restaurants r LEFT JOIN restaurant_operating_status s ON s.restaurant_id=r.id ORDER BY r.id`).all()
+  r.get('/restaurants', (req, res) => res.json({ restaurants: db.prepare(`SELECT r.*, COALESCE(s.is_open,0) AS is_open, (SELECT u.phone FROM restaurant_users ru JOIN users u ON u.id=ru.user_id WHERE ru.restaurant_id=r.id LIMIT 1) AS owner_phone FROM restaurants r LEFT JOIN restaurant_operating_status s ON s.restaurant_id=r.id ORDER BY r.id`).all().map((x) => ({ ...x, location_status: x.pickup_lat == null ? 'missing' : x.location_confirmed_at ? 'confirmed' : 'unconfirmed', availability: Hours.availability(db, x.id), hours: Hours.weekOut(Hours.getHours(db, x.id)) }))
     .map(x => ({ ...x, balance: balances(db, 'restaurant', x.id) })) }));
   const rest = z.object({ name: z.string().trim().min(1).max(80), description: z.string().max(300).optional(), address: z.string().max(200).optional(), phone: z.string().max(20).optional(), cuisine: z.string().max(60).optional(),
     commission_bps: z.number().int().min(0).max(5000), markup_paise: money.max(100000), packing_buffer_min: z.number().int().min(0).max(60).optional(), min_order_paise: money.optional(), free_delivery_above_paise: money.nullish(), admin_visible: z.boolean().optional(), approved: z.boolean().optional() });
@@ -180,11 +181,16 @@ export function adminRoutes(db) {
       .run(m.name, m.description, m.address, m.phone, m.cuisine, m.commission_bps, m.markup_paise, m.packing_buffer_min, m.min_order_paise ?? 0, m.free_delivery_above_paise, m.admin_visible, m.approved, c.id);
     audit(db, req, 'restaurant.update', 'restaurant', c.id, d); res.json({ ok: true }); }));
   // restaurant pickup point (start of the road-distance calculation). Entered by an admin; audited with old/new values.
-  r.put('/restaurants/:id(\\d+)/pickup', wrap((req, res) => { const d = parse(z.object({ lat: z.number().min(-90).max(90).nullable(), lng: z.number().min(-180).max(180).nullable() }).strict()
+  r.put('/restaurants/:id(\\d+)/pickup', wrap((req, res) => { const d = parse(z.object({ lat: z.number().min(-90).max(90).nullable(), lng: z.number().min(-180).max(180).nullable(), address: ADDR.optional() }).strict()
       .refine((x) => (x.lat == null) === (x.lng == null), 'Enter both latitude and longitude, or neither.').refine((x) => !(x.lat === 0 && x.lng === 0), 'That map point is not valid.'), req, res); if (!d) return;
     const c = db.prepare('SELECT id, pickup_lat, pickup_lng FROM restaurants WHERE id=?').get(req.params.id); if (!c) return res.status(404).json({ error: 'Restaurant not found.' });
-    db.prepare('UPDATE restaurants SET pickup_lat=?, pickup_lng=?, pickup_updated_at=? WHERE id=?').run(d.lat, d.lng, iso(), c.id);
-    audit(db, req, 'restaurant.pickup_point', 'restaurant', c.id, { changed: { pickup: { from: c.pickup_lat == null ? null : [c.pickup_lat, c.pickup_lng], to: d.lat == null ? null : [d.lat, d.lng] } } });
+    if (d.lat != null && (d.lat < 6 || d.lat > 37.5 || d.lng < 68 || d.lng > 97.5)) return res.status(400).json({ error: 'That point is outside India. Check that latitude and longitude are not swapped.', code: 'BAD_LOCATION' });
+    const lat = d.lat == null ? null : Math.round(d.lat * 1e6) / 1e6, lng = d.lng == null ? null : Math.round(d.lng * 1e6) / 1e6;
+    // an admin entering or correcting the point confirms it; clearing it removes the confirmation (the restaurant stops taking new orders)
+    db.prepare('UPDATE restaurants SET pickup_lat=?, pickup_lng=?, pickup_updated_at=?, location_source=?, location_confirmed_at=?, location_confirmed_by=? WHERE id=?')
+      .run(lat, lng, iso(), lat == null ? null : 'admin', lat == null ? null : iso(), lat == null ? null : req.user.id, c.id);
+    if (d.address) saveAddress(db, c.id, d.address);
+    audit(db, req, 'restaurant.pickup_point', 'restaurant', c.id, { changed: { pickup: { from: c.pickup_lat == null ? null : [c.pickup_lat, c.pickup_lng], to: lat == null ? null : [lat, lng] }, address: d.address ?? undefined } });
     res.json({ ok: true }); }));
   // ---------- distance-based delivery pricing ----------
   r.get('/distance-pricing', (req, res) => res.json({ config: Pricing.getConfig(db), provider: Routing.providerName(), osrm_configured: !!config.routing.osrmUrl,

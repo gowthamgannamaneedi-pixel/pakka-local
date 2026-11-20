@@ -272,12 +272,19 @@
   PL.ago = ago;
   // icon by what the notification is about (status wording comes from the server's own titles)
   const icoOf = (n) => ({ restaurant_new: 'receipt', rider_offer: 'bike', promo: 'percent', test: 'check' }[n.kind]) || [[/picked|on its way|on the way/i, 'bike'], [/ready/i, 'box'], [/prepar/i, 'chef'], [/deliver/i, 'check'], [/refund|cashout|payout|paid/i, 'wallet'], [/cancel|reject|fail/i, 'alert'], [/accept/i, 'check'], [/placed|new order|confirmed/i, 'receipt']].find(([re]) => re.test(n.title + ' ' + n.body))?.[1] || 'bell';
-  const listHtml = () => `<div class="nc-list">${I.list.length ? I.list.map((n) => { const p = pathOf(n.deep_link); return `<button class="nc-item ${n.read_at ? '' : 'new'}" ${p ? `data-act="inbox-go" data-path="${e(p)}"` : 'tabindex="-1"'}><span class="nc-ic k-${e(n.kind || '')}">${PL.icon(icoOf(n))}</span><span class="grow"><b>${e(n.title)}</b><span>${e(n.body)}</span><small>${e(ago(n.created_at))}</small></span>${n.read_at ? '' : '<i class="nc-dot" aria-label="Unread"></i>'}</button>`; }).join('')
+  const listHtml = () => `<div class="nc-list">${I.list.length ? I.list.map((n) => { const p = pathOf(n.deep_link); return `<button class="nc-item ${n.read_at ? '' : 'new'}" data-act="inbox-go" data-id="${n.id}" data-path="${e(p)}"><span class="nc-ic k-${e(n.kind || '')}">${PL.icon(icoOf(n))}</span><span class="grow"><b>${e(n.title)}</b><span>${e(n.body)}</span><small>${e(ago(n.created_at))}</small></span>${n.read_at ? '' : '<i class="nc-dot" aria-label="Unread"></i>'}</button>`; }).join('')
     : `<div class="nc-empty">${PL.icon('bell')}<b>You’re all caught up</b><span>Order updates and alerts will appear here.</span></div>`}</div>`;
   PL.actions.inbox = async () => { await I.load();
     PL.modal(`<div class="nc-head"><h3>Notifications</h3>${I.unread ? `<button class="btn ghost sm" data-act="inbox-read">Mark all read</button>` : ''}</div>${PL.push ? `<div class="nc-push">${PL.push.card(PL.portal === 'user' ? 'user' : PL.portal)}</div>` : ''}${listHtml()}`, { cls: 'ov-nc' }); };
   PL.actions['inbox-read'] = async (el) => { const r = await PL.run(() => PL.post('/api/push/inbox/read')); if (!r) return; el.remove(); I.list.forEach((n) => { n.read_at = n.read_at || 'now'; }); I.unread = 0; await I.load(); };
-  PL.actions['inbox-go'] = async (el) => { await PL.closeModalAsync(); PL.go(el.dataset.path); };
+  // opening a notification marks it read (dot and counter update at once), then goes to its screen if it has one
+  const markRead = (id) => { const n = I.list.find((x) => String(x.id) === String(id)); if (!n || n.read_at) return; n.read_at = 'now'; I.unread = Math.max(0, I.unread - 1);
+    document.querySelectorAll('.nc-n').forEach((b) => { b.textContent = I.unread > 9 ? '9+' : I.unread; b.classList.toggle('hide', !I.unread); });
+    PL.post(`/api/push/inbox/${id}/read`).catch(() => {}); };
+  PL.markInboxRead = markRead;
+  PL.actions['inbox-go'] = async (el) => { markRead(el.dataset.id);
+    if (!el.dataset.path) { el.classList.remove('new'); el.querySelector('.nc-dot')?.remove(); return; }
+    await PL.closeModalAsync(); PL.go(el.dataset.path); };
   if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', (ev) => { if (ev.data?.type === 'push') I.load(); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) I.load(); });
 

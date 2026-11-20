@@ -23,7 +23,7 @@ const S = {};
 
 test('setup', async () => {
   mk('admin', '+919500000001'); S.admin = await staff('admin', '+919500000001');
-  const rid = db.prepare("INSERT INTO restaurants (name,admin_visible,approved,markup_paise) VALUES ('R',1,1,2000)").run().lastInsertRowid;
+  const rid = db.prepare("INSERT INTO restaurants (pickup_lat,pickup_lng,location_source,location_confirmed_at,name,admin_visible,approved,markup_paise) VALUES (17.385,78.4867,'admin',datetime('now'),'R',1,1,2000)").run().lastInsertRowid;
   const ru = mk('restaurant', '+919500000002'); db.prepare('INSERT INTO restaurant_users VALUES (?,?)').run(ru, rid); db.prepare('INSERT INTO restaurant_operating_status (restaurant_id,is_open) VALUES (?,1)').run(rid);
   S.item = db.prepare("INSERT INTO food_items (restaurant_id,name,base_price_paise) VALUES (?,'Biryani',14000)").run(rid).lastInsertRowid; S.rid = rid;
   S.loc = db.prepare("INSERT INTO delivery_locations (name,address,delivery_fee_paise) VALUES ('Hostel','Road 1, Secret Lane',4000)").run().lastInsertRowid;

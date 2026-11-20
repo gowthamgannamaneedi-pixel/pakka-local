@@ -1,5 +1,5 @@
 import { z } from 'zod';
-export const send = (res, r, okStatus = 200) => r.error ? res.status(r.status || 400).json({ error: r.error, code: r.code }) : res.status(okStatus).json(r);
+export const send = (res, r, okStatus = 200) => r.error ? res.status(r.status || 400).json({ error: r.error, code: r.code, reason: r.reason, next_open_at: r.next_open_at }) : res.status(okStatus).json(r);
 export const parse = (schema, req, res) => { const p = schema.safeParse(req.body ?? {}); if (!p.success) { res.status(400).json({ error: p.error.issues[0].message }); return null; } return p.data; };
 export const wrap = (fn) => (req, res, next) => { try { fn(req, res, next); } catch (e) {
   if (e.status) return res.status(e.status).json({ error: e.message });

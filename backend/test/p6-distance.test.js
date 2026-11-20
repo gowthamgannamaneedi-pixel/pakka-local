@@ -106,8 +106,8 @@ test('routing failure: fallback charge if configured and clearly recorded; refus
   const row = db.prepare('SELECT delivery_paise, delivery_pricing, delivery_distance_m, delivery_route_source FROM orders WHERE order_code=?').get(o.body.order_code);
   assert.deepEqual([row.delivery_paise, row.delivery_pricing, row.delivery_distance_m, row.delivery_route_source], [3500, 'distance_fallback', null, 'none:unreachable']);
   failMode = null;
-  // a restaurant without a pickup point cannot be measured: fallback, with the reason recorded
-  const q3 = (await quote(id, { restaurant_id: S.r3, items: [{ id: S.i3, qty: 1 }] })).body; assert.deepEqual([q3.delivery_paise, q3.delivery_pricing], [3500, 'distance_fallback']);
+  // a restaurant without a confirmed location takes no new orders at all (nothing is guessed for it)
+  const q3 = await quote(id, { restaurant_id: S.r3, items: [{ id: S.i3, qty: 1 }] }); assert.equal(q3.status, 409); assert.deepEqual([q3.body.code, q3.body.reason], ['RESTAURANT_CLOSED', 'no_location']);
 });
 
 test('cache: identical points are not routed twice; moving the restaurant or the address forces a new lookup', async () => {

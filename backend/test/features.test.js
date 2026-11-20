@@ -19,7 +19,7 @@ const S = {}; const sent = []; setPushSender(async (s, p) => { sent.push({ ep: s
 
 test('setup', async () => {
   mk('admin', '+919400000001'); S.admin = await staff('admin', '+919400000001');
-  for (const i of [0, 1]) { const r = db.prepare("INSERT INTO restaurants (name,admin_visible,approved,markup_paise,commission_bps) VALUES (?,1,1,2000,1000)").run('R' + i).lastInsertRowid; S['r' + i] = r;
+  for (const i of [0, 1]) { const r = db.prepare("INSERT INTO restaurants (pickup_lat,pickup_lng,location_source,location_confirmed_at,name,admin_visible,approved,markup_paise,commission_bps) VALUES (17.385,78.4867,'admin',datetime('now'),?,1,1,2000,1000)").run('R' + i).lastInsertRowid; S['r' + i] = r;
     const u = mk('restaurant', `+91940000010${i}`); db.prepare('INSERT INTO restaurant_users VALUES (?,?)').run(u, r); S['ru' + i] = u; db.prepare('INSERT INTO restaurant_operating_status (restaurant_id,is_open) VALUES (?,1)').run(r); S['rt' + i] = await staff('restaurant', `+91940000010${i}`); }
   S.item = db.prepare("INSERT INTO food_items (restaurant_id,name,base_price_paise,prep_time_min) VALUES (?,'Biryani',14000,20)").run(S.r0).lastInsertRowid;
   S.cheap = db.prepare("INSERT INTO food_items (restaurant_id,name,base_price_paise,prep_time_min) VALUES (?,'Chai',2000,5)").run(S.r0).lastInsertRowid;

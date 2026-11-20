@@ -66,7 +66,7 @@
   // ---------- orders + open/close ----------
   const statusCard = (s) => `<div class="card"><div class="row between"><div><div class="small mute">Restaurant status</div><h2>${s.is_open ? 'Open for orders' : 'Closed'}</h2>${!s.is_open ? `<div class="small mute">${s.reopen_mode === 'auto' && s.reopen_at ? `Reopens automatically at ${PL.dt(s.reopen_at)}` : 'Stays closed until you reopen'}</div>` : ''}</div>
     <button class="sw ${s.is_open ? 'on' : ''}" data-act="toggle-open" aria-label="Open or close restaurant"><i></i></button></div></div>`;
-  PL.actions['toggle-open'] = async () => { S.et = null; const me = await PL.api('/api/restaurant/me'); if (!me.status.is_open) { const r = await PL.run(() => PL.post('/api/restaurant/status', { open: true }), 'Restaurant is open'); if (r) PL.rerender(); return; }
+  PL.actions['toggle-open'] = async () => { S.et = null; const me = await PL.api('/api/restaurant/me'); if (!me.status.is_open && !hasLoc(me.restaurant)) { PL.toast('Add your restaurant location first. It is required before opening.', 'info'); return PL.actions['loc-open'](); } if (!me.status.is_open) { const r = await PL.run(() => PL.post('/api/restaurant/status', { open: true }), 'Restaurant is open'); if (r) PL.rerender(); return; }
     PL.modal(`<h3>Close restaurant</h3><p class="small mute">Customers can’t order while you’re closed.</p><form data-form="close"><label class="row" style="font-weight:700"><input type="radio" name="mode" value="auto" checked style="width:22px;min-height:22px"> Reopen automatically after</label>
       <div class="grid" style="grid-template-columns:repeat(3,1fr)"><div><label>Days</label><input name="days" type="number" min="0" max="30" value="0"></div><div><label>Hours</label><input name="hours" type="number" min="0" max="23" value="1"></div><div><label>Minutes</label><input name="minutes" type="number" min="0" max="59" value="0"></div></div>
       <label class="row mt" style="font-weight:700"><input type="radio" name="mode" value="manual" style="width:22px;min-height:22px"> Stay closed until I reopen manually</label><button class="btn block mt" type="submit">Close restaurant</button></form>`); };
@@ -96,14 +96,50 @@
   const headCard = (me, today) => { const st = me.status, r = me.restaurant;
     return `<div class="card r-head"><div class="row">${PL.img(r.logo_path, 'r-logo')}<div class="grow"><h2 class="ellip">${e(r.name)}</h2><div class="small mute">${today ? `Earned today <b style="color:var(--ok)">${rs(today.payout_paise)}</b>` : e(r.cuisine || '')}</div></div>
       <div class="r-open ${st.is_open ? 'on' : ''}"><span><i></i>${st.is_open ? 'Open' : 'Closed'}</span><button class="sw ${st.is_open ? 'on' : ''}" data-act="toggle-open" aria-label="${st.is_open ? 'Close restaurant' : 'Open restaurant'}"><i></i></button></div></div>
-      ${!st.is_open ? `<div class="small mute mt2">${st.reopen_mode === 'auto' && st.reopen_at ? `Reopens automatically at ${PL.dt(st.reopen_at)}` : 'Customers can’t order until you reopen.'}</div>` : ''}</div>`; };
+      ${!st.is_open ? `<div class="small mute mt2">${st.reopen_mode === 'auto' && st.reopen_at ? `Temporarily closed · reopens automatically ${whenOpen(st.reopen_at)}` : 'Customers can’t order until you reopen.'}</div>` : ''}
+      <button class="r-cust small mt2" data-act="hours-open">${custLine(me)} <u>Hours</u></button></div>`; };
+  // ---------- restaurant location (required before opening): GPS, map pin or typed coordinates + full address ----------
+  const hasLoc = (r) => r.pickup_lat != null && !!r.location_confirmed_at;
+  const locCard = () => `<div class="card r-loc"><div class="row" style="gap:12px;align-items:flex-start"><span class="r-loc-ic">${PL.icon('pin')}</span><div class="grow"><b>Add your restaurant location</b>
+    <div class="small mute">Required before customers can order. Riders use it to find you, and customers see the right distance and delivery time.</div></div></div>
+    <button class="btn block mt2" data-act="loc-open">${PL.icon('pin', 'width="18" height="18"')} Set location</button></div>`;
+  PL.actions['loc-open'] = async () => { const r = (await PL.api('/api/restaurant/me')).restaurant;
+    PL.locPicker({ title: 'Restaurant location', current: { lat: r.pickup_lat, lng: r.pickup_lng, source: r.location_source, address: { line: r.address, building: r.addr_building, area: r.addr_area, city: r.addr_city, state: r.addr_state, pin: r.addr_pin } },
+      save: (b) => PL.run(() => PL.put('/api/restaurant/location', b), 'Restaurant location saved') }); };
+  const SRC = { gps: 'phone GPS', map: 'map pin', manual: 'typed coordinates', admin: 'set by Pakka Local' };
+
+  // ---------- opening hours (Asia/Kolkata): each day on/off with its own times; past midnight allowed ----------
+  const t12 = (hm) => { if (!hm) return ''; const [h, m] = hm.split(':').map(Number); return `${((h + 11) % 12) + 1}${m ? ':' + String(m).padStart(2, '0') : ''} ${h < 12 ? 'AM' : 'PM'}`; };
+  const whenOpen = (iso) => { if (!iso) return ''; const d = new Date(iso), now = new Date(), tm = d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' });
+    const day = (x) => x.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }); const tmr = new Date(now.getTime() + 864e5);
+    return day(d) === day(now) ? `today ${tm}` : day(d) === day(tmr) ? `tomorrow ${tm}` : `${d.toLocaleDateString('en-IN', { weekday: 'long', timeZone: 'Asia/Kolkata' })} ${tm}`; };
+  const hoursRow = (d) => `<div class="r-hrow ${d.closed ? 'off' : ''}" data-dow="${d.dow}"><label class="r-hday"><input type="checkbox" name="on${d.dow}" ${d.closed ? '' : 'checked'}> ${d.name}</label>
+    <div class="r-htimes"><input type="time" name="o${d.dow}" value="${e(d.open || '10:00')}" aria-label="${d.name} opens"><span>to</span><input type="time" name="c${d.dow}" value="${e(d.close || '22:00')}" aria-label="${d.name} closes"></div><span class="r-hclosed">Closed</span></div>`;
+  PL.actions['hours-open'] = async () => { const { days } = await PL.api('/api/restaurant/hours'); const order = [1, 2, 3, 4, 5, 6, 0].map((i) => days[i]);
+    PL.modal(`<h3>Opening hours</h3><p class="small mute">India time. Untick a day to stay closed. A closing time earlier than the opening time means you close after midnight (e.g. 6:00 PM to 2:00 AM).</p>
+      <form data-form="hours">${order.map(hoursRow).join('')}<button type="button" class="btn ghost sm mt2" data-act="hrs-copy">Copy Monday’s hours to every open day</button><button class="btn block mt" type="submit">Save hours</button></form>`); };
+  document.addEventListener('change', (ev) => { const row = ev.target.closest('.r-hrow'); if (row && ev.target.type === 'checkbox') row.classList.toggle('off', !ev.target.checked); });
+  PL.actions['hrs-copy'] = (el) => { const f = el.closest('form'), o = f.o1.value, c = f.c1.value; for (let i = 0; i < 7; i++) if (f['on' + i].checked) { f['o' + i].value = o; f['c' + i].value = c; } PL.toast('Copied. Check and save.'); };
+  PL.forms.hours = async (f) => { const days = [0, 1, 2, 3, 4, 5, 6].map((dow) => f['on' + dow].checked ? { dow, closed: false, open: f['o' + dow].value, close: f['c' + dow].value } : { dow, closed: true });
+    if (days.every((d) => d.closed)) { const go = await PL.confirm('Closed every day?', 'Save anyway', { text: 'Customers will not be able to order on any day until you set opening hours again.', danger: false }); if (!go) return; }
+    const r = await PL.run(() => PL.put('/api/restaurant/hours', { days }), 'Opening hours saved'); if (r) { await PL.closeModalAsync(); PL.rerender(); } };
+  // what customers see right now, in words (the dashboard shows this under the Open switch)
+  const custLine = (me) => { const a = me.availability || {}, t = a.today;
+    const today = t ? (t.closed ? 'Closed today' : `Today ${t12(t.open)} – ${t12(t.close)}`) : 'No opening hours set';
+    if (a.open) return `<span class="ok-t">Customers can order now</span> · ${today}`;
+    if (a.reason === 'outside_hours') return `<span class="bad-t">Switch is on, but you are outside your opening hours</span> — customers see Closed${a.next_open_at ? `, opens ${whenOpen(a.next_open_at)}` : ''}. ${today}`;
+    if (a.reason === 'no_location') return '<span class="bad-t">Customers can’t order until your location is set</span>';
+    if (a.reason === 'hidden') return '<span class="bad-t">Hidden from customers by Pakka Local</span>';
+    return `Customers see Closed. ${today}`; };
+
   async function orders() {
     const [me, { orders }, today] = await Promise.all([PL.api('/api/restaurant/me'), PL.api('/api/restaurant/orders'), earnToday()]);
     const warn = !me.restaurant.admin_visible || !me.restaurant.approved ? '<div class="banner warn">Pakka Local has hidden your restaurant from customers. Contact support.</div>' : '';
     const fresh = orders.filter((o) => o.status === 'PLACED').sort((a, b) => a.id - b.id), cook = orders.filter((o) => COOK.includes(o.status)).sort((a, b) => a.id - b.id), ready = orders.filter((o) => o.status === 'READY').sort((a, b) => a.id - b.id);
     const dayKey = (t) => new Date(String(t).replace(' ', 'T') + (/Z|[+-]\d\d:?\d\d$/.test(t) ? '' : 'Z')).toDateString(), todayKey = new Date().toDateString();
     const doneToday = orders.filter((o) => PAST.includes(o.status) && dayKey(o.created_at) === todayKey).length;
-    return `${warn}${S.push === 'on' ? '' : PL.push.card('restaurant')}${headCard(me, today)}
+    const r0 = me.restaurant, noLoc = !hasLoc(r0);
+    return `${warn}${noLoc ? locCard() : ''}${S.push === 'on' ? '' : PL.push.card('restaurant')}${headCard(me, today)}
       <button id="k-sound" class="btn block mt2 ${fresh.length && !PL.sound.unlocked ? '' : 'hide'}" data-act="sound-on">${PL.icon('sound')} Tap to turn on the new-order ring</button>
       <div class="k-board">
       ${box('s-new', 'New orders', 'Check the items, then tap Accept. Cooking starts right away.', fresh, newCard, me.status.is_open ? 'No new orders. New orders ring and appear here.' : 'You are closed. Open the restaurant to get orders.')}
@@ -157,14 +193,16 @@
     return `<div class="card row">${PL.img(r.logo_path)}<div class="grow"><h3>${e(r.name)}</h3><div class="small mute">${e(r.address || '')}</div></div></div>
       <div class="card"><h3>Find an order</h3><form data-form="osearch" class="row mt2"><input name="code" placeholder="PL20261104A1B2C3" required style="text-transform:uppercase"><button class="btn" type="submit">Search</button></form><div id="sres"></div></div>
 
+      <button class="card row" style="width:100%;text-align:left;cursor:pointer" data-act="loc-open"><span style="color:var(--brand)">${PL.icon('pin')}</span><div class="grow"><b>Restaurant location</b><div class="small mute">${hasLoc(r) ? `${e([r.addr_building, r.addr_area, r.addr_city].filter(Boolean).join(', ') || 'Set')} · ${SRC[r.location_source] || 'confirmed'}` : '<span style="color:var(--bad)">Required: not set yet</span>'}</div></div></button>
+      ${hasLoc(r) ? `<div class="card flat r-locmap" id="r-locmap"></div>` : ''}
+      <button class="card row" style="width:100%;text-align:left;cursor:pointer" data-act="hours-open"><span style="color:var(--brand)">${PL.icon('clock')}</span><div class="grow"><b>Opening hours</b><div class="small mute">${custLine(me)}</div></div></button>
       <button class="card row" style="width:100%;text-align:left;cursor:pointer" data-act="edit-profile"><span style="color:var(--brand)">${PL.icon('shop')}</span><div class="grow"><b>Restaurant profile</b><div class="small mute">Name, address, contact, photos</div></div></button>${PL.push.card('restaurant')}<button class="btn ghost block mt" data-act="logout">Sign out</button>`; }
   PL.forms.osearch = async (f) => { const code = PL.form(f).code.trim().toUpperCase(); try { const { order: o } = await PL.api('/api/restaurant/orders/by-code/' + encodeURIComponent(code));
     PL.$('#sres').innerHTML = `<div class="mt2"><div class="row between">${PL.code(o.order_code)}${PL.chip(o.status)}</div>${o.items.map((i) => `<div class="kv"><span>${i.qty} × ${e(i.name)}</span></div>`).join('')}<div class="small mute">Payout ${rs(o.payout_paise)}</div>${o.events.map((x) => `<div class="small mute">${PL.dt(x.created_at)} · ${e(x.event_type.replace(/_/g, ' ').toLowerCase())}</div>`).join('')}</div>`; } catch (x) { PL.$('#sres').innerHTML = `<div class="banner bad mt2">${e(x.message)}</div>`; } };
   PL.actions['edit-profile'] = async () => { const r = (await PL.api('/api/restaurant/me')).restaurant;
-    PL.modal(`<h3>Restaurant profile</h3><form data-form="profile"><label>Name</label><input name="name" value="${e(r.name)}" required><label>Cuisine</label><input name="cuisine" value="${e(r.cuisine || '')}"><label>Description</label><textarea name="description">${e(r.description || '')}</textarea><label>Address</label><input name="address" value="${e(r.address || '')}"><label>Operating information (hours, notes)</label><input name="operating_info" maxlength="200" value="${e(r.operating_info || '')}" placeholder="e.g. Closed on Mondays"><div class="row" style="gap:10px"><div class="grow"><label>Opens at</label><input type="time" name="opens_at" value="${e(r.opens_at || '')}"></div><div class="grow"><label>Closes at</label><input type="time" name="closes_at" value="${e(r.closes_at || '')}"></div></div><p class="small mute">Shown to customers. Your Open / Closed switch still decides when orders come in.</p><label>Contact phone</label><input name="phone" value="${e(r.phone || '')}"><label>Logo</label><input type="file" name="logo" accept="image/*"><label>Cover photo</label><input type="file" name="image" accept="image/*"><button class="btn block mt" type="submit">Save</button></form>`); };
+    PL.modal(`<h3>Restaurant profile</h3><form data-form="profile"><label>Name</label><input name="name" value="${e(r.name)}" required><label>Cuisine</label><input name="cuisine" value="${e(r.cuisine || '')}"><label>Description</label><textarea name="description">${e(r.description || '')}</textarea><label>Notes for customers</label><input name="operating_info" maxlength="200" value="${e(r.operating_info || '')}" placeholder="e.g. Pure veg kitchen"><p class="small mute">Address: More → Restaurant location. Opening hours: More → Opening hours.</p><label>Contact phone</label><input name="phone" value="${e(r.phone || '')}"><label>Logo</label><input type="file" name="logo" accept="image/*"><label>Cover photo</label><input type="file" name="image" accept="image/*"><button class="btn block mt" type="submit">Save</button></form>`); };
   PL.forms.profile = async (f) => { const v = PL.form(f); let logo, image; try { if (f.logo.files[0]) logo = await PL.readFile(f.logo.files[0], { max: 600 }); if (f.image.files[0]) image = await PL.readFile(f.image.files[0]); } catch (x) { return PL.toast(x.message, true); }
-    if (!!v.opens_at !== !!v.closes_at) return PL.toast('Set both the opening and the closing time, or leave both empty.', true);
-    const r = await PL.run(() => PL.put('/api/restaurant/me', { ...v, opens_at: v.opens_at || null, closes_at: v.closes_at || null, logo, image }), 'Profile saved'); if (r) { PL.closeModal(); setTimeout(PL.rerender, 80); } };
+    const r = await PL.run(() => PL.put('/api/restaurant/me', { ...v, logo, image }), 'Profile saved'); if (r) { PL.closeModal(); setTimeout(PL.rerender, 80); } };
   // (restaurant surge-charge requests were removed)
 
   // No mute button: new-order alerts always ring once sound is allowed. An old "muted" choice from the removed button is cleared.
@@ -172,5 +210,5 @@
   PL.start({ portal: 'restaurant', name: 'Restaurant', home: '/orders', loginView: (root) => PL.staffLogin(root, { title: 'Restaurant portal', blurb: 'Manage your menu, orders and payouts.' }),
     tabs: [{ path: '/orders', label: 'Orders', icon: 'orders' }, { path: '/menu', label: 'Menu', icon: 'menu' }, { path: '/earnings', label: 'Earnings', icon: 'wallet' }, { path: '/more', label: 'More', icon: 'gear' }],
     onReady: () => { alertTick(); const iv = setInterval(alertTick, 1000); PL.hooks.stop = [() => { clearInterval(iv); const b = PL.$('#alerts'); if (b) { b.innerHTML = ''; b.dataset.h = ''; b.classList.add('hide'); setAlertSpace(b); } }]; },
-    routes: { '/orders': { title: 'Orders', render: orders, poll: 2000, skel: 'dash', after: () => alertTick() }, '/order/:id': { title: 'Order', render: oneOrder, poll: 2000 }, '/past': { title: 'Past orders', render: past, poll: 10000 }, '/menu': { title: 'Menu', render: menu }, '/earnings': { title: 'Earnings', render: earnings, poll: 5000, skel: 'dash' }, '/more': { title: 'More', render: more } } });
+    routes: { '/orders': { title: 'Orders', render: orders, poll: 2000, skel: 'dash', after: () => alertTick() }, '/order/:id': { title: 'Order', render: oneOrder, poll: 2000 }, '/past': { title: 'Past orders', render: past, poll: 10000 }, '/menu': { title: 'Menu', render: menu }, '/earnings': { title: 'Earnings', render: earnings, poll: 5000, skel: 'dash' }, '/more': { title: 'More', render: more, after: () => { const el = document.getElementById('r-locmap'); if (el) PL.api('/api/restaurant/me').then((m) => PL.locPreview(el, m.restaurant.pickup_lat, m.restaurant.pickup_lng)); } } } });
 })();

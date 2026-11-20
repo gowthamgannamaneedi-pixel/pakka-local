@@ -34,6 +34,8 @@ test('setup: admin creates restaurants, owners, locations and riders (riders can
     assert.equal(r.status, 201); S['rest' + i] = r.body.id;
     assert.equal((await call('POST', '/api/admin/users', { role: 'restaurant', name: 'Owner', phone: `+91910000010${i}`, password: PW, restaurant_id: r.body.id }, S.admin)).status, 201);
     S['rt' + i] = await staff('restaurant', `+91910000010${i}`);
+    assert.equal((await call('POST', '/api/restaurant/status', { open: true }, S['rt' + i])).status, 409, 'cannot open without a location');
+    assert.equal((await call('PUT', '/api/restaurant/location', { lat: 17.39 + i / 100, lng: 78.48, source: 'manual' }, S['rt' + i])).status, 200);
     assert.equal((await call('POST', '/api/restaurant/status', { open: true }, S['rt' + i])).status, 200);
   }
   S.item = (await call('POST', '/api/restaurant/menu', { name: 'Biryani', base_price_paise: 14000, prep_time_min: 20, image: PNG }, S.rt0)).body.id;

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { authenticate, requireRole, audit } from '../auth.js';
 import { restaurantStep, balances, requestCashout, derivedOtp, saveUpload, iso, getSetting } from '../services/core.js';
 import { send, parse, wrap, money, img } from './util.js';
+import * as Hours from '../services/hours.js';
 
 // Suggested categories a restaurant can add with one tap; restaurants can still create their own.
 export const CATEGORY_PRESETS = ['Starters', 'Soups', 'Main Course', 'Biryani', 'Rice', 'Breads', 'Curries', 'South Indian', 'Chinese', 'Tandoor', 'Snacks', 'Rolls & Wraps', 'Burgers & Sandwiches', 'Pizza', 'Combos', 'Thalis', 'Desserts', 'Beverages'];
@@ -41,6 +42,11 @@ export function mountMenu(r, db) {
   r.delete('/categories/:id', (req, res) => { db.prepare('UPDATE food_items SET category_id=NULL WHERE category_id=? AND restaurant_id=?').run(req.params.id, req.restaurantId);
     const c = db.prepare('DELETE FROM food_categories WHERE id=? AND restaurant_id=?').run(req.params.id, req.restaurantId).changes; c ? res.json({ ok: true }) : res.status(404).json({ error: 'Category not found.' }); });
 }
+// Restaurant address parts (shown to riders and admins). PIN = Indian 6-digit postal code.
+export const ADDR = z.object({ line: z.string().trim().min(3, 'Enter the street address.').max(200), building: z.string().trim().min(1, 'Enter the building or shop name.').max(100),
+  area: z.string().trim().min(2, 'Enter the area or locality.').max(100), city: z.string().trim().min(2, 'Enter the city.').max(60), state: z.string().trim().min(2, 'Enter the state.').max(60),
+  pin: z.string().trim().regex(/^[1-9][0-9]{5}$/, 'Enter a 6-digit PIN code.') }).strict();
+export const saveAddress = (db, rid, a) => db.prepare('UPDATE restaurants SET address=?, addr_building=?, addr_area=?, addr_city=?, addr_state=?, addr_pin=? WHERE id=?').run(a.line, a.building, a.area, a.city, a.state, a.pin, rid);
 export function restaurantRoutes(db) {
   const r = Router();
   r.use(authenticate(db), requireRole('restaurant'), (req, res, next) => {
@@ -51,7 +57,18 @@ export function restaurantRoutes(db) {
   const actor = (req) => ({ id: req.user.id, role: 'restaurant' });
   const statusRow = (rid) => db.prepare('SELECT is_open,reopen_mode,reopen_at FROM restaurant_operating_status WHERE restaurant_id=?').get(rid) || { is_open: 0, reopen_mode: 'manual', reopen_at: null };
 
-  r.get('/me', (req, res) => res.json({ restaurant: db.prepare('SELECT id,name,description,address,phone,cuisine,operating_info,opens_at,closes_at,logo_path,image_path,admin_visible,approved,packing_buffer_min FROM restaurants WHERE id=?').get(req.restaurantId), status: statusRow(req.restaurantId) }));
+  r.get('/me', (req, res) => res.json({ restaurant: db.prepare(`SELECT id,name,description,address,phone,cuisine,operating_info,opens_at,closes_at,logo_path,image_path,admin_visible,approved,packing_buffer_min,
+      pickup_lat,pickup_lng,pickup_updated_at,addr_building,addr_area,addr_city,addr_state,addr_pin,location_source,location_confirmed_at FROM restaurants WHERE id=?`).get(req.restaurantId),
+    status: statusRow(req.restaurantId), availability: Hours.availability(db, req.restaurantId), hours: Hours.weekOut(Hours.getHours(db, req.restaurantId)) }));
+  // weekly opening hours (Asia/Kolkata): each day on/off with its own times; closing at or before opening = closes after midnight
+  r.get('/hours', (req, res) => res.json({ days: Hours.weekOut(Hours.getHours(db, req.restaurantId)), availability: Hours.availability(db, req.restaurantId) }));
+  r.put('/hours', wrap((req, res) => {
+    const v = Hours.validateWeek(req.body?.days); if (v.error) return res.status(400).json({ error: v.error, code: 'BAD_HOURS' });
+    const before = Hours.getHours(db, req.restaurantId);
+    Hours.saveWeek(db, req.restaurantId, v.ok);
+    audit(db, req, 'restaurant.hours', 'restaurant', req.restaurantId, { from: Hours.weekOut(before).map((d) => d.closed ? 'closed' : d.set ? `${d.open}-${d.close}` : 'not set'), to: Hours.weekOut(v.ok).map((d) => d.closed ? 'closed' : `${d.open}-${d.close}`) });
+    res.json({ days: Hours.weekOut(v.ok), availability: Hours.availability(db, req.restaurantId) });
+  }));
   r.put('/me', wrap((req, res) => {
     const d = parse(z.object({ name: z.string().trim().min(1).max(80), description: z.string().max(300).optional(), address: z.string().max(200).optional(), phone: z.string().max(20).optional(),
       cuisine: z.string().max(60).optional(), operating_info: z.string().max(200).optional(), logo: img, image: img,
@@ -59,14 +76,31 @@ export function restaurantRoutes(db) {
     if ((d.opens_at == null) !== (d.closes_at == null)) return res.status(400).json({ error: 'Set both the opening and the closing time, or neither.' });
     if (d.opens_at && d.opens_at === d.closes_at) return res.status(400).json({ error: 'Opening and closing time cannot be the same.' });
     const logo = d.logo ? saveUpload(d.logo, { scope: 'public' }) : null, image = d.image ? saveUpload(d.image, { scope: 'public' }) : null;
-    db.prepare('UPDATE restaurants SET name=?,description=?,address=?,phone=?,cuisine=?,operating_info=?,logo_path=COALESCE(?,logo_path),image_path=COALESCE(?,image_path) WHERE id=?')
+    db.prepare('UPDATE restaurants SET name=?,description=?,address=COALESCE(?,address),phone=?,cuisine=?,operating_info=?,logo_path=COALESCE(?,logo_path),image_path=COALESCE(?,image_path) WHERE id=?')
       .run(d.name, d.description ?? null, d.address ?? null, d.phone ?? null, d.cuisine ?? null, d.operating_info ?? null, logo, image, req.restaurantId);
     // opening hours are shown to customers; the Open/Closed switch still decides whether orders are accepted
     if (d.opens_at !== undefined) db.prepare('UPDATE restaurants SET opens_at=?, closes_at=? WHERE id=?').run(d.opens_at ?? null, d.closes_at ?? null, req.restaurantId);
     res.json({ ok: true });
   }));
+  // Pickup location (mandatory before opening): from the phone's GPS or typed coordinates. Used for distance, delivery
+  // charges and estimates, and shown to the rider. Never guessed: a GPS reading must come with its accuracy.
+  r.put('/location', wrap((req, res) => {
+    const d = parse(z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180), source: z.enum(['gps', 'map', 'manual']), accuracy_m: z.number().min(0).max(100000).optional(),
+      address: ADDR.optional() }).strict(), req, res); if (!d) return;
+    if (d.lat === 0 && d.lng === 0) return res.status(400).json({ error: 'That is not a real location. Check the coordinates.', code: 'BAD_LOCATION' });
+    if (d.lat < 6 || d.lat > 37.5 || d.lng < 68 || d.lng > 97.5) return res.status(400).json({ error: 'That point is outside India. Check that latitude and longitude are not swapped (latitude ~8–37, longitude ~68–97).', code: 'BAD_LOCATION' });
+    if (d.source === 'gps' && (d.accuracy_m == null || d.accuracy_m > 200)) return res.status(400).json({ error: 'The GPS reading is not accurate enough. Move near a window or outside and try again, or enter the coordinates.', code: 'LOW_ACCURACY' });
+    const lat = Math.round(d.lat * 1e6) / 1e6, lng = Math.round(d.lng * 1e6) / 1e6, old = db.prepare('SELECT pickup_lat, pickup_lng FROM restaurants WHERE id=?').get(req.restaurantId);
+    // saving is the owner's confirmation: the portal shows the point on the map before this call
+    db.prepare('UPDATE restaurants SET pickup_lat=?, pickup_lng=?, pickup_updated_at=?, location_source=?, location_confirmed_at=?, location_confirmed_by=? WHERE id=?').run(lat, lng, iso(), d.source, iso(), req.user.id, req.restaurantId);
+    if (d.address) saveAddress(db, req.restaurantId, d.address);
+    audit(db, req, 'restaurant.location', 'restaurant', req.restaurantId, { from: old, to: { lat, lng }, source: d.source, accuracy_m: d.accuracy_m ?? null, address: d.address ?? undefined });
+    res.json({ ok: true, location: { lat, lng } });
+  }));
   r.post('/status', wrap((req, res) => {
     const d = parse(z.object({ open: z.boolean(), mode: z.enum(['auto', 'manual']).optional(), days: z.number().int().min(0).max(30).optional(), hours: z.number().int().min(0).max(23).optional(), minutes: z.number().int().min(0).max(59).optional() }), req, res); if (!d) return;
+    if (d.open && !db.prepare('SELECT pickup_lat IS NOT NULL AND location_confirmed_at IS NOT NULL FROM restaurants WHERE id=?').pluck().get(req.restaurantId))
+      return res.status(409).json({ error: 'Add your restaurant’s location before opening, so riders can find you and customers get correct distances.', code: 'LOCATION_REQUIRED' });
     let open = d.open ? 1 : 0, mode = null, at = null;
     if (!d.open) {
       mode = d.mode || 'manual';
@@ -75,7 +109,7 @@ export function restaurantRoutes(db) {
     db.prepare(`INSERT INTO restaurant_operating_status (restaurant_id,is_open,reopen_mode,reopen_at,updated_at) VALUES (?,?,?,?,?)
       ON CONFLICT(restaurant_id) DO UPDATE SET is_open=excluded.is_open,reopen_mode=excluded.reopen_mode,reopen_at=excluded.reopen_at,updated_at=excluded.updated_at`).run(req.restaurantId, open, mode, at, iso());
     audit(db, req, open ? 'restaurant.open' : 'restaurant.close', 'restaurant', req.restaurantId, { mode, at });
-    res.json({ status: statusRow(req.restaurantId) });
+    res.json({ status: statusRow(req.restaurantId), availability: Hours.availability(db, req.restaurantId) });
   }));
 
   mountMenu(r, db);

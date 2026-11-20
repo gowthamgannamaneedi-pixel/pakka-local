@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authenticate, requireRole } from '../auth.js';
-import { claimOrder, dismissOffer, verifyPickup, verifyDelivery, balances, requestCashout, saveUpload, iso, getSetting } from '../services/core.js';
+import { claimOrder, dismissOffer, verifyPickup, verifyDelivery, balances, requestCashout, saveUpload, iso, getSetting, tripInfo } from '../services/core.js';
 import { send, parse, wrap } from './util.js';
 import crypto from 'node:crypto';
 import rateLimit from 'express-rate-limit';
@@ -31,6 +31,7 @@ export function riderRoutes(db) {
           entrance: o.dest_entrance, landmark: o.dest_landmark, accuracy_m: o.dest_accuracy_m, captured_at: o.dest_captured_at }
         : { text: loc ? [loc.name, loc.area].filter(Boolean).join(', ') : 'Customer pinned location', area_only: true, lat: null, lng: null, maps_link: null },
       instructions: mine ? o.instructions : null, distance_km: loc?.distance_km ?? null,
+      trip: (() => { const pk = db.prepare('SELECT pickup_lat AS lat, pickup_lng AS lng FROM restaurants WHERE id=?').get(o.restaurant_id), t = tripInfo(pk, { lat: o.dest_lat, lng: o.dest_lng }, o.delivery_distance_m ?? undefined); return t ? { km: t.km, by_road: t.byRoad } : null; })(),
       items: db.prepare('SELECT name,qty FROM order_items WHERE order_id=?').all(o.id) };
   };
   const restaurantMaps = (c) => { if (c.restaurant && !c.restaurant.maps_link) c.restaurant.maps_link = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${c.restaurant.name} ${c.restaurant.address || ''}`)}`; return c; };
