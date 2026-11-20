@@ -9,7 +9,14 @@ const istParts = (t) => { const d = new Date(t + IST); return { dow: d.getUTCDay
 export const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 export const toMin = (s) => { const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(String(s || '')); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
 
-export const getHours = (db, rid) => db.prepare('SELECT dow, closed, open_min, close_min FROM restaurant_hours WHERE restaurant_id=? ORDER BY dow').all(rid);
+// Weekly hours; a restaurant that has only the older single opening/closing time (profile form, or an app page loaded before
+// the weekly hours existed) gets that time on all seven days until weekly hours are saved.
+export const getHours = (db, rid) => {
+  const rows = db.prepare('SELECT dow, closed, open_min, close_min FROM restaurant_hours WHERE restaurant_id=? ORDER BY dow').all(rid);
+  if (rows.length) return rows;
+  const r = db.prepare('SELECT opens_at, closes_at FROM restaurants WHERE id=?').get(rid), o = toMin(r?.opens_at), c = toMin(r?.closes_at);
+  return o == null || c == null || o === c ? [] : [0, 1, 2, 3, 4, 5, 6].map((dow) => ({ dow, closed: 0, open_min: o, close_min: c }));
+};
 
 // Is "now" inside the weekly hours? null when no hours are set at all (then only the Open switch decides).
 export function withinHours(rows, now = Date.now()) {

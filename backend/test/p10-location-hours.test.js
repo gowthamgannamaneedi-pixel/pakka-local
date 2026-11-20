@@ -137,3 +137,17 @@ test('migration: an old single opening/closing time becomes the same hours on al
   assert.deepEqual(conf(a), { location_source: 'admin', location_confirmed_at: '2026-01-01T00:00:00Z' }); assert.deepEqual(conf(b), { location_source: null, location_confirmed_at: null });
   void PW;
 });
+
+test('older single opening time (saved by an app page from before weekly hours) counts for every day until weekly hours are saved', async () => {
+  const n = istNow();
+  W.db.prepare('DELETE FROM restaurant_hours WHERE restaurant_id=?').run(W.rest);
+  W.db.prepare("UPDATE restaurant_operating_status SET is_open=1, reopen_mode=NULL, reopen_at=NULL WHERE restaurant_id=?").run(W.rest);
+  assert.equal((await W.call('PUT', '/api/restaurant/me', { name: 'Test Kitchen', opens_at: hm(n + 120), closes_at: hm(n + 180) }, W.owner)).status, 200, 'old profile form still accepted');
+  let l = await listed(); assert.deepEqual([l.is_open, l.closed_reason, l.today_hours.open], [0, 'outside_hours', hm(n + 120)]);
+  W.db.prepare('DELETE FROM restaurant_hours WHERE restaurant_id=?').run(W.rest);       // only the old columns left
+  W.db.prepare('UPDATE restaurants SET opens_at=?, closes_at=? WHERE id=?').run(hm(n - 60), hm(n + 60), W.rest);
+  l = await listed(); assert.equal(l.is_open, 1, 'old single time is used when no weekly hours exist');
+  await setHours(week(hm(n + 120), hm(n + 180)));
+  assert.equal(W.db.prepare('SELECT opens_at FROM restaurants WHERE id=?').pluck().get(W.rest), null, 'weekly hours replace the old single time');
+  assert.equal((await listed()).closed_reason, 'outside_hours');
+});

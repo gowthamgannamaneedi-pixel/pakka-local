@@ -65,7 +65,7 @@ export function restaurantRoutes(db) {
   r.put('/hours', wrap((req, res) => {
     const v = Hours.validateWeek(req.body?.days); if (v.error) return res.status(400).json({ error: v.error, code: 'BAD_HOURS' });
     const before = Hours.getHours(db, req.restaurantId);
-    Hours.saveWeek(db, req.restaurantId, v.ok);
+    Hours.saveWeek(db, req.restaurantId, v.ok); db.prepare('UPDATE restaurants SET opens_at=NULL, closes_at=NULL WHERE id=?').run(req.restaurantId);
     audit(db, req, 'restaurant.hours', 'restaurant', req.restaurantId, { from: Hours.weekOut(before).map((d) => d.closed ? 'closed' : d.set ? `${d.open}-${d.close}` : 'not set'), to: Hours.weekOut(v.ok).map((d) => d.closed ? 'closed' : `${d.open}-${d.close}`) });
     res.json({ days: Hours.weekOut(v.ok), availability: Hours.availability(db, req.restaurantId) });
   }));
@@ -79,7 +79,8 @@ export function restaurantRoutes(db) {
     db.prepare('UPDATE restaurants SET name=?,description=?,address=COALESCE(?,address),phone=?,cuisine=?,operating_info=?,logo_path=COALESCE(?,logo_path),image_path=COALESCE(?,image_path) WHERE id=?')
       .run(d.name, d.description ?? null, d.address ?? null, d.phone ?? null, d.cuisine ?? null, d.operating_info ?? null, logo, image, req.restaurantId);
     // opening hours are shown to customers; the Open/Closed switch still decides whether orders are accepted
-    if (d.opens_at !== undefined) db.prepare('UPDATE restaurants SET opens_at=?, closes_at=? WHERE id=?').run(d.opens_at ?? null, d.closes_at ?? null, req.restaurantId);
+    if (d.opens_at !== undefined) { db.prepare('UPDATE restaurants SET opens_at=?, closes_at=? WHERE id=?').run(d.opens_at ?? null, d.closes_at ?? null, req.restaurantId);
+      if (d.opens_at) Hours.saveWeek(db, req.restaurantId, [0, 1, 2, 3, 4, 5, 6].map((dow) => ({ dow, closed: 0, open_min: Hours.toMin(d.opens_at), close_min: Hours.toMin(d.closes_at) }))); }
     res.json({ ok: true });
   }));
   // Pickup location (mandatory before opening): from the phone's GPS or typed coordinates. Used for distance, delivery
