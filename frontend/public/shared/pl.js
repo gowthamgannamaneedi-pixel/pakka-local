@@ -26,7 +26,8 @@
   PL.portal = null;
   const key = () => `pl.session.${PL.portal}`;
   PL.session = () => { try { return JSON.parse(localStorage.getItem(key())); } catch { return null; } };
-  PL.setSession = (s) => localStorage.setItem(key(), JSON.stringify(s));
+  // a new sign-in (new token) shows the "Install the app" sheet again
+  PL.setSession = (s) => { const old = PL.session(); localStorage.setItem(key(), JSON.stringify(s)); if (!old || old.token !== s?.token) { try { sessionStorage.removeItem('pl.install.asked.' + PL.portal); } catch {} } };
   PL.clearSession = () => localStorage.removeItem(key());
 
   PL.api = async (path, opts = {}) => {
@@ -291,11 +292,36 @@
   // ---------- shell ----------
   // cfg: { portal, name, home, tabs:[{path,label,icon,badge?}], routes:{path:{title,render,after,poll,noNav}}, loginView(), onReady(), right() }
   PL.start = (c) => { cfg = c; PL.portal = c.portal; document.body.classList.add("p-" + c.portal); if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {}); PL.boot(); setTimeout(showInstall, 1500); };
+  // ---------- "Install the app" sheet (customer, restaurant and admin portals) ----------
+  // Shown after every sign-in and once on every new visit, unless the app is already installed. Chrome/Edge give a real install
+  // prompt (beforeinstallprompt, which only fires when the app is NOT installed); iPhone Safari and others get the exact manual steps.
+  const ls = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} }, del: (k) => { try { localStorage.removeItem(k); } catch {} } };
+  const ss = { get: (k) => { try { return sessionStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { sessionStorage.setItem(k, v); } catch {} }, del: (k) => { try { sessionStorage.removeItem(k); } catch {} } };
+  PL.installEvt = null;
+  addEventListener('beforeinstallprompt', (ev) => { ev.preventDefault(); PL.installEvt = ev; ls.del('pl.installed.' + PL.portal); document.dispatchEvent(new Event('pl-installable')); });
+  addEventListener('appinstalled', () => { ls.set('pl.installed.' + PL.portal, '1'); PL.installEvt = null; document.querySelectorAll('.pl-install').forEach((x) => x.closest('.ov') ? PL.closeModal() : x.remove()); PL.toast('Installed. Open it from your home screen.', 'ok'); });
+  PL.isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  PL.isInstalled = () => PL.isStandalone() || (!PL.installEvt && ls.get('pl.installed.' + PL.portal) === '1');
+  PL.isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const APPNAME = { user: 'Pakka Local', restaurant: 'Pakka Local Restaurant', admin: 'Pakka Local Admin' };
+  PL.install = async () => { const ev = PL.installEvt; if (!ev) return PL.toast(PL.isIOS() ? 'In Safari tap Share, then Add to Home Screen.' : 'Open your browser menu (⋮) and tap Install app.', 'info');
+    PL.installEvt = null; ev.prompt(); const r = await ev.userChoice.catch(() => null); if (r?.outcome === 'accepted') ls.set('pl.installed.' + PL.portal, '1'); if (document.querySelector('.ov .pl-install')) PL.closeModal(); };
+  PL.actions['pl-install'] = () => PL.install();
+  const installAsk = () => {
+    if (!APPNAME[PL.portal] || !PL.session() || PL.isInstalled() || ss.get('pl.install.asked.' + PL.portal) || document.querySelector('.ov')) return;
+    ss.set('pl.install.asked.' + PL.portal, '1');
+    const how = PL.installEvt ? '' : `<p class="small mt2" style="text-align:left">${PL.isIOS() ? 'In Safari, tap the <b>Share</b> button (square with an arrow), then <b>Add to Home Screen</b>.' : 'Open your browser menu (<b>⋮</b> at the top right) and tap <b>Install app</b> or <b>Add to Home screen</b>.'}</p>`;
+    PL.modal(`<div class="cf pl-install"><span class="cf-ic" style="background:none"><img src="/assets/icon-192.png" alt="" width="56" height="56" style="border-radius:14px"></span><h3>Install ${APPNAME[PL.portal]}</h3>
+      <p class="small mute">Open it in one tap from your home screen, full screen, with alerts.</p>${how}</div>
+      <div class="row mt"><button class="btn ghost grow" data-act="close-modal">Not now</button>${PL.installEvt ? `<button class="btn grow" data-act="pl-install">${PL.icon('plus')} Install</button>` : '<button class="btn grow" data-act="close-modal">OK</button>'}</div>`); };
+  // Chrome sends its install event a moment after the page loads: wait a little so the real Install button can be offered
+  PL.installAskSoon = () => setTimeout(installAsk, PL.installEvt ? 800 : 3500);
   PL.boot = () => {
     document.title = `${cfg.name} · Pakka Local`;
     const root = PL.$('#root'); modals.splice(0).forEach((m) => m.ov.remove());
     if (!PL.session()) { clearInterval(pollT); root.innerHTML = ''; return cfg.loginView(root); }
     routes = Object.entries({ ...cfg.routes, ...(PL.extraRoutes || {}) }).map(([p, def]) => ({ ...compile(p), p, def }));
+    PL.installAskSoon();
     const s = PL.session(), who = s?.user?.name || '';
     root.innerHTML = `<header class="top" id="top"><button class="back" data-act="back" aria-label="Back">${PL.icon('chev', 'class="flip"')}<span>Back</span></button><div class="title"></div><div class="side"><div class="row" id="side" style="gap:4px">${cfg.right ? cfg.right() : ''}</div>${PL.inbox.btn()}</div></header>
       <div class="shell"><main id="view"></main></div>
@@ -336,7 +362,7 @@
       <p class="small mute mt center">Accounts are created by Pakka Local. Contact the team if you need access.</p></div></div>`;
     PL.forms.login = async (f) => { const v = PL.form(f); let phone = v.phone.replace(/[\s-]/g, ''); if (/^\d{10}$/.test(phone)) phone = '+91' + phone;
       const body = { portal: PL.portal, password: v.password }; if (PL.portal === 'admin' && !/^\+?\d{10,15}$/.test(phone)) body.username = v.phone.trim(); else body.phone = phone; if (v.totp) body.totp = v.totp;
-      try { const r = await PL.post('/api/auth/login', body); PL.setSession(r); history.replaceState({ idx: 0 }, '', location.hash || '#'); PL.boot(); }
+      try { const r = await PL.post('/api/auth/login', body); PL.setSession(r); ss.del('pl.install.asked.' + PL.portal); history.replaceState({ idx: 0 }, '', location.hash || '#'); PL.boot(); }
       catch (err) { if (err.code === 'MFA_REQUIRED') { PL.$('#mfa').classList.remove('hide'); PL.$('#mfa input').focus(); } PL.toast(err.message, !!v.totp || err.code !== 'MFA_REQUIRED'); } };
   };
 })();

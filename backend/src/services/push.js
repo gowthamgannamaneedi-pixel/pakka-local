@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import webpush from 'web-push';
 import { config } from '../config.js';
-import { iso, getSetting } from './core.js';
+import { iso, getSetting, nearActive } from './core.js';
 import { loadFcm, fcmEnabled, sendFcm } from './fcm.js';
 
 // ---- sender abstraction: Web Push today; FCM / desktop adapters can implement the same (subscription, payload) interface ----
@@ -118,8 +118,13 @@ export const campaignStats = (db, id) => ({
 export function offerRiders(db, orderId, exceptRider = 0) {
   const gen = db.prepare("SELECT COUNT(*) FROM order_events WHERE order_id=? AND event_type='ADMIN_INTERVENTION'").pluck().get(orderId);   // new generation after a reassignment
   const ttl = new Date(Date.now() - Number(getSetting(db, 'rider_online_ttl_sec')) * 1000).toISOString();
-  for (const id of db.prepare("SELECT r.user_id FROM riders r JOIN users u ON u.id=r.user_id WHERE u.active=1 AND r.verification_status='approved' AND r.is_online=1 AND r.last_seen_at>? AND r.user_id!=?").pluck().all(ttl, exceptRider))
+  const o = db.prepare('SELECT id, restaurant_id, dest_lat, dest_lng FROM orders WHERE id=?').get(orderId), cap = Number(getSetting(db, 'max_active_per_rider'));
+  for (const id of db.prepare("SELECT r.user_id FROM riders r JOIN users u ON u.id=r.user_id WHERE u.active=1 AND r.verification_status='approved' AND r.is_online=1 AND r.last_seen_at>? AND r.user_id!=?").pluck().all(ttl, exceptRider)) {
+    // a rider already carrying deliveries is only alerted for an order on their way, and not at all when they are full
+    if (o && db.prepare("SELECT COUNT(*) FROM orders WHERE rider_id=? AND status IN ('ACCEPTED','PREPARING','READY','PICKED_UP')").pluck().get(id) >= cap) continue;
+    if (o && !nearActive(db, id, o).near) continue;
     db.prepare("INSERT OR IGNORE INTO notifications (event_id,user_id,category,title,body,deep_link,order_id,kind) VALUES (?,?,'transactional','New delivery offer','A delivery is available. Open the app to view details.',?,?,'rider_offer')").run(`offer:${orderId}:${id}:${gen}`, id, `/rider/#/job/${orderId}`, orderId);
+  }
 }
 import { setOfferHook } from './core.js';
 setOfferHook(offerRiders);

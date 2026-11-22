@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authenticate, requireRole } from '../auth.js';
-import { claimOrder, dismissOffer, verifyPickup, verifyDelivery, balances, requestCashout, saveUpload, iso, getSetting, tripInfo } from '../services/core.js';
+import { claimOrder, dismissOffer, verifyPickup, verifyDelivery, balances, requestCashout, saveUpload, iso, getSetting, tripInfo, nearActive } from '../services/core.js';
 import { send, parse, wrap } from './util.js';
 import crypto from 'node:crypto';
 import rateLimit from 'express-rate-limit';
@@ -50,9 +50,14 @@ export function riderRoutes(db) {
     // deliveries already assigned stay visible (and finishable) whatever the verification state; new offers only for approved + online
     const active = db.prepare("SELECT * FROM orders WHERE rider_id=? AND status IN ('ACCEPTED','PREPARING','READY','PICKED_UP') ORDER BY id").all(req.user.id).map((o) => card(o, true)).map(restaurantMaps);
     if (!x.is_online || x.verification_status !== 'approved') return res.json({ offers: [], active });
-    const offers = db.prepare(`SELECT * FROM orders o WHERE rider_id IS NULL AND status IN ('ACCEPTED','PREPARING','READY')
-      AND NOT EXISTS (SELECT 1 FROM rider_assignments a WHERE a.order_id=o.id AND a.rider_id=? AND a.status='DISMISSED') ORDER BY id`).all(req.user.id).map((o) => card(o, false)).map(restaurantMaps);
-    res.json({ offers, active });
+    const full = active.length >= Number(getSetting(db, 'max_active_per_rider'));
+    // while carrying a delivery, only offers on the way (restaurant and drop-off near a current delivery) are shown, nearest first
+    const offers = full ? [] : db.prepare(`SELECT * FROM orders o WHERE rider_id IS NULL AND status IN ('ACCEPTED','PREPARING','READY')
+      AND NOT EXISTS (SELECT 1 FROM rider_assignments a WHERE a.order_id=o.id AND a.rider_id=? AND a.status='DISMISSED') ORDER BY id`).all(req.user.id)
+      .map((o) => ({ o, n: nearActive(db, req.user.id, o) })).filter((x) => !x.n.busy || x.n.near)
+      .sort((a, b) => (a.n.busy ? a.n.pickup_m + a.n.drop_m : 0) - (b.n.busy ? b.n.pickup_m + b.n.drop_m : 0) || a.o.id - b.o.id)
+      .map(({ o, n }) => ({ ...restaurantMaps(card(o, false)), on_the_way: n.busy ? { pickup_km: Math.round(n.pickup_m / 100) / 10, drop_km: Math.round(n.drop_m / 100) / 10 } : null }));
+    res.json({ offers, active, can_add: !full, batch_radius_km: Number(getSetting(db, 'batch_radius_km')) || 2 });
   });
   // single order (notification deep link): only if it is yours, or still genuinely open for you to take
   r.get('/orders/:id(\\d+)', (req, res) => { touch(req); const x = me(req);

@@ -588,23 +588,20 @@
   // Chrome/Edge on Android and desktop: the browser's real install prompt (beforeinstallprompt). iPhone Safari and other
   // browsers have no prompt, so we show the exact manual steps instead of a button that does nothing.
   const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } }, lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
-  let installEvt = null;
-  const isInstalled = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true || lsGet('pl.installed') === '1';
-  const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  window.addEventListener('beforeinstallprompt', (ev) => { ev.preventDefault(); installEvt = ev; document.querySelectorAll('.u-install').forEach((c) => { c.outerHTML = installCard(c.dataset.where); }); });
-  window.addEventListener('appinstalled', () => { lsSet('pl.installed', '1'); installEvt = null; document.querySelectorAll('.u-install').forEach((c) => c.remove()); PL.toast('Pakka Local is installed on your phone', 'ok'); setTimeout(askNotify, 800); });
-  const homeInstallHidden = () => isInstalled() || Date.now() - Number(lsGet('pl.install.dismissed') || 0) < 30 * 864e5;      // "Not now" hides it on Home for 30 days
+  const isInstalled = () => PL.isInstalled(), isIOS = () => PL.isIOS();
+  document.addEventListener('pl-installable', () => document.querySelectorAll('.u-install').forEach((c) => { c.outerHTML = installCard(c.dataset.where); }));
+  window.addEventListener('appinstalled', () => { document.querySelectorAll('.u-install').forEach((c) => c.remove()); setTimeout(askNotify, 800); });
+  const homeInstallHidden = () => { try { return isInstalled() || sessionStorage.getItem('pl.install.later') === '1'; } catch { return isInstalled(); } };      // "Not now" hides it until the next visit
   function installCard(where = 'account') {
     if (isInstalled()) return '';
     const head = `<span class="ic"><img src="/assets/icon-192.png" alt=""></span><span class="txt"><b>Install the Pakka Local app</b><small>Opens in one tap from your home screen, full screen, with order alerts.</small></span>`;
     const notNow = where === 'home' ? '<button class="btn ghost sm" data-act="install-later">Not now</button>' : '';
-    if (installEvt) return `<div class="u-install" data-where="${where}"><div class="row1">${head}</div><div class="row2">${notNow}<button class="btn sm" data-act="install-go">${I('plus')} Install app</button></div></div>`;
+    if (PL.installEvt) return `<div class="u-install" data-where="${where}"><div class="row1">${head}</div><div class="row2">${notNow}<button class="btn sm" data-act="install-go">${I('plus')} Install app</button></div></div>`;
     const how = isIOS() ? 'In Safari, tap the <b>Share</b> button, then <b>Add to Home Screen</b>.' : 'Open your browser menu (<b>⋮</b>) and tap <b>Install app</b> or <b>Add to Home screen</b>.';
     return `<div class="u-install" data-where="${where}"><div class="row1">${head}</div><p class="how">${how}</p>${notNow ? `<div class="row2">${notNow}</div>` : ''}</div>`;
   }
-  PL.actions['install-go'] = async () => { if (!installEvt) return PL.toast('Use your browser menu: Install app / Add to Home screen.', 'info'); const e2 = installEvt; installEvt = null;
-    e2.prompt(); const r = await e2.userChoice.catch(() => null); if (r?.outcome === 'accepted') { lsSet('pl.installed', '1'); } else lsSet('pl.install.dismissed', String(Date.now())); document.querySelectorAll('.u-install').forEach((c) => c.remove()); };
-  PL.actions['install-later'] = (el) => { lsSet('pl.install.dismissed', String(Date.now())); el.closest('.u-install')?.remove(); };
+  PL.actions['install-go'] = async () => { await PL.install(); if (isInstalled()) document.querySelectorAll('.u-install').forEach((c) => c.remove()); };
+  PL.actions['install-later'] = (el) => { try { sessionStorage.setItem('pl.install.later', '1'); } catch {} el.closest('.u-install')?.remove(); };
   // after installing (or the first time the installed app opens): explain, then ask for notification permission on a tap
   function askNotify() {
     if (!('Notification' in window) || Notification.permission !== 'default' || lsGet('pl.notify.asked') === '1' || !PL.session()) return;

@@ -24,7 +24,13 @@ const DEFAULTS = { tax_bps: '0', gps_delivery_fee_paise: '4000', rider_payout_pa
   distance_pricing_enabled: '0', distance_max_km: '', distance_min_fee_paise: '', distance_fallback_fee_paise: '', route_cache_days: '30',
   // GPS addresses not on the list: charge per km from the restaurant, every metre counted, then rounded off to the nearest rupee (1000 = ₹10 per km: 1.234 km = ₹12).
   // Empty = off: the fixed GPS charge (gps_delivery_fee_paise) applies. Optional minimum charge and maximum distance.
-  gps_per_km_paise: '', gps_min_fee_paise: '', gps_max_km: '' };
+  gps_per_km_paise: '', gps_min_fee_paise: '', gps_max_km: '',
+  // Rider pay per delivery by distance (restaurant -> customer, every metre, rounded off to the rupee). Empty = same rate as the
+  // GPS per-km charge; if that is empty too, the fixed rider_payout_paise applies. Optional minimum per delivery.
+  rider_per_km_paise: '', rider_min_payout_paise: '',
+  // A rider already carrying a delivery is offered (and may accept) another one only when its restaurant AND its drop-off are
+  // within this many km of one of their current deliveries. max_active_per_rider still caps how many at once.
+  batch_radius_km: '2' };
 export const SETTING_KEYS = Object.keys(DEFAULTS);
 export const getSetting = (db, k) => db.prepare('SELECT value FROM app_settings WHERE key = ?').pluck().get(k) ?? DEFAULTS[k];
 export const allSettings = (db) => Object.fromEntries(SETTING_KEYS.map(k => [k, getSetting(db, k)]));
@@ -157,7 +163,28 @@ export function quote(db, input) {
   const deliveryMin = trip ? tripMinutes(db, trip) : loc?.distance_km ? Math.round(loc.distance_km * perKm) + 3 : Number(getSetting(db, 'default_delivery_min'));
   return { restaurant: r, lines, dest, locationId: loc?.id ?? null, feeSource: loc ? 'listed' : 'gps', baseDeliveryFee: fee, pricing,
     distanceM: priced?.distance_m ?? null, band: priced?.band ?? null, routeSource: priced ? (priced.pricing === 'distance' || priced.pricing === 'gps_per_km' ? priced.source : `none:${priced.reason}`) : null, base, markup, delivery, surge, tax, total, discount, coupon, couponError, commissionBps: r.commission_bps, commission,
-    restaurantPayout: base - commission, riderPayout: Number(getSetting(db, 'rider_payout_paise')), prepMin: prep + r.packing_buffer_min, deliveryMin, trip };
+    restaurantPayout: base - commission, riderPayout: riderPay(db, r, point, priced?.distance_m ?? input.route?.distance_m), prepMin: prep + r.packing_buffer_min, deliveryMin, trip };
+}
+// What the rider earns for one delivery: distance from the restaurant to the customer (road when measured, else the straight GPS
+// distance) x the rider rate per km, rounded off to the nearest rupee; never below the optional minimum. Without a rate: fixed pay.
+export function riderPay(db, r, point, roadM) {
+  const rate = Number(getSetting(db, 'rider_per_km_paise')) || Number(getSetting(db, 'gps_per_km_paise')) || 0;
+  if (!rate || r.pickup_lat == null || !point) return Number(getSetting(db, 'rider_payout_paise'));
+  const m = Number.isFinite(roadM) ? roadM : straightM({ lat: r.pickup_lat, lng: r.pickup_lng }, point);
+  return Math.max(Math.round(m * rate / 1000 / 100) * 100, Number(getSetting(db, 'rider_min_payout_paise')) || 0);
+}
+// Is this order on the way for a rider who already has deliveries? Restaurant and drop-off both within batch_radius_km of one of them.
+export function nearActive(db, riderId, o) {
+  const act = db.prepare("SELECT o.dest_lat, o.dest_lng, r.pickup_lat, r.pickup_lng FROM orders o JOIN restaurants r ON r.id=o.restaurant_id WHERE o.rider_id=? AND o.status IN ('ACCEPTED','PREPARING','READY','PICKED_UP') AND o.id<>?").all(riderId, o.id);
+  if (!act.length) return { busy: false, near: true };
+  const me = db.prepare('SELECT pickup_lat AS lat, pickup_lng AS lng FROM restaurants WHERE id=?').get(o.restaurant_id), R = (Number(getSetting(db, 'batch_radius_km')) || 2) * 1000;
+  const ok = (a, b) => a && b && a.lat != null && b.lat != null && straightM(a, b) <= R;
+  let best = null;
+  for (const a of act) {
+    const dp = ok(me, { lat: a.pickup_lat, lng: a.pickup_lng }) ? straightM(me, { lat: a.pickup_lat, lng: a.pickup_lng }) : null, dd = ok({ lat: o.dest_lat, lng: o.dest_lng }, { lat: a.dest_lat, lng: a.dest_lng }) ? straightM({ lat: o.dest_lat, lng: o.dest_lng }, { lat: a.dest_lat, lng: a.dest_lng }) : null;
+    if (dp != null && dd != null && (!best || dp + dd < best.pickup_m + best.drop_m)) best = { pickup_m: Math.round(dp), drop_m: Math.round(dd) };
+  }
+  return { busy: true, near: !!best, ...(best || {}) };
 }
 const etaFrom = (db, prepMin, deliveryMin, stage) => {
   const rider = Number(getSetting(db, 'rider_to_restaurant_min'));
@@ -322,6 +349,8 @@ export function claimOrder(db, riderId, orderId) {
     if (!r || !r.active || r.verification_status !== 'approved' || !r.is_online) return { error: 'You must be online and approved to accept deliveries.', status: 403 };
     const active = db.prepare("SELECT COUNT(*) FROM orders WHERE rider_id=? AND status IN ('ACCEPTED','PREPARING','READY','PICKED_UP')").pluck().get(riderId);
     if (active >= Number(getSetting(db, 'max_active_per_rider'))) return { error: 'Finish your current deliveries first.', status: 409 };
+    if (active > 0) { const o0 = db.prepare('SELECT id, restaurant_id, dest_lat, dest_lng FROM orders WHERE id=?').get(orderId);
+      if (o0 && !nearActive(db, riderId, o0).near) return { error: `You can add an order only when its restaurant and drop-off are within ${Number(getSetting(db, 'batch_radius_km')) || 2} km of your current delivery. Finish your current delivery first.`, status: 409, code: 'NOT_NEARBY' }; }
     const gone = { error: 'This order is no longer available.', status: 409 };
     const c = db.prepare("UPDATE orders SET rider_id=?, updated_at=? WHERE id=? AND rider_id IS NULL AND status IN ('ACCEPTED','PREPARING','READY')").run(riderId, iso(), orderId);
     if (c.changes !== 1) return gone;

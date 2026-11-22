@@ -634,3 +634,11 @@ body.p-admin .tbl td .btn.sm{white-space:nowrap}
 .r-hday{display:flex;align-items:center;gap:8px;font-weight:700;min-width:120px;margin:0}.r-hday input{width:22px;min-height:22px}
 .r-htimes{display:flex;align-items:center;gap:6px;flex:1;min-width:200px}.r-htimes input{flex:1;min-width:0}
 .r-hclosed{display:none;color:var(--mute,#888);font-weight:600}.r-hrow.off .r-htimes{display:none}.r-hrow.off .r-hclosed{display:inline}
+
+/* rider: big 4-box code entry at the top of the delivery card; "on your way" offers */
+.d-code-top{border:2px solid var(--brand);background:#fff7f2}.d-code-top.green{border-color:var(--ok);background:#f1fbf4}
+.d-code-top label{display:flex;align-items:center;gap:8px;font-weight:600;font-size:1rem}.d-code-top label svg{width:20px;height:20px;flex:none}
+.d-digits{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:10px;max-width:320px}
+.d-dg{width:100%;min-width:0;height:64px;margin:0;padding:0;text-align:center;font:800 1.9rem var(--head);border-radius:14px;border:2px solid #d9dbe1;background:#fff;caret-color:var(--brand)}
+.d-dg:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(208,69,11,.18);outline:0}.d-dg.on{border-color:#1d2030}
+.d-onway{display:flex;gap:8px;align-items:flex-start;padding:8px 10px;margin-bottom:6px;border-radius:12px;background:#eef8f1;color:#14532d;font-size:.86rem}.d-onway svg{width:18px;height:18px;flex:none;margin-top:1px}

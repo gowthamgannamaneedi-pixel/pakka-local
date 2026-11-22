@@ -153,7 +153,8 @@ public class RiderService extends Service {
             final boolean seenOnScreen = inFront();
             final int n = now.size(); final boolean ring = fresh && !seenOnScreen && System.currentTimeMillis() - PakkaFcmService.lastOfferRing > 20000; final String text = first;      // skip if Firebase already rang for it
             if (nAct != active) { active = nAct; main.post(() -> { startLocation(); refreshStatus(); }); }
-            main.post(() -> { bubble.setAlert(n > 0); if (ring) offerNotification(n, text); if (n == 0) cancelOffer(); });
+            final boolean frontNote = fresh && seenOnScreen;      // app open and phone unlocked: the screen rings, and the offer also appears as a notification
+            main.post(() -> { bubble.setAlert(n > 0); if (ring) offerNotification(n, text); if (frontNote) showQuiet(this, "New delivery offer", text == null ? "Open the offer to accept it." : text, "offer-front"); if (n == 0) cancelOffer(); });
             if (++rounds % 2 == 0) pollInbox();
         } catch (Exception ignored) { /* no network: try again on the next round */ }
     }
@@ -174,7 +175,7 @@ public class RiderService extends Service {
                 JSONObject n = list.getJSONObject(k); long id = n.optLong("id"); if (id > max) max = id;
                 if (last < 0 || id <= last) continue;
                 String kind = n.optString("kind", ""), title = n.optString("title", "Pakka Rider"), body = n.optString("body", ""), tag = n.optString("event_id", "n" + id);
-                if ("rider_offer".equals(kind) || !n.isNull("read_at") || inFront()) continue;
+                if ("rider_offer".equals(kind) || !n.isNull("read_at")) continue;      // shown even while the app is open, so nothing is missed
                 main.post(() -> showPush(this, title, body, false, tag));
             }
             if (max != last) sp.edit().putLong("inbox_last", max).apply();
@@ -263,6 +264,18 @@ public class RiderService extends Service {
         if (offer) b.setCategory(NotificationCompat.CATEGORY_CALL).setSound(Uri.parse("android.resource://" + c.getPackageName() + "/" + R.raw.offer_ring)).setVibrate(new long[]{0, 400, 200, 400, 200, 400});
         NotificationManager nm = (NotificationManager) c.getSystemService(NOTIFICATION_SERVICE);
         if (nm != null) nm.notify(offer ? ID_OFFER : (tag == null ? (int) (System.currentTimeMillis() & 0xfffffff) : (tag.hashCode() & 0x7ffffff) + 10), b.build());
+    }
+
+    /** Same as showPush but without sound or vibration (the app on screen is already ringing). */
+    static void showQuiet(Context c, String title, String body, String tag) {
+        channels(c);
+        Intent i = new Intent(c, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+        PendingIntent pi = PendingIntent.getActivity(c, 0, i, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        NotificationCompat.Builder b = new NotificationCompat.Builder(c, CH_UPDATES).setSmallIcon(R.drawable.ic_stat_rider).setContentTitle(title).setContentText(body)
+            .setStyle(new NotificationCompat.BigTextStyle().bigText(body)).setAutoCancel(true).setSilent(true).setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setColor(0xFFD0450B).setContentIntent(pi).setVisibility(NotificationCompat.VISIBILITY_PUBLIC).setTimeoutAfter(10 * 60_000);
+        NotificationManager nm = (NotificationManager) c.getSystemService(NOTIFICATION_SERVICE);
+        if (nm != null) nm.notify((tag.hashCode() & 0x7ffffff) + 10, b.build());
     }
 
     /** A Firebase offer arrived while the service was stopped by the phone: start it again with the saved sign-in. */

@@ -1,5 +1,5 @@
 // Caches only static, non-sensitive assets. API traffic and tokens are never cached.
-const V = 'pl-static-v30';
+const V = 'pl-static-v31';
 const SHELL = ['/assets/logo.png', '/assets/icon-192.png', '/assets/badge-96.png', '/assets/icon-512.png', '/shared/pl.css', '/shared/pl.js'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(V).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== V).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });
@@ -21,7 +21,8 @@ self.addEventListener('push', (e) => {
   e.waitUntil((async () => {
     const cs = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     const open = cs.filter((c) => c.visibilityState === 'visible' && portalOf(c.url) === portalOf(d.url || '/'));
-    if (open.length && d.kind !== 'promo' && d.kind !== 'test') { open.forEach((c) => c.postMessage({ type: 'push', nid: d.nid })); return; }   // the in-app popup + sound already handle it
+    // riders always get the phone notification too (even with the app open), so an offer or message is never missed
+    if (open.length && d.kind !== 'promo' && d.kind !== 'test' && portalOf(d.url || '/') !== 'rider') { open.forEach((c) => c.postMessage({ type: 'push', nid: d.nid })); return; }   // the in-app popup + sound already handle it
     await self.registration.showNotification(d.title, { body: d.body, tag: d.tag, icon: '/assets/icon-192.png', badge: '/assets/badge-96.png', image: d.image, data: d,
       requireInteraction: !!d.urgent, renotify: !!d.urgent, vibrate: d.urgent ? [300, 120, 300, 120, 300] : [120] });
   })());
