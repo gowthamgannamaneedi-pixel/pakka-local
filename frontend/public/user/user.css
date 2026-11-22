@@ -633,11 +633,11 @@ body.p-user input[type=search]::-webkit-search-cancel-button{-webkit-appearance:
 /* "Deliver to": one question, two big plain choices */
 .u-pickq{margin:10px 0 4px;font-weight:700;font-size:1.02rem}
 .u-picklbl{margin:14px 0 6px;font-size:.78rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--u-mute)}
-.u-pick{display:flex;align-items:center;gap:12px;width:100%;margin-top:10px;padding:14px;border:1.5px solid #e3e4e9;border-radius:16px;background:#fff;color:inherit;text-align:left;cursor:pointer;transition:border-color .15s,background .15s,transform .1s}
-.u-pick:hover{border-color:var(--brand)}.u-pick:active{transform:scale(.99);background:#fff7f2}
-.u-pick .ic{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:#fff1e8;color:var(--brand);flex:none}.u-pick .ic svg{width:22px;height:22px}
-.u-pick .txt{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}.u-pick .txt b{font-size:1rem}.u-pick .txt small{color:var(--u-mute);font-size:.84rem}
-.u-pick>svg:last-child{width:18px;height:18px;color:var(--u-mute);flex:none}
+.u-choice{display:flex;align-items:center;gap:12px;width:100%;margin-top:10px;padding:14px;border:1.5px solid #e3e4e9;border-radius:16px;background:#fff;color:inherit;text-align:left;cursor:pointer;transition:border-color .15s,background .15s,transform .1s}
+.u-choice:hover{border-color:var(--brand)}.u-choice:active{transform:scale(.99);background:#fff7f2}
+.u-choice .ic{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:#fff1e8;color:var(--brand);flex:none}.u-pick .ic svg{width:22px;height:22px}
+.u-choice .txt{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}.u-choice .txt b{font-size:1rem}.u-choice .txt small{color:var(--u-mute);font-size:.84rem}
+.u-choice>svg:last-child{width:18px;height:18px;color:var(--u-mute);flex:none}
 .u-deliver.flash{animation:uflash 1s ease}@keyframes uflash{0%,100%{box-shadow:none}30%{box-shadow:0 0 0 3px var(--brand)}}
 .u-deliver h3{display:flex;align-items:center;gap:8px;margin:0}.u-deliver h3 svg{width:20px;height:20px;color:var(--brand);flex:none}
 
@@ -728,3 +728,64 @@ body.p-user .top{background:rgba(255,255,255,.7);backdrop-filter:blur(18px) satu
 .u-prof .av{background:#fff!important;color:var(--brand)!important}
 .u-prof .btn{background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.35);color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
 .u-paybar{background:rgba(255,255,255,.78);backdrop-filter:blur(18px) saturate(1.6);-webkit-backdrop-filter:blur(18px) saturate(1.6)}
+
+/* =================== restaurant card v2 (one card: photo + info strip) =================== */
+.u-list .u-rc{display:flex;flex-direction:column;gap:0;width:100%;padding:0;border-radius:24px;background:#fff;box-shadow:0 1px 0 rgba(17,19,24,.04),0 10px 30px rgba(17,19,24,.09);overflow:hidden;transition:transform .2s var(--ease),box-shadow .2s}
+.u-list .u-rc:active{transform:scale(.985)}
+@media(hover:hover){.u-list .u-rc:hover{box-shadow:0 14px 40px rgba(17,19,24,.14)}}
+.u-rc .im{position:relative;width:100%!important;height:200px!important;border-radius:0!important;box-shadow:none!important;flex:none}
+.u-rc .im:after{inset:35% 0 0!important;background:linear-gradient(180deg,transparent,rgba(0,0,0,.82))!important}
+.u-rc .im .nm{position:absolute;left:16px;right:78px;bottom:14px;z-index:2;color:#fff;display:flex;flex-direction:column;gap:2px}
+.u-rc .im .nm h3{margin:0;font:800 1.28rem/1.15 var(--head);letter-spacing:-.02em;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;-webkit-line-clamp:unset;display:block}
+.u-rc .im .nm small{font:600 .84rem var(--font);color:rgba(255,255,255,.86);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.u-rc .im .u-rate{position:absolute;right:14px;bottom:16px;z-index:2;height:26px;padding:0 9px;border-radius:9px;font-size:.86rem;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+.u-rc .im .u-rate.new{background:rgba(255,255,255,.92);color:var(--u-ink)}
+.u-rc .rib{position:absolute;left:0;top:16px;z-index:2;padding:6px 12px 6px 14px;border-radius:0 10px 10px 0;background:linear-gradient(90deg,#1f5eff,#3b82f6);color:#fff;font:900 .74rem/1.05 var(--head);letter-spacing:.04em;box-shadow:0 4px 12px rgba(31,94,255,.35)}
+.u-rc .rib small{display:block;font:700 .64rem var(--font);letter-spacing:.02em;opacity:.9}
+.u-rc .vegpill{position:absolute;right:12px;top:12px;z-index:2;display:flex;align-items:center;gap:5px;padding:4px 9px;border-radius:99px;background:rgba(255,255,255,.88);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);font:800 .72rem var(--font);color:var(--u-green-d)}
+.u-rc .im .cl{position:absolute;inset:0;z-index:3;display:grid;place-items:center;background:rgba(17,19,24,.5);color:#fff;font:800 .95rem var(--head);text-align:center;padding:12px;backdrop-filter:grayscale(1)}
+.u-rc .tx{display:flex;flex-wrap:wrap;gap:6px;padding:12px 14px 14px!important}
+.u-rc .tx:empty{display:none}
+.u-rc .pill{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 10px;border-radius:99px;background:#f2f3f5;color:var(--u-ink);font:700 .8rem var(--font)}
+.u-rc .pill svg{width:14px;height:14px;color:var(--brand)}
+.u-rc .pill.soft{background:#fff;border:1px solid var(--u-line);color:var(--u-sub)}
+.u-list{gap:20px!important}
+@media(min-width:700px){.u-list{grid-template-columns:repeat(2,1fr)}}
+@media(min-width:1000px){.u-list{grid-template-columns:repeat(3,1fr)}.u-rc .im{height:190px!important}}
+
+/* =================== dish cards with one-tap ADD =================== */
+.u-dc2{width:176px;display:flex;flex-direction:column;border-radius:20px;background:#fff;box-shadow:0 8px 24px rgba(17,19,24,.09);overflow:hidden;padding-bottom:12px}
+.u-dc2 .im{width:100%!important;height:132px!important;border-radius:0!important;box-shadow:none!important;position:relative}
+.u-dc2 .im .rep{position:absolute;left:8px;bottom:6px;font:600 .6rem var(--font);color:#fff;font-style:normal;text-shadow:0 1px 4px rgba(0,0,0,.6)}
+.u-dc2 .nm{padding:0 12px}.u-dc2 small{padding:0 12px}
+.u-dc2 .ft{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px;padding:0 12px}
+.u-dc2 .ft .pr{margin:0;font:800 .98rem var(--head)}
+.u-add.sm{width:74px;height:34px;border-radius:10px;font-size:.88rem;box-shadow:0 3px 10px rgba(17,19,24,.1)}
+.u-dc2 .u-step.sm{width:88px}
+
+/* =================== sticky filters: frosted =================== */
+.u-chips{background:rgba(255,255,255,.86);backdrop-filter:blur(14px) saturate(1.6);-webkit-backdrop-filter:blur(14px) saturate(1.6)}
+
+/* =================== cart bar on Home (above the tab bar) =================== */
+.u-homecart{bottom:calc(var(--nav-h) + 22px + env(safe-area-inset-bottom))}
+@media(min-width:1000px){.u-homecart{bottom:24px;left:auto;right:24px;width:400px}}
+
+/* =================== checkout: 1-2-3 guide =================== */
+.u-steps3{display:flex;align-items:center;gap:0;list-style:none;margin:6px 0 14px;padding:12px 14px;border-radius:18px;background:#fff;box-shadow:0 6px 20px rgba(17,19,24,.06)}
+.u-steps3 li{flex:1;display:flex;align-items:center;gap:8px;font:700 .82rem var(--font);color:var(--u-mute);position:relative}
+.u-steps3 li+li:before{content:'';position:absolute;left:-14px;width:10px;height:2px;border-radius:2px;background:#e3e4e9}
+.u-steps3 li span{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;flex:none;background:#f0f1f4;color:var(--u-mute);font:800 .8rem var(--head)}
+.u-steps3 li span svg{width:14px;height:14px;stroke-width:3}
+.u-steps3 li.cur{color:var(--u-ink)}.u-steps3 li.cur span{background:var(--brand);color:#fff;box-shadow:0 4px 12px rgba(208,69,11,.35)}
+.u-steps3 li.done{color:var(--u-green-d)}.u-steps3 li.done span{background:var(--u-green);color:#fff}
+/* menu hero: taller photo, glass buttons */
+.u-hero{height:240px}
+.u-hero .u-iconbtn{background:rgba(255,255,255,.75);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+.u-rinfo{border-radius:26px}
+
+/* search: ideas before typing */
+.u-tryq{display:flex;flex-wrap:wrap;gap:8px}
+.u-tryq button{display:inline-flex;align-items:center;gap:7px;height:38px;padding:0 14px;border-radius:99px;border:1px solid var(--u-line);background:#fff;color:var(--u-ink);font:700 .86rem var(--font);cursor:pointer;box-shadow:0 2px 8px rgba(17,19,24,.04)}
+.u-tryq button svg{width:15px;height:15px;color:var(--u-mute)}
+.u-tryq button:active{background:var(--brand-l)}
+.u-slist{display:grid;gap:4px}
