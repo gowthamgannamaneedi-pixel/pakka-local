@@ -13,6 +13,11 @@
     S.timeout = d.accept_timeout_sec; S.skew = Date.parse(d.server_time) - Date.now();      // server clock is the reference
     pending = list.filter((o) => o.status === 'PLACED').sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)) || a.id - b.id);   // oldest first: it has waited longest
     PL.badge('/orders', pending.length);
+    const snap = {}; for (const x of list) snap[x.id] = { st: x.status, rider: x.rider?.name || null, code: String(x.order_code).slice(-6) };
+    if (S.snap) for (const [id, x] of Object.entries(snap)) { const p = S.snap[id]; if (!p) continue;
+      const msg = !p.rider && x.rider ? `Delivery partner ${x.rider} is coming for #${x.code}` : p.st !== 'PICKED_UP' && x.st === 'PICKED_UP' ? `#${x.code} picked up by the delivery partner` : p.st !== 'DELIVERED' && x.st === 'DELIVERED' ? `#${x.code} delivered` : p.st !== 'CANCELLED' && x.st === 'CANCELLED' ? `#${x.code} was cancelled by Pakka Local` : null;
+      if (msg) { PL.chime(); PL.toast(msg, x.st === 'CANCELLED' ? true : 'ok'); } }
+    S.snap = snap;
     if (S.prevN != null && pending.length > S.prevN) { try { navigator.vibrate?.([220, 120, 220]); } catch {} }
     S.prevN = pending.length; document.title = pending.length ? `(${pending.length}) New order · Pakka Local` : 'Restaurant · Pakka Local';
     const box = PL.$('#alerts'); if (!box) return;
@@ -20,7 +25,7 @@
     let i = pending.findIndex((o) => o.id === curId); if (i < 0) i = 0;
     const o = pending[i]; curId = o ? o.id : null; if (!o) collapsed = false;
     const n = pending.length;
-    const soundBtn = PL.sound.unlocked ? '' : `<button class="btn ghost sm block mt2" data-act="sound-on">${PL.icon('sound', 'width="18" height="18"')} Enable alert sound</button>`;
+    const soundBtn = PL.sound.unlocked ? '' : `<button class="btn ghost sm block mt2" data-act="sound-on">${PL.icon('sound', 'width="18" height="18"')} Tap here to turn on the ring</button>`;
     const html = !o ? '' : collapsed
       ? `<div class="card rq-bar" role="status"><span class="dot"></span><b class="grow">${n} new order${n > 1 ? 's' : ''} waiting</b><button class="btn sm" data-act="rq-expand">Show</button></div>`
       : `<div class="card" role="alertdialog" aria-label="New order ${i + 1} of ${n}">
@@ -35,7 +40,7 @@
     // on the Orders screen the "New orders" box is the alert (same buttons); the pop-up is for the other screens. The ring plays everywhere.
     const onOrders = document.body.dataset.route === '/orders';
     box.classList.toggle('hide', !n || onOrders); setAlertSpace(box); PL.sound.sync(n > 0); paintTimers();
-    const sb = PL.$('#k-sound'); if (sb) sb.classList.toggle('hide', !n || PL.sound.unlocked);
+    const sb = PL.$('#k-sound'); if (sb) sb.classList.toggle('hide', PL.sound.unlocked);
   }
   // Response timer. The limit is the admin setting "restaurant_accept_timeout_min"; with no setting only the waiting time is shown.
   // Only the text is updated each second (the card itself is not redrawn, so buttons never move under a finger).
@@ -140,7 +145,7 @@
     const doneToday = orders.filter((o) => PAST.includes(o.status) && dayKey(o.created_at) === todayKey).length;
     const r0 = me.restaurant, noLoc = !hasLoc(r0);
     return `${warn}${noLoc ? locCard() : ''}${S.push === 'on' ? '' : PL.push.card('restaurant')}${headCard(me, today)}
-      <button id="k-sound" class="btn block mt2 ${fresh.length && !PL.sound.unlocked ? '' : 'hide'}" data-act="sound-on">${PL.icon('sound')} Tap to turn on the new-order ring</button>
+      <button id="k-sound" class="btn block mt2 ${!PL.sound.unlocked ? '' : 'hide'}" data-act="sound-on">${PL.icon('sound')} Sound is off on this device — tap to turn on the order ring</button>
       <div class="k-board">
       ${box('s-new', 'New orders', 'Check the items, then tap Accept. Cooking starts right away.', fresh, newCard, me.status.is_open ? 'No new orders. New orders ring and appear here.' : 'You are closed. Open the restaurant to get orders.')}
       ${box('s-cook', 'Cooking', 'When the food is packed, tap “Food is ready”.', cook, cookCard, 'Nothing cooking right now.')}

@@ -198,40 +198,33 @@
     catch { return false; } finally { audio.muted = false; probing = false; }
   };
   PL.sound = {
-    enabled: () => localStorage.getItem('pl.sound') === '1',
+    enabled: () => localStorage.getItem('pl.sound') !== '0',      // on unless someone turned it off
     unlocked: false, playing: () => !audio.paused,
     async enable() { if (await probe(false)) { localStorage.setItem('pl.sound', '1'); PL.sound.sync(want, true); return true; } PL.toast('Your browser blocked sound. Tap again.', true); return false; },
     disable() { localStorage.setItem('pl.sound', '0'); PL.sound.sync(false, true); },
     // one loop for ALL outstanding alerts; stops the moment nothing needs action
-    sync(active, keep) { if (!keep) want = active; if (probing) return; if (active && PL.sound.enabled() && PL.sound.unlocked && !document.hidden) audio.play().catch(() => {}); else { audio.pause(); audio.currentTime = 0; } }
+    // keeps ringing while the tab is in the background or the screen is off (the browser allows it once sound was unlocked by a tap)
+    sync(active, keep) { if (!keep) want = active; if (probing) return; if (active && PL.sound.enabled() && PL.sound.unlocked) audio.play().catch(() => {}); else { audio.pause(); audio.currentTime = 0; } }
   };
+  // short two-note chime for updates that need attention but not a ring (rider assigned, picked up, delivered, new message)
+  let actx = null;
+  const ctx = () => { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === 'suspended') actx.resume(); return actx; } catch { return null; } };
+  PL.chime = () => { if (!PL.sound.enabled()) return; const c = ctx(); if (!c || c.state !== 'running') return;
+    const t = c.currentTime; [[880, 0], [1320, 0.16]].forEach(([f, d]) => { const o = c.createOscillator(), g = c.createGain(); o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t + d); g.gain.exponentialRampToValueAtTime(0.35, t + d + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.35); o.connect(g).connect(c.destination); o.start(t + d); o.stop(t + d + 0.4); }); };
   document.addEventListener('visibilitychange', () => PL.sound.sync(want, true));
   // back to the app (phone unlocked, tab reopened): refresh the live screen now instead of on the next timed tick
   document.addEventListener('visibilitychange', () => { if (!document.hidden && PL.state.tick && PL.session()) PL.state.tick(); });
   // "Sound on" is remembered, but the browser's permission to play is not. Re-unlock quietly: right away (works in the
   // Android app, which allows playback without a tap) and on the first touch (normal browsers need a tap).
   const quietUnlock = async () => {
+    ctx();
     if (PL.sound.unlocked || probing || !PL.sound.enabled()) return;
     if (await probe(true)) PL.sound.sync(want, true);
   };
   quietUnlock();
   ['pointerdown', 'keydown'].forEach((t) => document.addEventListener(t, quietUnlock, { passive: true }));
 
-  // ---------- PWA install ----------
-  let deferred;
-  window.addEventListener('beforeinstallprompt', (ev) => { ev.preventDefault(); deferred = ev; showInstall(); });
-  window.addEventListener('appinstalled', () => { localStorage.setItem(`pl.installed.${PL.portal}`, '1'); PL.$('#install')?.remove(); });
-  function showInstall() {
-    const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
-    if (standalone || localStorage.getItem(`pl.installed.${PL.portal}`) || Date.now() - Number(localStorage.getItem(`pl.install.dismissed.${PL.portal}`) || 0) < 7 * 864e5 || PL.$('#install')) return;
-    const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) && !deferred;
-    if (!deferred && !ios) return;
-    const d = document.createElement('div'); d.id = 'install'; d.className = 'install';
-    d.innerHTML = `<img src="/assets/icon-192.png" alt=""><div class="grow"><b>Install Pakka Local</b><div class="small mute">${ios ? 'Tap Share, then “Add to Home Screen”.' : 'Add the app to your home screen.'}</div></div>${deferred ? '<button class="btn sm" data-act="install">Install</button>' : ''}<button class="iconbtn" data-act="install-dismiss" aria-label="Dismiss">${PL.icon('x')}</button>`;
-    document.body.append(d);
-  }
-  PL.actions.install = async () => { if (!deferred) return; deferred.prompt(); const r = await deferred.userChoice; deferred = null; PL.$('#install')?.remove(); if (r.outcome === 'dismissed') localStorage.setItem(`pl.install.dismissed.${PL.portal}`, Date.now()); };
-  PL.actions['install-dismiss'] = () => { localStorage.setItem(`pl.install.dismissed.${PL.portal}`, Date.now()); PL.$('#install')?.remove(); };
   PL.actions.copy = (el) => PL.copy(el.dataset.v);
   PL.actions['pw-eye'] = (el) => { const i = el.parentElement.querySelector('input'); const show = i.type === 'password'; i.type = show ? 'text' : 'password'; el.textContent = show ? 'Hide' : 'Show'; el.setAttribute('aria-label', show ? 'Hide password' : 'Show password'); };
   PL.actions.back = () => PL.back();
@@ -291,7 +284,7 @@
 
   // ---------- shell ----------
   // cfg: { portal, name, home, tabs:[{path,label,icon,badge?}], routes:{path:{title,render,after,poll,noNav}}, loginView(), onReady(), right() }
-  PL.start = (c) => { cfg = c; PL.portal = c.portal; document.body.classList.add("p-" + c.portal); if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {}); PL.boot(); setTimeout(showInstall, 1500); };
+  PL.start = (c) => { cfg = c; PL.portal = c.portal; document.body.classList.add("p-" + c.portal); if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {}); PL.boot(); };
   // ---------- "Install the app" sheet (customer, restaurant and admin portals) ----------
   // Shown after every sign-in and once on every new visit, unless the app is already installed. Chrome/Edge give a real install
   // prompt (beforeinstallprompt, which only fires when the app is NOT installed); iPhone Safari and others get the exact manual steps.
