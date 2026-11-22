@@ -216,21 +216,35 @@
     S.curPt = cur && cur.lat != null && cur.lng != null ? { lat: cur.lat, lng: cur.lng } : null;
     const name = (me.user?.name || '').trim().split(' ')[0];
     const counts = Object.fromEntries(CATS.map(([k]) => [k, all.filter((x) => catsOf(textOf(x)).includes(k)).length]));
-    const cats = CATS.filter(([k]) => counts[k]); S.words = cats.map(([, l]) => l.toLowerCase().split(' ')[0]).slice(0, 6);
+    const cats = CATS.filter(([k]) => counts[k]);
+    // search hints = real dishes on Pakka Local right now (open kitchens first), shuffled; restaurant names fill in if menus are short
+    const seen = new Set(), dn = [];
+    for (const x of [...all].sort((p, q) => q.is_open - p.is_open)) for (const d of String(x.dish_names || '').split(' | ')) { const t = d.trim(), k2 = t.toLowerCase(); if (t && t.length <= 28 && !seen.has(k2)) { seen.add(k2); dn.push(t); } }
+    for (let i = dn.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [dn[i], dn[j]] = [dn[j], dn[i]]; }
+    S.words = dn.length ? dn.slice(0, 14) : all.map((x) => x.name).slice(0, 8);
     const ranked = [...open].sort((p, q) => (q.rating || 0) - (p.rating || 0)), menus = await menusFor(ranked.slice(0, 6).map((x) => x.id));
     const dishes = []; for (let k = 0; k < 3; k++) for (const x of ranked.slice(0, 6)) { const i = (menus[x.id] || []).filter((d) => d.available && d.image_path)[k]; if (i) dishes.push({ i, x }); }
     const picks = [...open].sort((p, q) => (q.rating || 0) - (p.rating || 0) || (q.rating_count || 0) - (p.rating_count || 0)).slice(0, 10);
     // banners: only true statements (real free-delivery rules from restaurants, real features)
     const fd = open.filter((x) => x.free_delivery_above_paise).sort((p, q) => p.free_delivery_above_paise - q.free_delivery_above_paise)[0];
     const top = cats[0];
-    const bans = [fd && `<button class="u-ban b-or" data-act="go" data-path="/r/${fd.id}"><span class="k">Free delivery</span><b>On orders above ${rs(fd.free_delivery_above_paise)}</b><span class="s">from ${e(fd.name)}</span><span class="cta">Order now ${I('chev')}</span>${img(coverOf(fd), 'ph')}</button>`,
-      top && `<button class="u-ban b-gr" data-act="cat" data-k="${top[0]}"><span class="k">Near you</span><b>${e(top[1])} from local kitchens</b><span class="s">${counts[top[0]]} restaurant${counts[top[0]] > 1 ? 's' : ''} serving it now</span><span class="cta">Explore ${I('chev')}</span>${img(catPic(top[0]), 'ph')}</button>`,
-      `<div class="u-ban b-dk"><span class="k">Live tracking</span><b>Watch your rider on the map</b><span class="s">From the restaurant to your gate</span><svg class="art" viewBox="0 0 140 100" fill="none"><rect x="6" y="8" width="128" height="84" rx="16" fill="#2b3046"/><path d="M18 70c20-30 40 10 60-20s30-20 46-34" stroke="#ff9248" stroke-width="4" stroke-dasharray="7 7" stroke-linecap="round"/><circle cx="18" cy="70" r="7" fill="#fff"/><path d="M118 6c-8 0-13 6-13 12 0 9 13 20 13 20s13-11 13-20c0-6-5-12-13-12z" fill="#d0450b"/><circle cx="118" cy="18" r="4" fill="#fff"/></svg></div>`,
-      `<div class="u-ban b-pl"><span class="k">Simple checkout</span><b>Pay online. No cash needed.</b><span class="s">Every charge shown before you pay</span><svg class="art" viewBox="0 0 140 100" fill="none"><rect x="20" y="18" width="100" height="66" rx="12" fill="#fff" opacity=".95"/><rect x="20" y="32" width="100" height="12" fill="#5b2a86" opacity=".35"/><rect x="32" y="58" width="36" height="8" rx="4" fill="#8a3ea8" opacity=".5"/><circle cx="104" cy="66" r="12" fill="#0f8a4f"/><path d="M98 66l4 4 8-8" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></div>`].filter(Boolean);
+    // photo slides: real dishes (with photos) from open kitchens, one per restaurant first, then more; plus real offers
+    // any available dish of an open kitchen; its own photo, or the matching food photo when the restaurant has not uploaded one
+    const pool = []; for (let k = 0; k < 3; k++) for (const x of ranked.slice(0, 6)) { const i = (menus[x.id] || []).filter((d) => d.available)[k]; if (i) pool.push({ i, x, src: i.image_path ? pubImg(i.image_path) : catPic(catsOf(i.name)[0] || catsOf(textOf(x))[0] || 'thali') }); }
+    const used = new Set(), feat = [...pool.filter(({ x }) => !used.has(x.id) && used.add(x.id)), ...pool].filter((v, k, a) => a.indexOf(v) === k).slice(0, 4);
+    const photoSlide = ({ i, x, src }, k) => `<button class="u-ban u-pban" data-act="sgo" data-path="/r/${x.id}" data-mq="${e(i.name)}" aria-label="${e(i.name)} from ${e(x.name)}">
+        <img class="bg" src="${e(src)}" alt="" ${k ? 'loading="lazy"' : ''}><span class="shade"></span>
+        <span class="k">${k === 0 ? 'Today’s pick' : x.rating >= 4 ? `★ ${Number(x.rating).toFixed(1)} rated kitchen` : 'Fresh from the kitchen'}</span>
+        <b>${e(i.name)}</b><span class="s">${e(x.name)}${etaOf(x) ? ` · ${etaOf(x)}` : ''}</span>
+        <span class="glass">${dietMark(i.diet)}<span class="pr">${rs(i.price_paise)}</span><span class="cta">Order now ${I('chev')}</span></span></button>`;
+    const bans = [...feat.map(photoSlide), fd && `<button class="u-ban u-pban" data-act="go" data-path="/r/${fd.id}"><img class="bg" src="${e(coverOf(fd))}" alt="" loading="lazy"><span class="shade or"></span><span class="k">Free delivery</span><b>On orders above ${rs(fd.free_delivery_above_paise)}</b><span class="s">from ${e(fd.name)}</span><span class="glass"><span class="cta">Order now ${I('chev')}</span></span></button>`,
+      feat.length < 2 && top && `<button class="u-ban b-gr" data-act="cat" data-k="${top[0]}"><span class="k">Near you</span><b>${e(top[1])} from local kitchens</b><span class="s">${counts[top[0]]} restaurant${counts[top[0]] > 1 ? 's' : ''} serving it now</span><span class="cta">Explore ${I('chev')}</span>${img(catPic(top[0]), 'ph')}</button>`,
+      !feat.length && `<div class="u-ban b-dk"><span class="k">Live tracking</span><b>Watch your rider on the map</b><span class="s">From the restaurant to your gate</span><svg class="art" viewBox="0 0 140 100" fill="none"><rect x="6" y="8" width="128" height="84" rx="16" fill="#2b3046"/><path d="M18 70c20-30 40 10 60-20s30-20 46-34" stroke="#ff9248" stroke-width="4" stroke-dasharray="7 7" stroke-linecap="round"/><circle cx="18" cy="70" r="7" fill="#fff"/><path d="M118 6c-8 0-13 6-13 12 0 9 13 20 13 20s13-11 13-20c0-6-5-12-13-12z" fill="#d0450b"/><circle cx="118" cy="18" r="4" fill="#fff"/></svg></div>`,
+      !feat.length && `<div class="u-ban b-pl"><span class="k">Simple checkout</span><b>Pay online. No cash needed.</b><span class="s">Every charge shown before you pay</span><svg class="art" viewBox="0 0 140 100" fill="none"><rect x="20" y="18" width="100" height="66" rx="12" fill="#fff" opacity=".95"/><rect x="20" y="32" width="100" height="12" fill="#5b2a86" opacity=".35"/><rect x="32" y="58" width="36" height="8" rx="4" fill="#8a3ea8" opacity=".5"/><circle cx="104" cy="66" r="12" fill="#0f8a4f"/><path d="M98 66l4 4 8-8" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></div>`].filter(Boolean);
     const notes = [c.testPayments ? `<div class="u-note info slim">${I('info')}<span><b>Test mode</b> · payments are simulated on this staging app</span></div>` : '', c.paymentsAvailable === false ? `<div class="u-note">${I('info')}<span>Ordering opens soon. You can browse menus now.</span></div>` : '', !c.ridersAvailable ? `<div class="u-note">${I('bike')}<span>${e(c.noRiderMessage)}</span></div>` : ''].join('');
     const live = active[0];
     return `<div class="u-head" id="u-head"><div class="row1"><button class="u-loc" data-act="go" data-path="/addresses"><span class="pin">${I('pin')}</span><span class="txt"><b>${cur ? e(cur.kind === 'listed' ? cur.place_name || 'Selected place' : LBL[cur.label] || 'Home') : 'Set delivery location'}${I('chev')}</b><small>${cur ? e(addrLine(cur, cur.kind === 'listed')) : 'Choose your PG, hostel or college'}</small></span></button>${PL.inbox.btn()}<button class="u-av" data-act="go" data-path="/me" aria-label="Account">${e((name || 'P').charAt(0).toUpperCase())}</button></div>
-        <a class="u-search" href="#/search" aria-label="Search for restaurants and dishes">${I('search')}<span class="ph">Search for ‘<i id="u-word">${e(S.words[0] || 'biryani')}</i>’</span></a></div>
+        <a class="u-search" href="#/search" aria-label="Search for restaurants and dishes">${I('search')}<span class="ph">Search for ‘<i id="u-word">${e(S.words[0] || 'your favourite food')}</i>’</span></a></div>
       ${notes}
       ${offer ? offerCard(offer) : ''}
       ${homeInstallHidden() ? '' : installCard('home')}
@@ -260,7 +274,7 @@
   PL.actions['sort-set'] = (el) => { S.sort = el.dataset.k; PL.closeModal(); const b = PL.$('[data-act=sort]'); if (b) b.firstChild && (b.innerHTML = `${I('filter')} Sort${S.sort !== 'rel' ? ': ' + { rating: 'Rating', eta: 'Fastest' }[S.sort] : ''} ${I('chev', 'style="transform:rotate(90deg);width:14px;height:14px"')}`); filterHome(); };
   // home motion: rotating search word, banner auto-advance with dots, header shadow when scrolled
   const homeAfter = () => { filterHome(); if (S.offerNow) setTimeout(() => S.offerNow && offerPop(S.offerNow), 600);
-    const w = PL.$('#u-word'), words = S.words?.length ? S.words : ['biryani']; let wi = 0;
+    const w = PL.$('#u-word'), words = S.words?.length ? S.words : ['your favourite food']; let wi = 0;
     if (w && words.length > 1 && !reduce()) { const iv = setInterval(() => { if (!w.isConnected) return clearInterval(iv); wi = (wi + 1) % words.length; w.textContent = words[wi]; w.style.animation = 'none'; void w.offsetWidth; w.style.animation = ''; }, 2600); }
     const b = PL.$('#u-bans'), dots = PL.$('#u-bdots'); if (b && dots) { let touched = false; const sync = () => { const i = Math.round(b.scrollLeft / (b.firstElementChild?.offsetWidth + 12 || 1)); [...dots.children].forEach((d, k) => d.classList.toggle('on', k === i)); };
       b.addEventListener('scroll', sync, { passive: true }); b.addEventListener('pointerdown', () => { touched = true; }, { passive: true });

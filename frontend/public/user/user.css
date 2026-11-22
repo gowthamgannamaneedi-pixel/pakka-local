@@ -652,3 +652,37 @@ body.p-user input[type=search]::-webkit-search-cancel-button{-webkit-appearance:
 .u-offerpop{text-align:center}.u-offerpop img{width:100%;max-height:260px;object-fit:cover;border-radius:16px;display:block}
 .u-offerpop .ic{width:72px;height:72px;margin:6px auto 0;border-radius:50%;background:var(--brand);color:#fff;display:grid;place-items:center}.u-offerpop .ic svg{width:36px;height:36px}
 .u-offerpop h3{margin:14px 0 6px;font:800 1.3rem var(--head)}.u-offerpop p{margin:0;color:var(--u-sub);line-height:1.45;white-space:pre-line}
+
+/* ---------- photo slides (real dishes) ---------- */
+.u-pban{padding:16px 18px 14px;justify-content:flex-end;gap:2px;background:#1d2030;height:184px}
+.u-pban img.bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0;transform:scale(1.02);transition:transform 6s ease}
+.u-pban:hover img.bg{transform:scale(1.08)}
+.u-pban .shade{position:absolute;inset:0;z-index:1;background:linear-gradient(180deg,rgba(0,0,0,0) 25%,rgba(0,0,0,.72) 100%),linear-gradient(90deg,rgba(0,0,0,.35),rgba(0,0,0,0) 60%)}
+.u-pban .shade.or{background:linear-gradient(180deg,rgba(208,69,11,.15) 20%,rgba(160,45,5,.85) 100%)}
+.u-pban>*:not(img):not(.shade){position:relative;z-index:2}
+.u-pban .k{align-self:flex-start;padding:4px 9px;border-radius:99px;background:rgba(255,255,255,.18);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.28);font-size:.64rem;letter-spacing:.08em;margin-bottom:auto}
+.u-pban b{max-width:100%;font-size:1.28rem;text-shadow:0 1px 8px rgba(0,0,0,.35);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.u-pban span.s{max-width:100%;opacity:.95;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.u-pban .glass{display:flex;align-items:center;gap:8px;margin-top:8px;align-self:flex-start;padding:5px 5px 5px 10px;border-radius:99px;background:rgba(255,255,255,.2);backdrop-filter:blur(12px) saturate(1.4);-webkit-backdrop-filter:blur(12px) saturate(1.4);border:1px solid rgba(255,255,255,.3)}
+.u-pban .glass .pr{font:800 .95rem var(--head);color:#fff}
+.u-pban .glass .cta{margin:0}
+.u-pban .glass .diet{box-shadow:0 0 0 2px #fff;border-radius:3px;background-color:#fff}
+@media(min-width:700px){.u-pban{height:200px}}
+
+/* ---------- see-through bars (frosted glass) ---------- */
+@media(max-width:999px){
+  body.p-user .bottom{background:rgba(255,255,255,.62);backdrop-filter:blur(20px) saturate(1.8);-webkit-backdrop-filter:blur(20px) saturate(1.8)}
+  body.p-user .bottom{left:10px;right:10px;bottom:calc(8px + env(safe-area-inset-bottom));border-radius:22px;padding:0 6px;border:1px solid rgba(255,255,255,.55);box-shadow:0 10px 30px rgba(17,19,24,.14),inset 0 1px 0 rgba(255,255,255,.7)}
+  body.p-user .shell{padding-bottom:calc(var(--nav-h) + 28px + env(safe-area-inset-bottom))}
+  .u-live{bottom:calc(var(--nav-h) + 20px + env(safe-area-inset-bottom))}
+}
+body.p-user .bottom button.on{background:rgba(208,69,11,.1);border-radius:16px}
+body.p-user .top{background:rgba(255,255,255,.7);backdrop-filter:blur(18px) saturate(1.8);-webkit-backdrop-filter:blur(18px) saturate(1.8)}
+@media(min-width:1000px){body.p-user .top{background:rgba(255,255,255,.75)}}
+.u-head{background:rgba(255,255,255,.78);backdrop-filter:blur(18px) saturate(1.8);-webkit-backdrop-filter:blur(18px) saturate(1.8)}
+.u-live{background:rgba(29,32,48,.82);backdrop-filter:blur(16px) saturate(1.4);-webkit-backdrop-filter:blur(16px) saturate(1.4);border:1px solid rgba(255,255,255,.12)}
+.u-offerhero{background:linear-gradient(120deg,rgba(255,241,230,.92),rgba(255,217,194,.85));backdrop-filter:blur(6px)}
+.u-rrow .im .cl{background:rgba(17,19,24,.55);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
+/* browsers without blur support: keep the bars readable */
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){body.p-user .top,.u-head{background:rgba(255,255,255,.96)}}
+@media(max-width:999px){@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){body.p-user .bottom{background:rgba(255,255,255,.96)}.u-live{background:#1d2030}}
