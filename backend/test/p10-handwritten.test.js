@@ -33,6 +33,11 @@ test('offer banner: latest unread offer only; gone once opened or dismissed', as
   assert.equal((await W.call('GET', '/api/push/banner', null, W.cust)).body.banner, null);
   note(W.custId, 'promo', 'Old offer'); const id = note(W.custId, 'promo', '20% off today');
   const b = (await W.call('GET', '/api/push/banner', null, W.cust)).body.banner; assert.equal(b.id, id); assert.equal(b.title, '20% off today');
+  assert.equal(b.image, null, 'no picture unless the admin added one to the offer');
+  const cid = W.db.prepare("INSERT INTO campaigns (title,body,audience_type,status,image_path,created_by) VALUES ('Pic offer','b','customers','completed','offer.png',1)").run().lastInsertRowid;
+  const pid = W.db.prepare("INSERT INTO notifications (event_id,user_id,category,title,body,kind,campaign_id) VALUES (?,?,'promotional','Pic offer','b','promo',?)").run(`t:${Math.random()}`, W.custId, cid).lastInsertRowid;
+  assert.equal((await W.call('GET', '/api/push/banner', null, W.cust)).body.banner.image, '/api/files/public/offer.png', 'offer picture included');
+  await W.call('POST', `/api/push/inbox/${pid}/read`, null, W.cust);
   await W.call('POST', `/api/push/inbox/${id}/read`, null, W.cust);
   assert.equal((await W.call('GET', '/api/push/banner', null, W.cust)).body.banner.title, 'Old offer');
   assert.equal((await W.call('GET', '/api/push/banner', null, W.rider)).body.banner, null, 'only your own');

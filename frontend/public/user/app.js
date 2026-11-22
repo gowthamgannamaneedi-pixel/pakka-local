@@ -197,10 +197,20 @@
   const linkPath = (u) => { if (!u) return ''; try { const x = new URL(u, location.origin); if (x.origin !== location.origin || !x.pathname.startsWith('/user')) return ''; if (x.hash.startsWith('#/')) return x.hash.slice(1); const seg = x.pathname.split('/').filter(Boolean); return seg.length > 1 ? '/' + seg.slice(1).join('/') : '/home'; } catch { return ''; } };
   const banDone = (id) => { (S.banDone ||= new Set()).add(Number(id)); if (PL.markInboxRead) PL.markInboxRead(id); PL.post(`/api/push/inbox/${id}/read`).catch(() => {}); };
   PL.actions['ban-x'] = (el) => { banDone(el.dataset.id); el.closest('.u-offerbar')?.remove(); };
-  PL.actions['ban-open'] = (el) => { banDone(el.dataset.id); PL.go(el.dataset.path); };
+  PL.actions['ban-open'] = async (el) => { banDone(el.dataset.id); if (document.querySelector('.ov .u-offerpop')) await PL.closeModalAsync(); el.dataset.path ? PL.go(el.dataset.path) : PL.rerender(); };
+  // the offer itself: picture (if the admin added one), title and the whole message; tapping it opens the offer's link
+  const offerCard = (o) => { const path = linkPath(o.deep_link);
+    return `<div class="u-offerhero" role="region" aria-label="Offer">${o.image ? `<img src="${e(o.image)}" alt="" loading="lazy">` : `<span class="ic">${I('percent')}</span>`}
+      <div class="txt"><b>${e(o.title)}</b><p>${e(o.body)}</p>${path ? `<button class="btn sm" data-act="ban-open" data-id="${o.id}" data-path="${e(path)}">Order now ${I('chev')}</button>` : ''}</div>
+      <button class="x" data-act="ban-x" data-id="${o.id}" aria-label="Close offer">${I('x')}</button></div>`; };
+  // when the app opens: the newest offer pops up on its own (once per opening of the app), no button needed
+  const offerPop = (o) => { const k = 'pl.offer.seen.' + o.id; try { if (sessionStorage.getItem(k)) return; sessionStorage.setItem(k, '1'); } catch {} if (document.querySelector('.ov')) return;
+    const path = linkPath(o.deep_link);
+    PL.modal(`<div class="u-offerpop">${o.image ? `<img src="${e(o.image)}" alt="">` : `<span class="ic">${I('percent')}</span>`}<h3>${e(o.title)}</h3><p>${e(o.body)}</p></div>
+      <div class="row mt"><button class="btn ghost grow" data-act="close-modal">Close</button>${path ? `<button class="btn grow" data-act="ban-open" data-id="${o.id}" data-path="${e(path)}">Order now</button>` : `<button class="btn grow" data-act="ban-open" data-id="${o.id}" data-path="">Got it</button>`}</div>`, { cls: 'u-offer-ov' }); };
   async function home() {
     const [c, r, my, me, adr, ob] = await Promise.all([PL.api('/api/public/config'), PL.api('/api/public/restaurants'), PL.api('/api/customer/orders').catch(() => ({ orders: [] })), PL.api('/api/customer/me').catch(() => ({ user: {} })), PL.api('/api/customer/addresses').catch(() => ({ addresses: [] })), PL.api('/api/push/banner').catch(() => ({ banner: null }))]);
-    const offer = ob.banner && !S.banDone?.has(ob.banner.id) ? ob.banner : null;
+    const offer = ob.banner && !S.banDone?.has(ob.banner.id) ? ob.banner : null; S.offerNow = offer;
     const all = r.restaurants, open = all.filter((x) => x.is_open), active = my.orders.filter((o) => ACTIVE.includes(o.status)), recent = my.orders.filter((o) => o.status === 'DELIVERED').slice(0, 8);
     const ad = adr.addresses, cur = ad.find((x) => x.id === S.addrId) || ad.find((x) => x.is_default) || ad[0];
     S.curPt = cur && cur.lat != null && cur.lng != null ? { lat: cur.lat, lng: cur.lng } : null;
@@ -222,8 +232,8 @@
     return `<div class="u-head" id="u-head"><div class="row1"><button class="u-loc" data-act="go" data-path="/addresses"><span class="pin">${I('pin')}</span><span class="txt"><b>${cur ? e(cur.kind === 'listed' ? cur.place_name || 'Selected place' : LBL[cur.label] || 'Home') : 'Set delivery location'}${I('chev')}</b><small>${cur ? e(addrLine(cur, cur.kind === 'listed')) : 'Choose your PG, hostel or college'}</small></span></button>${PL.inbox.btn()}<button class="u-av" data-act="go" data-path="/me" aria-label="Account">${e((name || 'P').charAt(0).toUpperCase())}</button></div>
         <a class="u-search" href="#/search" aria-label="Search for restaurants and dishes">${I('search')}<span class="ph">Search for ‘<i id="u-word">${e(S.words[0] || 'biryani')}</i>’</span></a></div>
       ${notes}
+      ${offer ? offerCard(offer) : ''}
       ${homeInstallHidden() ? '' : installCard('home')}
-      ${offer ? `<div class="u-offerbar" role="status"><span class="ic">${I('percent')}</span><span class="txt"><b>${e(offer.title)}</b><small>${e(offer.body)}</small></span>${linkPath(offer.deep_link) ? `<button class="btn sm" data-act="ban-open" data-id="${offer.id}" data-path="${e(linkPath(offer.deep_link))}">View</button>` : ''}<button class="x" data-act="ban-x" data-id="${offer.id}" aria-label="Dismiss offer">${I('x')}</button></div>` : ''}
       ${bans.length ? `<div class="u-bans" id="u-bans">${bans.join('')}</div><div class="u-bdots" id="u-bdots">${bans.map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</div>` : ''}
       ${cats.length ? `<div class="u-sec"><h2>${name ? `${e(name)}, what’s on your mind?` : 'What’s on your mind?'}</h2>${arrows('u-cats')}</div><div class="u-cats ${cats.length < 7 ? 'one' : ''}" id="u-cats">${cats.map(([k, l]) => `<button class="u-cat ${S.cat === k ? 'on' : ''}" data-act="cat" data-k="${k}" aria-pressed="${S.cat === k}"><span class="im"><img src="${catPic(k)}" alt="" loading="lazy"></span>${e(l)}</button>`).join('')}</div>` : ''}
       ${recent.length ? `<div class="u-sec"><h2>Order again<small>Your recent orders, one tap away</small></h2>${arrows('u-oa')}</div><div class="u-hscroll" id="u-oa">${recent.map((o) => oaCard(o)).join('')}</div>` : ''}
@@ -249,7 +259,7 @@
   PL.actions.sort = () => PL.modal(`<h3>Sort restaurants</h3><div class="u-menu" style="margin-top:12px">${[['rel', 'Relevance', 'Open kitchens first'], ['rating', 'Rating: high to low', 'Based on customer ratings'], ['eta', 'Delivery time', 'Fastest first']].map(([k, l, s]) => `<button data-act="sort-set" data-k="${k}"><span class="ic">${I(k === 'rating' ? 'star' : k === 'eta' ? 'clock' : 'filter')}</span><span><b>${l}</b><small>${s}</small></span>${(S.sort || 'rel') === k ? `<span class="chev" style="color:var(--brand)">${I('check')}</span>` : ''}</button>`).join('')}</div>`);
   PL.actions['sort-set'] = (el) => { S.sort = el.dataset.k; PL.closeModal(); const b = PL.$('[data-act=sort]'); if (b) b.firstChild && (b.innerHTML = `${I('filter')} Sort${S.sort !== 'rel' ? ': ' + { rating: 'Rating', eta: 'Fastest' }[S.sort] : ''} ${I('chev', 'style="transform:rotate(90deg);width:14px;height:14px"')}`); filterHome(); };
   // home motion: rotating search word, banner auto-advance with dots, header shadow when scrolled
-  const homeAfter = () => { filterHome();
+  const homeAfter = () => { filterHome(); if (S.offerNow) setTimeout(() => S.offerNow && offerPop(S.offerNow), 600);
     const w = PL.$('#u-word'), words = S.words?.length ? S.words : ['biryani']; let wi = 0;
     if (w && words.length > 1 && !reduce()) { const iv = setInterval(() => { if (!w.isConnected) return clearInterval(iv); wi = (wi + 1) % words.length; w.textContent = words[wi]; w.style.animation = 'none'; void w.offsetWidth; w.style.animation = ''; }, 2600); }
     const b = PL.$('#u-bans'), dots = PL.$('#u-bdots'); if (b && dots) { let touched = false; const sync = () => { const i = Math.round(b.scrollLeft / (b.firstElementChild?.offsetWidth + 12 || 1)); [...dots.children].forEach((d, k) => d.classList.toggle('on', k === i)); };

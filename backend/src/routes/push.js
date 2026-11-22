@@ -57,8 +57,10 @@ export function pushRoutes(db) {
   r.post('/inbox/:id(\\d+)/read', lim, auth, (req, res) => { const c = db.prepare('UPDATE notifications SET read_at=COALESCE(read_at, ?) WHERE id=? AND user_id=?').run(new Date().toISOString(), Number(req.params.id), req.user.id).changes;
     c ? res.json({ ok: true, unread: db.prepare('SELECT COUNT(*) FROM notifications WHERE user_id=? AND read_at IS NULL').pluck().get(req.user.id) }) : res.status(404).json({ error: 'Not found.' }); });
   // latest unread offer/announcement for the in-app banner (customers; promotional notifications from the last 7 days)
-  r.get('/banner', auth, (req, res) => res.json({ banner: db.prepare("SELECT id,title,body,deep_link,created_at FROM notifications WHERE user_id=? AND kind='promo' AND read_at IS NULL AND created_at>=? ORDER BY id DESC LIMIT 1")
-    .get(req.user.id, new Date(Date.now() - 7 * 864e5).toISOString()) || null }));
+  // includes the campaign's picture (public file) so the app can show the offer as a full banner
+  r.get('/banner', auth, (req, res) => { const b = db.prepare("SELECT n.id,n.title,n.body,n.deep_link,n.created_at,c.image_path FROM notifications n LEFT JOIN campaigns c ON c.id=n.campaign_id WHERE n.user_id=? AND n.kind='promo' AND n.read_at IS NULL AND n.created_at>=? ORDER BY n.id DESC LIMIT 1")
+    .get(req.user.id, new Date(Date.now() - 7 * 864e5).toISOString());
+    res.json({ banner: b ? { id: b.id, title: b.title, body: b.body, deep_link: b.deep_link, created_at: b.created_at, image: b.image_path ? `/api/files/public/${b.image_path}` : null } : null }); });
   r.post('/inbox/read', lim, auth, (req, res) => { db.prepare('UPDATE notifications SET read_at=? WHERE user_id=? AND read_at IS NULL').run(new Date().toISOString(), req.user.id); res.json({ ok: true }); });
   r.get('/devices', auth,(req, res) => res.json({ devices: db.prepare('SELECT id,device_label,created_at FROM push_subscriptions WHERE user_id=?').all(req.user.id) }));
   // click tracking: called by the service worker, authenticated by a signed per-notification token

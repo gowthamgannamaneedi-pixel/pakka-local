@@ -258,7 +258,7 @@ public class RiderService extends Service {
         if (offer && inst != null && inst.inFront()) return;      // the screen in front already rings
         Intent i = new Intent(c, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
         PendingIntent pi = PendingIntent.getActivity(c, 0, i, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        NotificationCompat.Builder b = new NotificationCompat.Builder(c, offer ? CH_OFFERS : CH_UPDATES).setSmallIcon(R.drawable.ic_stat_rider)
+        NotificationCompat.Builder b = new NotificationCompat.Builder(c, offer ? CH_OFFERS : CH_UPDATES).setSmallIcon(R.drawable.ic_stat_logo).setLargeIcon(logo(c))
             .setContentTitle(title).setContentText(body).setStyle(new NotificationCompat.BigTextStyle().bigText(body)).setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH).setColor(0xFFD0450B).setContentIntent(pi).setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
         if (offer) b.setCategory(NotificationCompat.CATEGORY_CALL).setSound(Uri.parse("android.resource://" + c.getPackageName() + "/" + R.raw.offer_ring)).setVibrate(new long[]{0, 400, 200, 400, 200, 400});
@@ -266,12 +266,16 @@ public class RiderService extends Service {
         if (nm != null) nm.notify(offer ? ID_OFFER : (tag == null ? (int) (System.currentTimeMillis() & 0xfffffff) : (tag.hashCode() & 0x7ffffff) + 10), b.build());
     }
 
+    /** The full-colour Pakka Local logo shown inside every notification (the status-bar icon must be a one-colour shape). */
+    private static android.graphics.Bitmap logoBmp;
+    static android.graphics.Bitmap logo(Context c) { if (logoBmp == null) logoBmp = android.graphics.BitmapFactory.decodeResource(c.getResources(), R.mipmap.ic_launcher); return logoBmp; }
+
     /** Same as showPush but without sound or vibration (the app on screen is already ringing). */
     static void showQuiet(Context c, String title, String body, String tag) {
         channels(c);
         Intent i = new Intent(c, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
         PendingIntent pi = PendingIntent.getActivity(c, 0, i, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        NotificationCompat.Builder b = new NotificationCompat.Builder(c, CH_UPDATES).setSmallIcon(R.drawable.ic_stat_rider).setContentTitle(title).setContentText(body)
+        NotificationCompat.Builder b = new NotificationCompat.Builder(c, CH_UPDATES).setSmallIcon(R.drawable.ic_stat_logo).setLargeIcon(logo(c)).setContentTitle(title).setContentText(body)
             .setStyle(new NotificationCompat.BigTextStyle().bigText(body)).setAutoCancel(true).setSilent(true).setPriority(NotificationCompat.PRIORITY_HIGH)
             .setColor(0xFFD0450B).setContentIntent(pi).setVisibility(NotificationCompat.VISIBILITY_PUBLIC).setTimeoutAfter(10 * 60_000);
         NotificationManager nm = (NotificationManager) c.getSystemService(NOTIFICATION_SERVICE);
@@ -294,14 +298,14 @@ public class RiderService extends Service {
     private Notification statusNotification() {
         String title = active > 0 ? "Delivery in progress" : "You’re online";
         String text = active > 0 ? "Sharing your location with the customer while you deliver" : "Waiting for delivery offers. Tap to open Pakka Rider.";
-        return new NotificationCompat.Builder(this, CH_STATUS).setSmallIcon(R.drawable.ic_stat_rider).setContentTitle(title).setContentText(text)
+        return new NotificationCompat.Builder(this, CH_STATUS).setSmallIcon(R.drawable.ic_stat_logo).setLargeIcon(logo(this)).setContentTitle(title).setContentText(text)
             .setOngoing(true).setOnlyAlertOnce(true).setCategory(NotificationCompat.CATEGORY_SERVICE).setContentIntent(openApp())
             .setColor(0xFFD0450B).setPriority(NotificationCompat.PRIORITY_LOW).build();
     }
     private void refreshStatus() { NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE); if (nm != null && inst != null) nm.notify(ID_STATUS, statusNotification()); }
 
     private void offerNotification(int n, String text) {
-        Notification x = new NotificationCompat.Builder(this, CH_OFFERS).setSmallIcon(R.drawable.ic_stat_rider)
+        Notification x = new NotificationCompat.Builder(this, CH_OFFERS).setSmallIcon(R.drawable.ic_stat_logo).setLargeIcon(logo(this))
             .setContentTitle(n > 1 ? n + " delivery offers waiting" : "New delivery offer").setContentText(text == null ? "Tap to see it" : text)
             .setPriority(NotificationCompat.PRIORITY_HIGH).setCategory(NotificationCompat.CATEGORY_CALL).setAutoCancel(true)
             .setSound(Uri.parse("android.resource://" + getPackageName() + "/" + R.raw.offer_ring)).setVibrate(new long[]{0, 400, 200, 400, 200, 400})

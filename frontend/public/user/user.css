@@ -640,3 +640,15 @@ body.p-user input[type=search]::-webkit-search-cancel-button{-webkit-appearance:
 .u-pick>svg:last-child{width:18px;height:18px;color:var(--u-mute);flex:none}
 .u-deliver.flash{animation:uflash 1s ease}@keyframes uflash{0%,100%{box-shadow:none}30%{box-shadow:0 0 0 3px var(--brand)}}
 .u-deliver h3{display:flex;align-items:center;gap:8px;margin:0}.u-deliver h3 svg{width:20px;height:20px;color:var(--brand);flex:none}
+
+/* admin offer: big card on Home + pop-up when the app opens */
+.u-offerhero{position:relative;display:flex;gap:14px;align-items:center;margin:12px 0;padding:14px;border-radius:18px;background:linear-gradient(120deg,#fff1e6,#ffd9c2);border:1px solid #ffc9a8;animation:u-fade .3s both;overflow:hidden}
+.u-offerhero img{width:96px;height:96px;object-fit:cover;border-radius:14px;flex:none}
+.u-offerhero .ic{flex:none;width:56px;height:56px;border-radius:50%;background:var(--brand);color:#fff;display:grid;place-items:center}.u-offerhero .ic svg{width:28px;height:28px}
+.u-offerhero .txt{flex:1;min-width:0;padding-right:22px}.u-offerhero b{display:block;font:800 1.08rem/1.25 var(--head)}.u-offerhero p{margin:4px 0 8px;color:var(--u-sub);font-size:.9rem;line-height:1.4;white-space:pre-line}
+.u-offerhero .btn svg{width:16px;height:16px}
+.u-offerhero .x{position:absolute;top:8px;right:8px;border:0;background:rgba(255,255,255,.7);border-radius:50%;width:28px;height:28px;display:grid;place-items:center;color:var(--u-mute);cursor:pointer}.u-offerhero .x svg{width:16px;height:16px}
+@media(min-width:700px){.u-offerhero img{width:140px;height:140px}}
+.u-offerpop{text-align:center}.u-offerpop img{width:100%;max-height:260px;object-fit:cover;border-radius:16px;display:block}
+.u-offerpop .ic{width:72px;height:72px;margin:6px auto 0;border-radius:50%;background:var(--brand);color:#fff;display:grid;place-items:center}.u-offerpop .ic svg{width:36px;height:36px}
+.u-offerpop h3{margin:14px 0 6px;font:800 1.3rem var(--head)}.u-offerpop p{margin:0;color:var(--u-sub);line-height:1.45;white-space:pre-line}
