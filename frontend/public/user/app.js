@@ -627,7 +627,7 @@
   const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } }, lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
   const isInstalled = () => PL.isInstalled(), isIOS = () => PL.isIOS();
   document.addEventListener('pl-installable', () => document.querySelectorAll('.u-install').forEach((c) => { c.outerHTML = installCard(c.dataset.where); }));
-  window.addEventListener('appinstalled', () => { document.querySelectorAll('.u-install').forEach((c) => c.remove()); setTimeout(askNotify, 800); });
+  window.addEventListener('appinstalled', () => { document.querySelectorAll('.u-install').forEach((c) => c.remove()); });
   const homeInstallHidden = () => { try { return isInstalled() || sessionStorage.getItem('pl.install.later') === '1'; } catch { return isInstalled(); } };      // "Not now" hides it until the next visit
   function installCard(where = 'account') {
     if (isInstalled()) return '';
@@ -639,27 +639,19 @@
   }
   PL.actions['install-go'] = async () => { await PL.install(); if (isInstalled()) document.querySelectorAll('.u-install').forEach((c) => c.remove()); };
   PL.actions['install-later'] = (el) => { try { sessionStorage.setItem('pl.install.later', '1'); } catch {} el.closest('.u-install')?.remove(); };
-  // after installing (or the first time the installed app opens): explain, then ask for notification permission on a tap
-  function askNotify() {
-    if (!('Notification' in window) || Notification.permission !== 'default' || lsGet('pl.notify.asked') === '1' || !PL.session()) return;
-    lsSet('pl.notify.asked', '1');
-    PL.modal(`<div class="cf"><span class="cf-ic">${I('bell')}</span><h3>Get order updates on this phone?</h3><p class="small mute">We’ll tell you when the restaurant accepts, when your food is on the way and when it arrives. You can turn this off any time in Account.</p></div>
-      <div class="row mt"><button class="btn ghost grow" data-act="close-modal">Not now</button><button class="btn grow" data-act="notify-yes">Turn on</button></div>`); }
-  PL.actions['notify-yes'] = async () => { await PL.closeModalAsync(); try { await PL.push.enable(); PL.toast('Notifications are on', 'ok'); } catch (x) { PL.toast(x.message, true); } PL.rerender(); };
-  if (matchMedia('(display-mode: standalone)').matches) setTimeout(askNotify, 2500);
+  // (notifications are switched on automatically on the first tap: see shared/push.js)
 
   // Account: profile, notifications, offers, install. (Orders live in the Orders tab; addresses are chosen in the cart.)
   async function account() { const [me, pf] = await Promise.all([PL.api('/api/customer/me'), PL.api('/api/customer/preferences')]); const u = me.user;
+    if (!pf.promo_opt_in) PL.put('/api/customer/preferences', { promo_opt_in: true }).catch(() => {});      // offers are always on now (no switch)
     return `<div class="u-pg"><div class="u-prof"><div class="av">${e((u.name || 'P').trim().charAt(0).toUpperCase())}</div><div style="min-width:0"><h1>${e(u.name || 'Pakka Local customer')}</h1><small>${e(u.phone)}</small></div><button class="btn ghost sm" data-act="name-edit">Edit name</button></div>
       ${installCard()}
-      <div class="u-menu"><button data-act="inbox"><span class="ic">${I('bell')}</span><span><b>Notifications</b><small>Order updates and messages</small></span><span class="chev">${I('chev')}</span></button>
-        <div><span class="ic">${I('percent')}</span><span class="grow"><b>Offers and promotions</b><small>Order updates are always sent.</small></span><button class="sw ${pf.promo_opt_in ? 'on' : ''}" data-act="promo-toggle" data-v="${pf.promo_opt_in ? 0 : 1}" aria-label="Offers and promotions"><i></i></button></div></div>
+      <div class="u-menu"><button data-act="inbox"><span class="ic">${I('bell')}</span><span><b>Notifications</b><small>Order updates, offers and messages</small></span><span class="chev">${I('chev')}</span></button></div>
       ${PL.push.card('user')}
       <button class="btn ghost block mt" data-act="logout">${I('logout')} Sign out</button></div>`; }
   PL.actions['name-edit'] = () => PL.modal(`<h3>Your name</h3><form data-form="name-change"><input name="name" maxlength="60" required autocomplete="name"><button class="btn block mt" type="submit">Save</button></form>`);
   PL.forms['name-change'] = async (f) => { const name = PL.form(f).name.trim(); const r = await PL.run(() => PL.post('/api/auth/name', { name }), 'Name saved'); if (!r) return;
     const s = PL.session(); if (s) { s.user = { ...s.user, ...r.user }; PL.setSession(s); } await PL.closeModalAsync(); PL.rerender(); };
-  PL.actions['promo-toggle'] = async (el) => { const r = await PL.run(() => PL.put('/api/customer/preferences', { promo_opt_in: el.dataset.v === '1' }), el.dataset.v === '1' ? 'Offers turned on' : 'Offers turned off'); if (r) PL.rerender(); };
   PL.actions.rate = async (el) => { const r = await PL.run(() => PL.post(`/api/customer/orders/${el.dataset.code}/rating`, { stars: Number(el.dataset.s) }), 'Thanks for rating'); if (r) PL.rerender(); };
   PL.actions.goorder = (el) => { const m = /orders\/([A-Z0-9]+)/.exec(el.dataset.link); if (m) PL.go('/orders/' + m[1]); };
 
