@@ -37,7 +37,7 @@ export function publicRoutes(db) {
     res.json({ per_km_paise: rate, locations: db.prepare('SELECT id,name,kind,address,area,distance_km,delivery_fee_paise,lat,lng FROM delivery_locations WHERE active=1 ORDER BY name').all().map(({ lat, lng, delivery_fee_paise, ...l }) => {
       if (fixed) l.delivery_fee_paise = delivery_fee_paise;
       if (!rp || rp.lat == null || lat == null) return l; const m = straightM(rp, { lat, lng });
-      return { ...l, est_km: Math.round(m / 100) / 10, est_fee_paise: Math.max(100, Math.round(m * rate / 1000 / 100) * 100) }; }) }); });
+      return { ...l, est_km: Math.round(m / 100) / 10, est_fee_paise: Math.max(Number(getSetting(db, 'gps_min_fee_paise')) || rate, Math.round(m * rate / 1000 / 100) * 100) }; }) }); });
   // what customers see: open only when the switch is on, it is within today's hours and the location is confirmed
   const openInfo = (id) => { const a = availability(db, id); return { is_open: a.open ? 1 : 0, closed_reason: a.open ? null : a.reason, today_hours: a.today ?? null, next_open_at: a.next_open_at ?? null }; };
   r.get('/restaurants', (req, res) => { reopenDue(db);

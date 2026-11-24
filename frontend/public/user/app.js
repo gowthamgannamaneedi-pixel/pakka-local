@@ -443,7 +443,7 @@
   // The bill shows the exact charge; this is only a guide while choosing.
   const estKm = (pt, r) => { if (!pt || pt.lat == null || !r || r.lat == null) return null; const k = Math.PI / 180, h = Math.sin((pt.lat - r.lat) * k / 2) ** 2 + Math.cos(r.lat * k) * Math.cos(pt.lat * k) * Math.sin((pt.lng - r.lng) * k / 2) ** 2; return 12742 * Math.asin(Math.sqrt(h)); };
   const cartRest = async () => { if (!S.cart?.rid) return null; S.allR ||= (await PL.api('/api/public/restaurants').catch(() => ({ restaurants: [] }))).restaurants; return S.allR.find((x) => x.id === S.cart.rid) || null; };
-  const estTxt = (pt, r, rate) => { const km = estKm(pt, r); return km == null ? 'By distance' : `~${rs(Math.max(100, Math.round(km * rate / 100) * 100))} · ${km < 1 ? Math.round(km * 1000) + ' m' : km.toFixed(1) + ' km'}`; };
+  const estTxt = (pt, r, rate) => { const km = estKm(pt, r); return km == null ? 'By distance' : `~${rs(Math.max(rate, Math.round(km * rate / 100) * 100))} · ${km < 1 ? Math.round(km * 1000) + ' m' : km.toFixed(1) + ' km'}`; };
   // a listed place: the server's estimate from the cart's restaurant (place map points are not sent to the app)
   const placeEst = (l) => (l?.est_fee_paise ? `~${rs(l.est_fee_paise)} · ${l.est_km < 1 ? Math.round(l.est_km * 1000) + ' m' : l.est_km.toFixed(1) + ' km'}` : 'By distance');
   const placesUrl = () => '/api/public/locations' + (S.cart?.rid ? `?restaurant_id=${S.cart.rid}` : '');

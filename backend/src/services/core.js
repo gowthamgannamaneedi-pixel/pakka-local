@@ -144,10 +144,10 @@ export function quote(db, input) {
     // otherwise the straight distance. Every metre counts, then rounded to the rupee. No rate set = ₹10 per km.
     const pk = r.pickup_lat != null ? { lat: r.pickup_lat, lng: r.pickup_lng } : null; if (!pk) return { error: 'This restaurant is not taking orders yet.', status: 409, code: 'RESTAURANT_CLOSED', reason: 'no_location' };
     const road = Number.isFinite(input.route?.distance_m), m = Math.round(road ? input.route.distance_m : straightM(pk, point)), rate = perKmRate(db);
-    const maxKm = Number(getSetting(db, 'gps_max_km')) || null, minFee = Number(getSetting(db, 'gps_min_fee_paise')) || 0, km = m / 1000;
+    const maxKm = Number(getSetting(db, 'gps_max_km')) || null, minFee = Number(getSetting(db, 'gps_min_fee_paise')) || rate, km = m / 1000;      // the first km is always charged in full (₹10 for 100 m too)
     if (maxKm && km > maxKm) return { error: `This address is ${km.toFixed(1)} km from the restaurant. Pakka Local delivers up to ${maxKm} km.`, status: 409, code: 'OUT_OF_RANGE' };
     fee = Math.max(Math.round(m * rate / 1000 / 100) * 100, minFee); pricing = 'gps_per_km';      // rounded off to the nearest whole rupee (₹23.40 -> ₹23, ₹23.50 -> ₹24)
-    priced = { distance_m: m, band: `${km.toFixed(2)} km × ${PLrs(rate)}/km${road ? ' by road' : ' (straight distance)'}${fee === minFee && minFee ? ` · minimum ${PLrs(minFee)}` : ''}`, source: road ? input.route.source : 'gps_straight', pricing };
+    priced = { distance_m: m, band: `${km.toFixed(2)} km × ${PLrs(rate)}/km${road ? ' by road' : ' (straight distance)'}${fee === minFee && minFee ? ` · minimum ${PLrs(minFee)}${minFee === rate ? ' (first km)' : ''}` : ''}`, source: road ? input.route.source : 'gps_straight', pricing };
   }
   const delivery = r.free_delivery_above_paise && base + markup >= r.free_delivery_above_paise ? 0 : fee;     // restaurant-specific delivery rule
   const now = iso();
@@ -180,7 +180,7 @@ export function riderPay(db, r, point, roadM) {
   const rate = Number(getSetting(db, 'rider_per_km_paise')) || (getSetting(db, 'fixed_place_fees') === '1' ? Number(getSetting(db, 'gps_per_km_paise')) || 0 : perKmRate(db));
   if (!rate || r.pickup_lat == null || !point) return Number(getSetting(db, 'rider_payout_paise'));
   const m = Number.isFinite(roadM) ? roadM : straightM({ lat: r.pickup_lat, lng: r.pickup_lng }, point);
-  return Math.max(Math.round(m * rate / 1000 / 100) * 100, Number(getSetting(db, 'rider_min_payout_paise')) || 0);
+  return Math.max(Math.round(m * rate / 1000 / 100) * 100, Number(getSetting(db, 'rider_min_payout_paise')) || rate);      // at least one km's pay
 }
 // Is this order on the way for a rider who already has deliveries? Restaurant and drop-off both within batch_radius_km of one of them.
 export function nearActive(db, riderId, o) {

@@ -23,7 +23,7 @@ test('₹10 per km: charged on the exact distance, every metre counted, rounded 
   for (const p of [{ lat: 17.394, lng: 78.4867 }, { lat: 17.4300, lng: 78.4867 }, { lat: 17.3901, lng: 78.4911 }]) {
     const m = Math.round(metres(R, p)), q = (await quote(await gpsAddr(p.lat, p.lng))).body;
     assert.equal(q.delivery_pricing, 'gps_per_km');
-    assert.equal(q.delivery_paise, Math.round(m / 100) * 100, `${m} m at ₹10/km = ₹${m / 100} -> rounded ₹${Math.round(m / 100)}`);
+    assert.equal(q.delivery_paise, Math.max(1000, Math.round(m / 100) * 100), `${m} m at ₹10/km (first km ₹10) -> ₹${Math.max(10, Math.round(m / 100))}`);
     assert.equal(q.delivery_paise % 100, 0, 'whole rupees only');
     assert.match(q.delivery_band, /km × ₹10\/km \(straight distance\)/);
   }
@@ -63,4 +63,15 @@ test('settings are validated and audited; an empty rate means the default ₹10 
   await set({ fixed_place_fees: '1' }); assert.equal((await quote(await gpsAddr(17.394, 78.4867))).body.delivery_pricing, 'gps_fixed', 'the older fixed prices only if switched back on');
   await set({ fixed_place_fees: '0' });
   assert.equal((await W.call('PUT', '/api/admin/settings', { settings: { gps_per_km_paise: '1000' } }, W.owner)).status, 403);
+});
+
+test('the first km is always charged in full: 100 m, 300 m and 1 km all cost ₹10; beyond 1 km it grows; the rider gets the same', async () => {
+  await set({ gps_per_km_paise: '', gps_min_fee_paise: '', gps_max_km: '', rider_per_km_paise: '', rider_min_payout_paise: '' });
+  for (const [dm, want] of [[100, 1000], [300, 1000], [999, 1000], [1500, 1500], [2340, 2300]]) {
+    const p = { lat: R.lat + dm / 111195, lng: R.lng }, q = (await quote(await gpsAddr(p.lat, p.lng))).body;
+    assert.equal(q.delivery_paise, Math.max(1000, Math.round(metres(R, p) / 100) * 100), `${dm} m`); assert.ok(Math.abs(q.delivery_paise - want) <= 100, `${dm} m ≈ ₹${want / 100}`);
+  }
+  const near = await W.call('POST', '/api/customer/orders', { restaurant_id: W.rest, items: [{ id: W.item, qty: 1 }], address_id: await gpsAddr(R.lat + 100 / 111195, R.lng), confirm_destination: true }, W.cust);
+  const row = W.db.prepare('SELECT delivery_paise, rider_payout_paise, delivery_band FROM orders WHERE order_code=?').get(near.body.order_code);
+  assert.deepEqual([row.delivery_paise, row.rider_payout_paise], [1000, 1000]); assert.match(row.delivery_band, /minimum ₹10 \(first km\)/);
 });
