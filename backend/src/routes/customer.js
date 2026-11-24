@@ -59,6 +59,7 @@ export function customerRoutes(db) {
   const noStore = (req, res, next) => { res.set('Cache-Control', 'no-store, private'); next(); };
   // ---------- help & support: assistant + tickets with the Pakka Local team ----------
   r.post('/support/assistant', noStore, wrap((req, res) => res.json(Support.assistant(db, req.user, req.body?.q))));
+  r.post('/support/assistant/unresolved', noStore, wrap((req, res) => res.json(Support.unresolved(db, req.user))));
   r.get('/support/topics', noStore, (req, res) => res.json({ topics: Support.TOPICS }));
   r.get('/support/tickets', noStore, (req, res) => res.json(Support.listMine(db, req.user)));
   r.post('/support/tickets', noStore, wrap((req, res) => send(res, Support.create(db, req.user, req.body || {}), 201)));

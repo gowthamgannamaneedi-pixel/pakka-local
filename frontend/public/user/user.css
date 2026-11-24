@@ -882,7 +882,7 @@ body.has-ibar:has(#nav.hide):has(.u-cartbar,.u-paybar) .u-ibar{bottom:calc(88px 
 .u-hform input{flex:1;min-width:0;height:46px;border-radius:14px}.u-hform .btn{width:46px;height:46px;padding:0;flex:none}
 .u-tickets{display:grid;gap:10px}
 .u-tk{display:flex;flex-direction:column;gap:3px;text-align:left;width:100%;padding:13px 14px;border-radius:16px;border:1px solid var(--u-line);background:#fff;cursor:pointer;position:relative;color:inherit;font:inherit}
-.u-tk .top{display:flex;align-items:center;justify-content:space-between;gap:8px}.u-tk b{font:800 .95rem var(--head)}
+.u-tk .tkt{display:flex;align-items:center;justify-content:space-between;gap:8px}.u-tk b{font:800 .95rem var(--head)}
 .u-tk .tp{font-size:.82rem;color:var(--u-sub)}.u-tk .ls{font-size:.82rem;color:var(--u-mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .u-tk .nb{position:absolute;right:12px;bottom:12px;padding:2px 8px;border-radius:99px;background:var(--brand);color:#fff;font:800 .68rem var(--font)}
 .u-empty.slim{display:flex;gap:10px;align-items:center;padding:14px;border-radius:16px;background:var(--u-soft);color:var(--u-sub);font-size:.86rem;text-align:left}.u-empty.slim svg{width:20px;height:20px;flex:none}
@@ -894,3 +894,8 @@ body.has-ibar:has(#nav.hide):has(.u-cartbar,.u-paybar) .u-ibar{bottom:calc(88px 
 .u-wait{display:flex;align-items:center;gap:6px;align-self:center}.u-wait svg{width:14px;height:14px}
 .u-helpbtn{display:flex;align-items:center;gap:12px;width:100%;margin:12px 0;padding:14px;border-radius:18px;border:1px solid var(--u-line);background:#fff;text-align:left;cursor:pointer;color:inherit;font:inherit}
 .u-helpbtn>svg:first-child{width:22px;height:22px;color:var(--brand);flex:none}.u-helpbtn span{flex:1}.u-helpbtn b{display:block;font:800 .95rem var(--head)}.u-helpbtn small{color:var(--u-mute);font-size:.8rem}.u-helpbtn>svg:last-child{width:16px;height:16px;color:var(--u-mute)}
+
+.u-fb{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:10px;padding-top:9px;border-top:1px dashed #eadfd8;font:600 .78rem var(--font);color:var(--u-mute)}
+.u-fb span{margin-right:2px}
+.u-fb button{height:30px;padding:0 11px;border-radius:99px;border:1px solid var(--u-line);background:#fff;color:var(--u-ink);font:700 .76rem var(--font);cursor:pointer;display:inline-flex;align-items:center;gap:4px}
+.u-fb button svg{width:13px;height:13px;color:var(--u-green);stroke-width:3}

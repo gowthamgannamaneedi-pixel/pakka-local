@@ -683,37 +683,48 @@
   // ---------- Help & support: assistant (answers from the customer's own orders) + tickets with the Pakka Local team ----------
   const ST = { open: ['Waiting for the team', 'o'], answered: ['Team replied', 'g'], closed: ['Closed', ''] };
   const bubble = (from, body, extra = '') => `<div class="u-bub ${from}">${from === 'bot' ? `<span class="who">${I('chat')}</span>` : ''}<div class="b">${e(body).replace(/\n/g, '<br>')}${extra}</div></div>`;
-  const botActs = (acts = []) => acts.length ? `<div class="u-bacts">${acts.map((a) => a.path ? `<button data-act="go" data-path="${e(a.path)}">${e(a.label)}</button>` : a.ask === 'ticket' ? `<button class="team" data-act="hb-team">${I('chat')} ${e(a.label)}</button>` : `<button data-act="hb-ask" data-q="${e(a.ask)}">${e(a.label)}</button>`).join('')}</div>` : '';
+  const botActs = (acts = []) => acts.length ? `<div class="u-bacts">${acts.map((a) => a.path ? `<button data-act="go" data-path="${e(a.path)}">${e(a.label)}</button>` : a.team ? `<button class="team" data-act="hb-team">${I('chat')} ${e(a.label)}</button>` : `<button data-act="hb-ask" data-q="${e(a.ask)}">${e(a.label)}</button>`).join('')}</div>` : '';
+  const feedback = `<div class="u-fb"><span>Did this solve it?</span><button data-act="hb-ok">${I('check')} Solved</button><button data-act="hb-no">Not solved</button></div>`;
   async function support() {
     const qs = new URLSearchParams(location.hash.split('?')[1] || ''); if (qs.get('order')) S.hbOrder = qs.get('order');
     const { tickets } = await PL.api('/api/customer/support/tickets');
     S.hb ||= [{ from: 'bot', body: `Hi${PL.session()?.user?.name ? ' ' + PL.session().user.name.split(' ')[0] : ''}! I’m the Pakka Local help assistant. Ask me anything about your orders, or pick a question below.`,
-      acts: [{ label: 'Where is my order?', ask: 'Where is my order?' }, { label: 'Refund status', ask: 'Refund status' }, { label: 'Can I cancel?', ask: 'Can I cancel my order?' }, { label: 'Delivery charges', ask: 'Why is the delivery charge this much?' }, { label: 'Talk to the team', ask: 'ticket' }] }];
+      acts: [{ label: 'Where is my order?', ask: 'Where is my order?' }, { label: 'Refund status', ask: 'Refund status' }, { label: 'Can I cancel?', ask: 'Can I cancel my order?' }, { label: 'Delivery charges', ask: 'Why is the delivery charge this much?' }, { label: 'Missing or wrong item', ask: 'An item is missing or wrong' }] }];
     return `<div class="u-pg u-help">
       <div class="u-hbox"><div class="hd"><span class="av">${I('chat')}</span><span><b>Help assistant</b><small>Instant answers from your orders</small></span></div>
-        <div class="log" id="hb-log">${S.hb.map((m) => bubble(m.from, m.body, m.from === 'bot' ? botActs(m.acts) : '')).join('')}${S.hbBusy ? `<div class="u-bub bot"><span class="who">${I('chat')}</span><div class="b typing"><i></i><i></i><i></i></div></div>` : ''}</div>
+        <div class="log" id="hb-log">${S.hb.map((m, k) => bubble(m.from, m.body, m.from === 'bot' ? botActs(m.acts) + (m.fb && k === S.hb.length - 1 && !S.hbBusy ? feedback : '') : '')).join('')}${S.hbBusy ? `<div class="u-bub bot"><span class="who">${I('chat')}</span><div class="b typing"><i></i><i></i><i></i></div></div>` : ''}</div>
         <form data-form="hb-ask" class="u-hform"><input name="q" placeholder="Type your question…" autocomplete="off" maxlength="300" aria-label="Your question"><button class="btn" type="submit" aria-label="Send">${I('chev')}</button></form></div>
-      <div class="u-sec"><h2>Your tickets<small>Chats with the Pakka Local team</small></h2><button class="lk" data-act="hb-team">+ New</button></div>
-      ${tickets.length ? `<div class="u-tickets">${tickets.map((t) => `<button class="u-tk" data-act="go" data-path="/support/${e(t.code)}"><span class="top"><b>${e(t.code)}</b><span class="u-tag ${ST[t.status][1]}">${ST[t.status][0]}</span></span>
+      <div class="u-sec"><h2>Your tickets<small>Chats with the Pakka Local team</small></h2></div>
+      ${tickets.length ? `<div class="u-tickets">${tickets.map((t) => `<button class="u-tk" data-act="go" data-path="/support/${e(t.code)}"><span class="tkt"><b>${e(t.code)}</b><span class="u-tag ${ST[t.status][1]}">${ST[t.status][0]}</span></span>
           <span class="tp">${e(t.topic)}${t.order_code ? ` · ${e(t.order_code)}` : ''}</span><span class="ls">${e(t.last || '')}</span>${t.unread ? `<span class="nb">${t.unread} new</span>` : ''}</button>`).join('')}</div>`
-        : `<div class="u-empty slim">${I('chat')}<span>No tickets yet. If the assistant can’t help, open one and our team will reply here.</span></div>`}</div>`; }
+        : `<div class="u-empty slim">${I('chat')}<span>No tickets yet. Ask the assistant first; if it can’t solve it, it will connect you to our team.</span></div>`}</div>`; }
   PL.forms['hb-ask'] = async (f) => { const q = PL.form(f).q.trim(); if (!q) return; f.reset(); await hbAsk(q); };
   PL.actions['hb-ask'] = (el) => hbAsk(el.dataset.q);
   async function hbAsk(q) { S.hb.push({ from: 'me', body: q }); S.hbBusy = true; PL.rerender();
-    try { const a = await PL.post('/api/customer/support/assistant', { q }); await new Promise((r) => setTimeout(r, 450)); S.hb.push({ from: 'bot', body: a.reply, acts: a.actions }); if (a.handoff) S.hbTopic = a.handoff; }
-    catch (x) { S.hb.push({ from: 'bot', body: 'Sorry, I could not answer just now. You can still contact our team.', acts: [{ label: 'Talk to the team', ask: 'ticket' }] }); }
+    try { const a = await PL.post('/api/customer/support/assistant', { q }); await new Promise((r) => setTimeout(r, 450)); S.hb.push({ from: 'bot', body: a.reply, acts: a.actions, fb: true }); if (a.handoff) S.hbTopic = a.handoff; }
+    catch (x) { S.hb.push({ from: 'bot', body: 'Sorry, I could not answer just now. Please try again in a moment.', fb: true }); }
     S.hbBusy = false; PL.rerender(); }
-  PL.actions['hb-team'] = () => PL.go('/support/new');
+  PL.actions['hb-ok'] = () => { S.hb.at(-1).fb = false; S.hb.push({ from: 'bot', body: 'Great! Anything else I can help with?' }); PL.rerender(); };
+  PL.actions['hb-no'] = async () => { S.hb.at(-1).fb = false; S.hb.push({ from: 'me', body: 'That didn’t solve it' }); S.hbBusy = true; PL.rerender();
+    try { const a = await PL.post('/api/customer/support/assistant/unresolved', {}); await new Promise((r) => setTimeout(r, 400));
+      if (a.pass) { S.hbPass = a.pass; if (a.order_code) S.hbOrder = a.order_code; if (a.topic) S.hbTopic = a.topic; }
+      S.hb.push({ from: 'bot', body: a.reply, acts: [...(a.actions || []), ...(a.pass ? [{ label: 'Contact the Pakka Local team', team: true }] : [])] }); }
+    catch { S.hb.push({ from: 'bot', body: 'Sorry, something went wrong. Please try again.' }); }
+    S.hbBusy = false; PL.rerender(); };
+  PL.actions['hb-team'] = () => (S.hbPass ? PL.go('/support/new') : PL.toast('Ask the assistant first. If it can’t solve it, tap “Not solved”.', 'info'));
   async function supportNew() {
-    const [{ topics }, { orders }] = await Promise.all([PL.api('/api/customer/support/topics'), PL.api('/api/customer/orders').catch(() => ({ orders: [] }))]);
-    const last = (S.hb || []).filter((m) => m.from === 'me').map((m) => m.body).slice(-1)[0] || '', pre = S.hbOrder || '';
+    if (!S.hbPass) { setTimeout(() => PL.go('/support', true), 0); return '<div class="u-pg"></div>'; }
+    const [{ topics }, { orders: allOrders }] = await Promise.all([PL.api('/api/customer/support/topics'), PL.api('/api/customer/orders').catch(() => ({ orders: [] }))]);
+    const pre = S.hbOrder || '', done = ['DELIVERED', 'REJECTED', 'CANCELLED', 'PAYMENT_FAILED', 'EXPIRED'];
+    const orders = allOrders.filter((o) => done.includes(o.status) || o.order_code === pre);
+    const last = (S.hb || []).filter((m) => m.from === 'me' && m.body !== 'That didn’t solve it').map((m) => m.body).slice(-1)[0] || '';
     return `<div class="u-pg"><div class="u-box"><h3>${I('chat')} Contact the Pakka Local team</h3><p class="small mute">You’ll get a ticket ID. Our team replies here, and you get a notification.</p>
       <form data-form="tk-new" class="mt2"><label>What is it about?</label><div class="u-topics">${topics.map((t, i) => `<label class="u-topic"><input type="radio" name="topic" value="${e(t)}" ${(S.hbTopic || (pre ? 'Order issue' : topics[0])) === t ? 'checked' : ''}><span>${e(t)}</span></label>`).join('')}</div>
         ${orders.length ? `<label>Which order? (optional)</label><select name="order_code"><option value="">Not about a specific order</option>${orders.slice(0, 10).map((o) => `<option value="${e(o.order_code)}" ${o.order_code === pre ? 'selected' : ''}>${e(o.order_code)} · ${e(o.restaurant)} · ${rs(o.total_paise)}</option>`).join('')}</select>` : ''}
         <label>Your message</label><textarea name="message" rows="5" maxlength="1000" required placeholder="Tell us what happened">${e(last)}</textarea>
         <button class="btn block lg mt" type="submit">Send to the team</button></form></div></div>`; }
-  PL.forms['tk-new'] = async (f) => { const v = PL.form(f); const r = await PL.run(() => PL.post('/api/customer/support/tickets', { topic: v.topic, order_code: v.order_code || undefined, message: v.message }));
-    if (!r) return; S.hbTopic = null; S.hbOrder = null; PL.toast(`Ticket ${r.ticket.code} created. Our team will reply here.`, 'ok'); PL.go(`/support/${r.ticket.code}`, true); };
+  PL.forms['tk-new'] = async (f) => { const v = PL.form(f); const r = await PL.run(() => PL.post('/api/customer/support/tickets', { topic: v.topic, order_code: v.order_code || undefined, message: v.message, pass: S.hbPass }));
+    if (!r) return; S.hbTopic = null; S.hbOrder = null; S.hbPass = null; S.hb = null; PL.toast(`Ticket ${r.ticket.code} created. Our team will reply here.`, 'ok'); PL.go(`/support/${r.ticket.code}`, true); };
   async function supportTicket({ code }) {
     const { ticket: t, messages } = await PL.api(`/api/customer/support/tickets/${encodeURIComponent(code)}`);
     return `<div class="u-pg u-help"><div class="u-tkhead"><div><b>${e(t.code)}</b><small>${e(t.topic)}${t.order_code ? ` · ${e(t.order_code)}` : ''} · opened ${PL.dt(t.created_at)}</small></div><span class="u-tag ${ST[t.status][1]}">${ST[t.status][0]}</span></div>
