@@ -10,8 +10,9 @@ import { withAddresses } from './address.js';
 export const PW = 'correct-horse-battery';
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 
-export async function makeWorld(prefix = '9400') {
-  const db = openDb(':memory:'); const server = createApp(db).listen(0); const base = `http://127.0.0.1:${server.address().port}`;
+export async function makeWorld(prefix = '9400', { fixedFees = false } = {}) {
+  const db = openDb(':memory:');
+  if (fixedFees) db.prepare("INSERT INTO app_settings (key,value,updated_at) VALUES ('fixed_place_fees','1','x') ON CONFLICT(key) DO UPDATE SET value='1'").run(); const server = createApp(db).listen(0); const base = `http://127.0.0.1:${server.address().port}`;
   const raw = async (method, path, body, token) => { const r = await fetch(base + path, { method, headers: { 'Content-Type': 'application/json', ...(token && { Authorization: `Bearer ${token}` }) }, body: body && JSON.stringify(body) });
     return { status: r.status, body: await r.json().catch(() => ({})) }; };
   const call = withAddresses((...a) => raw(...a));

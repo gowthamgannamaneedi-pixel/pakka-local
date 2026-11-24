@@ -25,6 +25,8 @@ const DEFAULTS = { tax_bps: '0', gps_delivery_fee_paise: '4000', rider_payout_pa
   // GPS addresses not on the list: charge per km from the restaurant, every metre counted, then rounded off to the nearest rupee (1000 = ₹10 per km: 1.234 km = ₹12).
   // Empty = off: the fixed GPS charge (gps_delivery_fee_paise) applies. Optional minimum charge and maximum distance.
   gps_per_km_paise: '', gps_min_fee_paise: '', gps_max_km: '',
+  // '1' brings back the older fixed prices (each listed place's own charge, a fixed GPS charge). Off: everything by distance.
+  fixed_place_fees: '0',
   // Rider pay per delivery by distance (restaurant -> customer, every metre, rounded off to the rupee). Empty = same rate as the
   // GPS per-km charge; if that is empty too, the fixed rider_payout_paise applies. Optional minimum per delivery.
   rider_per_km_paise: '', rider_min_payout_paise: '',
@@ -133,16 +135,20 @@ export function quote(db, input) {
     if (input.route === undefined) return { error: 'Delivery distance was not calculated.', status: 500 };
     priced = priceFor(dcfg, input.route); if (priced.error) return priced;
     fee = priced.fee; pricing = priced.pricing;
-  } else if (!loc && Number(getSetting(db, 'gps_per_km_paise')) > 0) {
-    // per-km charge for a GPS address: road distance when a routing service measured it, otherwise the straight GPS distance
-    // between the restaurant's saved point and the customer's point. Every metre counts (no rounding up to whole km).
+  } else if (getSetting(db, 'fixed_place_fees') === '1' && (loc || !Number(getSetting(db, 'gps_per_km_paise')))) {
+    // older rule, only if switched back on: each listed place's own charge; unlisted GPS addresses the fixed GPS charge
+    fee = loc ? loc.delivery_fee_paise : Number(getSetting(db, 'gps_delivery_fee_paise')); pricing = loc ? 'listed' : 'gps_fixed';
+  } else {
+    // Every address is charged by distance (no fixed place prices): restaurant's saved point -> the delivery point (the
+    // customer's GPS, or the listed PG/hostel/college's own point). Road distance when a routing service measured it,
+    // otherwise the straight distance. Every metre counts, then rounded to the rupee. No rate set = ₹10 per km.
     const pk = r.pickup_lat != null ? { lat: r.pickup_lat, lng: r.pickup_lng } : null; if (!pk) return { error: 'This restaurant is not taking orders yet.', status: 409, code: 'RESTAURANT_CLOSED', reason: 'no_location' };
-    const road = Number.isFinite(input.route?.distance_m), m = Math.round(road ? input.route.distance_m : straightM(pk, point)), rate = Number(getSetting(db, 'gps_per_km_paise'));
+    const road = Number.isFinite(input.route?.distance_m), m = Math.round(road ? input.route.distance_m : straightM(pk, point)), rate = perKmRate(db);
     const maxKm = Number(getSetting(db, 'gps_max_km')) || null, minFee = Number(getSetting(db, 'gps_min_fee_paise')) || 0, km = m / 1000;
     if (maxKm && km > maxKm) return { error: `This address is ${km.toFixed(1)} km from the restaurant. Pakka Local delivers up to ${maxKm} km.`, status: 409, code: 'OUT_OF_RANGE' };
     fee = Math.max(Math.round(m * rate / 1000 / 100) * 100, minFee); pricing = 'gps_per_km';      // rounded off to the nearest whole rupee (₹23.40 -> ₹23, ₹23.50 -> ₹24)
     priced = { distance_m: m, band: `${km.toFixed(2)} km × ${PLrs(rate)}/km${road ? ' by road' : ' (straight distance)'}${fee === minFee && minFee ? ` · minimum ${PLrs(minFee)}` : ''}`, source: road ? input.route.source : 'gps_straight', pricing };
-  } else { fee = loc ? loc.delivery_fee_paise : Number(getSetting(db, 'gps_delivery_fee_paise')); pricing = loc ? 'listed' : 'gps_fixed'; }
+  }
   const delivery = r.free_delivery_above_paise && base + markup >= r.free_delivery_above_paise ? 0 : fee;     // restaurant-specific delivery rule
   const now = iso();
   let surge = 0;
@@ -159,7 +165,9 @@ export function quote(db, input) {
   }
   const perKm = Number(getSetting(db, 'minutes_per_km'));
   // estimate from the restaurant's saved location to this delivery point (road distance when routing measured it)
-  const trip = tripInfo(r.pickup_lat != null ? { lat: r.pickup_lat, lng: r.pickup_lng } : null, point, priced?.distance_m ?? input.route?.distance_m ?? undefined);
+  // only a measured road distance counts as "by road"; a straight distance used for the charge is recomputed as straight
+  const roadM = Number.isFinite(input.route?.distance_m) ? input.route.distance_m : priced?.pricing === 'distance' ? priced.distance_m : undefined;
+  const trip = tripInfo(r.pickup_lat != null ? { lat: r.pickup_lat, lng: r.pickup_lng } : null, point, roadM);
   const deliveryMin = trip ? tripMinutes(db, trip) : loc?.distance_km ? Math.round(loc.distance_km * perKm) + 3 : Number(getSetting(db, 'default_delivery_min'));
   return { restaurant: r, lines, dest, locationId: loc?.id ?? null, feeSource: loc ? 'listed' : 'gps', baseDeliveryFee: fee, pricing,
     distanceM: priced?.distance_m ?? null, band: priced?.band ?? null, routeSource: priced ? (priced.pricing === 'distance' || priced.pricing === 'gps_per_km' ? priced.source : `none:${priced.reason}`) : null, base, markup, delivery, surge, tax, total, discount, coupon, couponError, commissionBps: r.commission_bps, commission,
@@ -167,8 +175,9 @@ export function quote(db, input) {
 }
 // What the rider earns for one delivery: distance from the restaurant to the customer (road when measured, else the straight GPS
 // distance) x the rider rate per km, rounded off to the nearest rupee; never below the optional minimum. Without a rate: fixed pay.
+export const perKmRate = (db) => Number(getSetting(db, 'gps_per_km_paise')) || 1000;      // delivery charge per km (default ₹10)
 export function riderPay(db, r, point, roadM) {
-  const rate = Number(getSetting(db, 'rider_per_km_paise')) || Number(getSetting(db, 'gps_per_km_paise')) || 0;
+  const rate = Number(getSetting(db, 'rider_per_km_paise')) || (getSetting(db, 'fixed_place_fees') === '1' ? Number(getSetting(db, 'gps_per_km_paise')) || 0 : perKmRate(db));
   if (!rate || r.pickup_lat == null || !point) return Number(getSetting(db, 'rider_payout_paise'));
   const m = Number.isFinite(roadM) ? roadM : straightM({ lat: r.pickup_lat, lng: r.pickup_lng }, point);
   return Math.max(Math.round(m * rate / 1000 / 100) * 100, Number(getSetting(db, 'rider_min_payout_paise')) || 0);
@@ -207,7 +216,7 @@ const orderMins = (db, o) => {
   const buf = db.prepare('SELECT packing_buffer_min FROM restaurants WHERE id=?').pluck().get(o.restaurant_id);
   const km = o.delivery_location_id ? db.prepare('SELECT distance_km FROM delivery_locations WHERE id=?').pluck().get(o.delivery_location_id) : null;
   const pk = db.prepare('SELECT pickup_lat AS lat, pickup_lng AS lng FROM restaurants WHERE id=?').get(o.restaurant_id);
-  const trip = tripInfo(pk, { lat: o.dest_lat, lng: o.dest_lng }, o.delivery_distance_m ?? undefined);
+  const trip = tripInfo(pk, { lat: o.dest_lat, lng: o.dest_lng }, o.delivery_route_source === 'gps_straight' ? undefined : o.delivery_distance_m ?? undefined);
   return { prep: prep + buf, del: trip ? tripMinutes(db, trip) : km ? Math.round(km * Number(getSetting(db, 'minutes_per_km'))) + 3 : Number(getSetting(db, 'default_delivery_min')) };
 };
 const refreshEta = (db, o, stage) => { const m = orderMins(db, o); db.prepare('UPDATE orders SET eta_at=? WHERE id=?').run(etaFrom(db, m.prep, m.del, stage), o.id); };

@@ -10,6 +10,7 @@ import { derivedOtp } from '../src/services/core.js';
 import { FIX } from './helpers/address.js';
 
 const db = openDb(':memory:'); const server = createApp(db).listen(0); const base = `http://127.0.0.1:${server.address().port}`;
+db.prepare("INSERT INTO app_settings (key,value,updated_at) VALUES ('fixed_place_fees','1','x') ON CONFLICT(key) DO UPDATE SET value='1'").run();      // these tests describe the older fixed place prices
 test.after(() => server.close());
 const call = async (method, path, body, token) => { const r = await fetch(base + path, { method, headers: { 'Content-Type': 'application/json', ...(token && { Authorization: `Bearer ${token}` }) }, body: body == null ? undefined : JSON.stringify(body) }); const t = await r.text(); let j = {}; try { j = JSON.parse(t); } catch {} return { status: r.status, body: j, raw: t, headers: r.headers }; };
 const PW = 'correct-horse-battery', hash = bcrypt.hashSync(PW, 4), now = () => new Date().toISOString();

@@ -47,25 +47,25 @@ test('help assistant answers from the customer’s real orders and offers the te
   let a = await ask('where is my order');
   assert.match(a.reply, /no order in progress|no orders yet/i);
   const o = await W.paidOrder();
-  a = await ask('Where is my order?'); assert.ok(a.reply.includes(o.order_code)); assert.match(a.reply, /waiting for the restaurant/);
+  a = await ask('Where is my order?'); assert.ok(a.reply.includes(o.order_code)); assert.match(a.reply, /has been sent to Test Kitchen/); assert.match(a.reply, /Expected delivery around/);
   assert.equal(a.actions[0].path, `/orders/${o.order_code}`);
   a = await ask('can I cancel'); assert.match(a.reply, /can’t be cancelled/); assert.ok(!a.actions.some((x) => x.ask === 'ticket' || x.team), 'no direct way to the team: "Not solved" first');
   a = await ask('refund'); assert.match(a.reply, /5–7 working days/);
   a = await ask('qwerty asdf'); assert.equal(a.handoff, 'Other');
 });
 
-test('while an order is in progress the assistant keeps it; only a 30+ minute late order is handed over', async () => {
+test('while an order is in progress the assistant keeps it (even when late) and gives the delivery time; the team only after it is finished', async () => {
+  W.db.prepare("UPDATE orders SET status='DELIVERED' WHERE customer_id=?").run(W.custId);
   const o = await W.paidOrder();
-  const a = (await W.call('POST', '/api/customer/support/assistant/unresolved', {}, W.cust)).body;
-  assert.equal(a.pass, undefined); assert.match(a.reply, /still in progress/); assert.equal(a.actions[0].path, `/orders/${o.order_code}`);
-  const p = await (async () => { W.db.prepare('UPDATE orders SET eta_at=? WHERE id=?').run(new Date(Date.now() - 45 * 60_000).toISOString(), o.id); return (await W.call('POST', '/api/customer/support/assistant/unresolved', {}, W.cust)).body; })();
-  assert.ok(p.pass); assert.equal(p.order_code, o.order_code);
-  const t = await W.call('POST', '/api/customer/support/tickets', { topic: 'Delivery', message: 'Still not here', pass: p.pass }, W.cust);
-  assert.equal(t.status, 201); assert.equal(t.body.ticket.order_code, o.order_code, 'the late order is attached');
-  // an earlier "any" pass cannot be used to open a ticket about an order that is in progress and not late
-  W.db.prepare('UPDATE orders SET eta_at=? WHERE id=?').run(new Date(Date.now() + 20 * 60_000).toISOString(), o.id);
-  const o2 = W.db.prepare("SELECT order_code FROM orders WHERE customer_id=? AND status IN ('PLACED','ACCEPTED','PREPARING','READY','PICKED_UP')").pluck().get(W.custId);
-  const anyPass = await (async () => { W.db.prepare("UPDATE orders SET status='DELIVERED' WHERE customer_id=?").run(W.custId); const x = (await W.call('POST', '/api/customer/support/assistant/unresolved', {}, W.cust)).body.pass; W.db.prepare("UPDATE orders SET status='PLACED' WHERE order_code=?").run(o2); return x; })();
-  const r = await W.call('POST', '/api/customer/support/tickets', { topic: 'Order issue', message: 'about this order', order_code: o2, pass: anyPass }, W.cust);
+  W.db.prepare('UPDATE orders SET eta_at=? WHERE id=?').run(new Date(Date.now() + 25 * 60_000).toISOString(), o.id);
+  const ask = async (q) => (await W.call('POST', '/api/customer/support/assistant', { q }, W.cust)).body;
+  let a = await ask('order kab aayega'); assert.match(a.reply, /Expected delivery around .* \(about 2[45] min\)/); assert.ok(!a.actions.some((x) => x.team));
+  const g = await ask('__start__'); assert.ok(g.reply.includes(o.order_code), 'greeting shows the live order');
+  W.db.prepare('UPDATE orders SET eta_at=? WHERE id=?').run(new Date(Date.now() - 50 * 60_000).toISOString(), o.id);
+  a = await ask('where is my order'); assert.match(a.reply, /within about 10 minutes/); assert.ok(!a.actions.some((x) => x.team), 'late: still no team');
+  const u = (await W.call('POST', '/api/customer/support/assistant/unresolved', {}, W.cust)).body; assert.equal(u.pass, undefined, 'no team while in progress, even late');
+  const anyPass = await (async () => { W.db.prepare("UPDATE orders SET status='DELIVERED' WHERE id=?").run(o.id); const x = (await W.call('POST', '/api/customer/support/assistant/unresolved', {}, W.cust)).body.pass; W.db.prepare("UPDATE orders SET status='PREPARING' WHERE id=?").run(o.id); return x; })();
+  const r = await W.call('POST', '/api/customer/support/tickets', { topic: 'Order issue', message: 'about this order', order_code: o.order_code, pass: anyPass }, W.cust);
   assert.equal(r.status, 409); assert.equal(r.body.code, 'ORDER_IN_PROGRESS');
+  a = await ask('delivery charges'); assert.match(a.reply, /charged by distance/);
 });

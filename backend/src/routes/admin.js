@@ -7,7 +7,7 @@ import { adminView, decide, revealPayout, missing, DOC_LABEL, ID_TYPES } from '.
 import * as Locs from '../services/locations.js';
 import * as Pricing from '../services/distancePricing.js';
 import * as Routing from '../services/routing.js';
-import { allSettings, setSetting, SETTING_KEYS, adminCashout, balances, settleRefund, eligibleRiderCount, getSetting, iso, adminCancel, adminUnassign } from '../services/core.js';
+import { perKmRate, allSettings, setSetting, SETTING_KEYS, adminCashout, balances, settleRefund, eligibleRiderCount, getSetting, iso, adminCancel, adminUnassign } from '../services/core.js';
 import { send, parse, wrap, wrapA, money } from './util.js';
 import { newSecret, encrypt, decrypt, verifyTotp, otpauthUri } from '../totp.js';
 import { audienceUsers, campaignStats, processCampaigns } from '../services/push.js';
@@ -233,7 +233,7 @@ export function adminRoutes(db) {
 
   // ---------- delivery locations (PGs, hostels, colleges...) with their own delivery charges ----------
   // Every change is audited with the exact old and new values. Orders keep the charge they were placed with.
-  r.get('/locations', (req, res) => res.json({ locations: Locs.list(db, { q: req.query.q, status: req.query.status }), gps_fee_paise: Number(getSetting(db, 'gps_delivery_fee_paise')), gps_per_km_paise: Number(getSetting(db, 'gps_per_km_paise')) || null, gps_min_fee_paise: Number(getSetting(db, 'gps_min_fee_paise')) || null, gps_max_km: Number(getSetting(db, 'gps_max_km')) || null, max_fee_paise: Locs.MAX_FEE_PAISE }));
+  r.get('/locations', (req, res) => res.json({ locations: Locs.list(db, { q: req.query.q, status: req.query.status }), gps_fee_paise: Number(getSetting(db, 'gps_delivery_fee_paise')), gps_per_km_paise: perKmRate(db), gps_per_km_set: !!Number(getSetting(db, 'gps_per_km_paise')), gps_min_fee_paise: Number(getSetting(db, 'gps_min_fee_paise')) || null, gps_max_km: Number(getSetting(db, 'gps_max_km')) || null, max_fee_paise: Locs.MAX_FEE_PAISE }));
   r.post('/locations', wrap((req, res) => { const out = Locs.create(db, req.body); if (out.error) return send(res, out);
     audit(db, req, 'location.create', 'location', out.id, { after: out.after }); res.status(201).json({ id: out.id }); }));
   r.put('/locations/:id(\\d+)', wrap((req, res) => { const out = Locs.update(db, Number(req.params.id), req.body); if (out.error) return send(res, out);
@@ -382,6 +382,7 @@ export function adminRoutes(db) {
       if (k === 'gps_accuracy_warn_m' && v !== '' && !(/^\d{1,4}$/.test(String(v)) && +v >= 5 && +v <= 5000)) return res.status(400).json({ error: 'GPS accuracy limit must be 5 to 5000 metres, or empty for no limit.' });
       if (k === 'gps_capture_timeout_sec' && !(/^\d{1,3}$/.test(String(v)) && +v >= 5 && +v <= 120)) return res.status(400).json({ error: 'GPS timeout must be 5 to 120 seconds.' });
       if (['rider_per_km_paise', 'rider_min_payout_paise'].includes(k) && v !== '' && !(/^\d{1,6}$/.test(String(v)) && +v <= 100000)) return res.status(400).json({ error: 'Rider pay must be ₹0 to ₹1,000, or empty.' });
+      if (k === 'fixed_place_fees' && !['0', '1'].includes(String(v))) return res.status(400).json({ error: 'fixed_place_fees must be 0 or 1.' });
       if (k === 'batch_radius_km' && !(/^\d{1,2}(\.\d{1,2})?$/.test(String(v)) && +v > 0 && +v <= 20)) return res.status(400).json({ error: 'Nearby distance must be more than 0 and at most 20 km.' });
       if (['gps_per_km_paise', 'gps_min_fee_paise'].includes(k) && v !== '' && !(/^\d{1,6}$/.test(String(v)) && +v >= 0 && +v <= 100000)) return res.status(400).json({ error: 'Charges must be ₹0 to ₹1,000, or empty.' });
       if (k === 'gps_max_km' && v !== '' && !(/^\d{1,3}(\.\d{1,2})?$/.test(String(v)) && +v > 0 && +v <= 100)) return res.status(400).json({ error: 'Maximum distance must be more than 0 and at most 100 km, or empty.' });

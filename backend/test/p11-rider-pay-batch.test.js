@@ -15,8 +15,9 @@ const order = async (id, rest = W.rest, item = W.item) => { const r = await W.ca
   return W.db.prepare('SELECT * FROM orders WHERE order_code=?').get(r.body.order_code); };
 const accept = async (o, owner = W.owner) => { await W.call('POST', `/api/restaurant/orders/${o.id}/accept`, {}, owner); };
 
-test('no per-km rate: the fixed rider pay still applies', async () => {
-  const o = await order(await addr(17.394, 78.4867)); assert.equal(o.rider_payout_paise, 3000);
+test('no rate set: the rider is paid by distance at the default ₹10 per km, same as the customer charge', async () => {
+  const p = { lat: 17.394, lng: 78.4867 }, o = await order(await addr(p.lat, p.lng)), rupees = Math.round(metres(R, p) / 100);
+  assert.equal(o.rider_payout_paise, rupees * 100); assert.equal(o.delivery_paise, rupees * 100);
 });
 
 test('with ₹10/km: the rider earns the same distance-based amount the customer is charged (the reported ₹10 vs ₹30 case)', async () => {

@@ -7,10 +7,10 @@ import { iso, notify, notifyAdmins } from './core.js';
 
 // ---------- the assistant comes first ----------
 // A ticket can only be opened with a pass the assistant gives after the customer says its answer did not solve the problem.
-// While an order is in progress the assistant handles it; the team is reachable for finished orders (or no order),
-// and for an order in progress only when it is 30+ minutes late. Passes expire after 30 minutes.
+// While an order is in progress the assistant handles it; the team is reachable only for finished orders (or no order).
+// Passes expire after 30 minutes.
 const FINISHED = ['DELIVERED', 'REJECTED', 'CANCELLED', 'PAYMENT_FAILED', 'EXPIRED'];
-const LATE_MS = 30 * 60_000, PASS_MS = 30 * 60_000;
+const PASS_MS = 30 * 60_000;
 const sign = (s2) => crypto.createHmac('sha256', config.jwtSecret).update(`support:${s2}`).digest('hex').slice(0, 32);
 const makePass = (uid, scope) => { const exp = Date.now() + PASS_MS, body = `${uid}.${exp}.${scope}`; return `${Buffer.from(body).toString('base64url')}.${sign(body)}`; };
 function readPass(uid, pass) {
@@ -23,11 +23,10 @@ function readPass(uid, pass) {
 const activeOrders = (db, uid) => db.prepare(`SELECT o.*, r.name AS restaurant FROM orders o JOIN restaurants r ON r.id=o.restaurant_id WHERE o.customer_id=? AND o.status IN ('PLACED','ACCEPTED','PREPARING','READY','PICKED_UP') ORDER BY o.id DESC`).all(uid);
 // the customer said "Not solved": decide whether to hand over to the team, and give a pass if so
 export function unresolved(db, user) {
-  const act = activeOrders(db, user.id), late = act.find((o) => o.eta_at && Date.parse(o.eta_at) < Date.now() - LATE_MS);
-  if (late) return { reply: `Sorry about the delay with ${late.order_code}. I’m connecting you to the Pakka Local team so they can check with the restaurant and the delivery partner.`, pass: makePass(user.id, `late:${late.order_code}`), order_code: late.order_code, topic: 'Delivery' };
+  const act = activeOrders(db, user.id);
   if (act.length) {
     const o = act[0];
-    return { reply: `Your order ${o.order_code} is still in progress, so I’ll keep helping with it here: you can track it live and message your delivery partner from the order page. If something is wrong once it’s delivered (or if it becomes very late), you can reach our team from here.`,
+    return { reply: `${orderLine(o)} I’ll keep helping with it here while it’s on its way: track it live, or message your delivery partner from the order page. If anything is wrong once it’s delivered, tell me and I’ll connect you to our team.`,
       actions: [{ label: 'Track my order', path: `/orders/${o.order_code}` }] };
   }
   return { reply: 'Sorry I couldn’t sort that out. I’m connecting you to the Pakka Local team: tell them what happened and they will reply here.', pass: makePass(user.id, 'any') };
@@ -126,6 +125,17 @@ export function adminStatus(db, id, status) {
 }
 
 // ---------- help assistant (rule-based, answers from the customer's real data) ----------
+const minsTo = (iso2) => Math.round((Date.parse(iso2) - Date.now()) / 60_000);
+// one sentence about where an order is and when it will arrive
+export function orderLine(o) {
+  const left = o.eta_at ? minsTo(o.eta_at) : null, when = o.eta_at ? `around ${t12(o.eta_at)}` : '';
+  const late = left != null && left < 0;
+  const stage = { PLACED: `has been sent to ${o.restaurant}; restaurants usually accept within a few minutes`, ACCEPTED: `was accepted by ${o.restaurant} and is about to be cooked`,
+    PREPARING: `is being prepared at ${o.restaurant}`, READY: `is packed at ${o.restaurant} and a delivery partner is picking it up`, PICKED_UP: 'is on the way to you with the delivery partner' }[o.status] || (STATUS[o.status] || '');
+  const time = late ? 'It’s taking a little longer than expected — it should reach you within about 10 minutes.'
+    : left != null ? `Expected delivery ${when} (about ${Math.max(1, left)} min).` : '';
+  return `Your order ${o.order_code} ${stage}. ${time}`.trim();
+}
 // Returns { reply, actions: [{ label, path } | { label, ask }], handoff? }. Never invents order details.
 const has = (q, ...w) => w.some((x) => q.includes(x));
 export function assistant(db, user, raw) {
@@ -133,17 +143,19 @@ export function assistant(db, user, raw) {
   const orders = db.prepare(`SELECT o.*, r.name AS restaurant FROM orders o JOIN restaurants r ON r.id=o.restaurant_id WHERE o.customer_id=? AND o.status NOT IN ('EXPIRED') ORDER BY o.id DESC LIMIT 5`).all(user.id);
   const active = orders.filter((o) => ['PLACED', 'ACCEPTED', 'PREPARING', 'READY', 'PICKED_UP'].includes(o.status));
   const human = null;      // the team is reached through "Not solved" (see unresolved)
-  if (has(q, ' where ', ' track', ' status', ' late', ' delay', ' eta', ' when will', ' how long', ' my order', ' not arrived', ' not received', ' still not')) {
+  if (String(raw ?? '').trim() === '__start__') {
+    if (active.length) return { reply: `Hi! ${orderLine(active[0])} Anything I can help with?`, actions: [{ label: 'Track live on the map', path: `/orders/${active[0].order_code}` }, { label: 'Where is my order?', ask: 'Where is my order?' }, { label: 'Can I cancel?', ask: 'Can I cancel my order?' }, { label: 'Change address', ask: 'Can I change the delivery address?' }] };
+    return { reply: 'Hi! I’m the Pakka Local help assistant. Ask me anything about your orders, refunds, delivery charges or coupons.', actions: [{ label: 'Where is my order?', ask: 'Where is my order?' }, { label: 'Refund status', ask: 'Refund status' }, { label: 'Delivery charges', ask: 'How are delivery charges calculated?' }, { label: 'Missing or wrong item', ask: 'An item is missing or wrong' }] };
+  }
+  if (has(q, ' where ', ' were ', ' wher ', ' track', ' status', ' late', ' delay', ' eta', ' when will', ' how long', ' how much time', ' my order', ' my oder', ' not arrived', ' not received', ' still not', ' not come', ' not yet', ' kab ', ' kidhar', ' kaha ', ' kahan', ' aayega', ' ayega', ' abhi tak', ' arrive', ' reach')) {
     if (!active.length) {
       const last = orders[0];
       return { reply: last ? `You have no order in progress right now. Your last order ${last.order_code} from ${last.restaurant} is ${STATUS[last.status] || last.status.toLowerCase()}.` : 'You have no orders yet. Pick a restaurant on Home to place your first order.',
         actions: last ? [{ label: 'Open last order', path: `/orders/${last.order_code}` }] : [{ label: 'Browse restaurants', path: '/home' }] };
     }
     const o = active[0];
-    const eta = o.eta_at ? ` Expected around ${t12(o.eta_at)}.` : '';
-    const late = o.eta_at && Date.parse(o.eta_at) < Date.now() - 10 * 60_000;
-    return { reply: `Your order ${o.order_code} from ${o.restaurant} is ${STATUS[o.status]}.${eta}${late ? ' It is running late; sorry about that. If it does not arrive soon, our team can check with the restaurant and the delivery partner.' : ''}${active.length > 1 ? ` You have ${active.length} orders in progress.` : ''}`,
-      actions: [{ label: 'Track live on the map', path: `/orders/${o.order_code}` }, ...(late ? [] : [])] };
+    return { reply: `${orderLine(o)}${active.length > 1 ? ` (You have ${active.length} orders in progress; this is the latest.)` : ''}`,
+      actions: [{ label: 'Track live on the map', path: `/orders/${o.order_code}` }, ...(o.rider_id ? [{ label: 'Message delivery partner', path: `/orders/${o.order_code}` }] : [])], order: o.order_code };
   }
   if (has(q, ' refund', ' money back', ' charged', ' deducted', ' payment fail', ' paid but')) {
     const r = db.prepare("SELECT o.order_code, rf.status, rf.amount_paise FROM refunds rf JOIN orders o ON o.id=rf.order_id WHERE o.customer_id=? ORDER BY rf.id DESC LIMIT 1").get(user.id);
@@ -152,7 +164,7 @@ export function assistant(db, user, raw) {
       actions: [] };
   }
   if (has(q, ' cancel')) return { reply: 'Orders can’t be cancelled from the app once they are paid, because the restaurant starts cooking right away. If something is wrong once it arrives, tell me here; if I can’t fix it, I’ll connect you to our team, who can refund when needed.', actions: [] };
-  if (has(q, ' delivery charge', ' delivery fee', ' charges', ' why so much', ' fee ')) return { reply: 'Delivery charges are shown in your cart before you pay. Places on Pakka Local’s list (PGs, hostels, colleges) have their own fixed charge; other addresses are charged by distance from the restaurant. Some restaurants give free delivery above an order amount.', actions: [{ label: 'Open cart', path: '/cart' }] };
+  if (has(q, ' delivery charge', ' delivery fee', ' charges', ' charge ', ' why so much', ' fee ', ' expensive', ' costly')) return { reply: 'Delivery is charged by distance: from the restaurant to your PG, hostel, college or GPS location, counted to the metre and rounded to the rupee. Your cart shows the exact charge before you pay, and some restaurants give free delivery above an order amount.', actions: [{ label: 'Open cart', path: '/cart' }] };
   if (has(q, ' address', ' location', ' deliver to', ' wrong place')) return { reply: 'You choose the delivery place in the cart before paying: pick your PG, hostel or college from the list, or use your phone’s location. After an order is placed its delivery point can’t be changed in the app; message the delivery partner from the order page or ask our team.', actions: [{ label: 'Open cart', path: '/cart' }] };
   if (has(q, ' coupon', ' offer', ' discount', ' promo')) return { reply: 'Available coupons are shown in your cart under “Offers & coupons”. Tap Apply, and the saving appears in the bill before you pay.', actions: [{ label: 'Open cart', path: '/cart' }] };
   if (has(q, ' rider', ' delivery partner', ' call ', ' contact ')) return { reply: active.length ? 'You can message your delivery partner from the order page once one is assigned.' : 'Once a delivery partner is assigned to your order, you can message them from the order page.', actions: active.length ? [{ label: 'Open my order', path: `/orders/${active[0].order_code}` }] : [] };

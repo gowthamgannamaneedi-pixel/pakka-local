@@ -381,7 +381,7 @@
   const body = () => ({ restaurant_id: S.cart.rid, items: Object.entries(S.cart.items).map(([id, i]) => ({ id: Number(id), qty: i.qty })), instructions: S.instr || undefined, address_id: S.addrId || undefined, coupon: S.coupon || undefined });
   async function cart() {
     if (!cartCount()) return `<div class="u-pg">${empty('bag', 'Your cart is empty', 'Good food is always cooking. Go ahead, order some yummy items from the menu.', '<button class="btn mt" data-act="go" data-path="/home">Browse restaurants</button>')}</div>`;
-    const [{ addresses: ad, gps_fee_paise: gpsFee, gps_per_km_paise: perKm }, { locations: places }] = await Promise.all([PL.api('/api/customer/addresses'), PL.api('/api/public/locations')]);
+    const [{ addresses: ad, gps_per_km_paise: perKm }, { locations: places }, crest] = await Promise.all([PL.api('/api/customer/addresses'), PL.api(placesUrl()), cartRest()]);
     const placeOf = (x) => places.find((l) => l.id === x.delivery_location_id);
     if (!ad.some((x) => x.id === S.addrId)) { S.addrId = (ad.find((x) => x.is_default) || ad[0])?.id || null; save('pl.addr', S.addrId); S.confirmed = false; }
     let sel = ad.find((x) => x.id === S.addrId);
@@ -398,12 +398,12 @@
       <textarea class="u-ta" data-bind="instr" maxlength="300" placeholder="Add a note for the restaurant (optional)" aria-label="Note for this order">${e(S.instr)}</textarea></div>`;
     const acard = (x) => { const pl = placeOf(x), on = sel && x.id === sel.id; return `<label class="u-addr addr-pick ${on ? 'on' : ''}"><input type="radio" name="addr" value="${x.id}" ${on ? 'checked' : ''}><span class="t"><b>${e(x.kind === 'listed' ? (pl?.name || x.place_name) : LBL[x.label])}</b>${x.is_default ? ' <span class="u-pill" style="height:20px;font-size:.66rem">Default</span>' : ''}
       <div class="l1">${e(addrLine(x, x.kind === 'listed'))}</div>${x.entrance || x.landmark ? `<div class="l2">${e([x.entrance, x.landmark].filter(Boolean).join(' · '))}</div>` : ''}<div class="l2">${x.lat != null ? `GPS ±${Math.round(x.accuracy_m)} m` : 'Uses the place’s map point'}</div></span>
-      <span class="fee">${x.kind === 'listed' ? (pl ? rs(pl.delivery_fee_paise) : 'Unavailable') : perKm ? `${rs(perKm)}/km` : rs(gpsFee)}</span></label>`; };
+      <span class="fee">${x.kind === 'listed' && !pl ? 'Unavailable' : x.lat != null ? estTxt(x, crest, perKm) : placeEst(pl)}</span></label>`; };
     // one question, two plain answers; each goes straight to the screen that finishes it
     const choice = (path, icon, title, sub) => `<button class="u-choice" data-act="go" data-path="${path}"><span class="ic">${I(icon)}</span><span class="txt"><b>${title}</b><small>${sub}</small></span>${I('chev')}</button>`;
     const addrPart = `${mine.length ? `<div class="u-picklbl">Your saved addresses</div>${mine.map(acard).join('')}<div class="u-picklbl">Or add a new one</div>` : '<p class="u-pickq">Where should we deliver?</p>'}
       ${places.length ? choice('/places?back=cart', 'shop', 'My PG, hostel or college', 'Search its name and pick it') : ''}
-      ${choice('/addresses/new?back=cart', 'pin', places.length ? 'Somewhere else' : 'My current location', `Use your phone’s location · delivery ${perKm ? `${rs(perKm)} per km` : rs(gpsFee)}`)}
+      ${choice('/addresses/new?back=cart', 'pin', places.length ? 'Somewhere else' : 'My current location', `Use your phone’s location · ${rs(perKm)} per km`)}
       ${sel && sel.kind !== 'listed' ? `<button class="u-lnk" data-act="go" data-path="/addresses/${sel.id}?back=cart&gps=1">${I('refresh')} I’ve moved: update my location</button>` : ''}`;
     const offTxt = (c) => (c.discount_type === 'percent' ? `${c.value / 100}% off` : `${rs(c.value)} off`) + (c.max_discount_paise ? ` up to ${rs(c.max_discount_paise)}` : '') + (c.min_order_paise ? ` on orders above ${rs(c.min_order_paise)}` : '');
     const coupon = `<div class="u-box u-coupon"><h3>${I('receipt')} Offers & coupons</h3>${q?.coupon_code ? `<div class="u-capplied"><span class="tk">${I('check')}</span><span class="txt"><b>${e(q.coupon_code)} applied</b><small>You save ${rs(q.discount_paise)} on this order</small></span><button class="btn ghost sm" data-act="coupon-off">Remove</button></div>`
@@ -439,11 +439,19 @@
   PL.actions['coupon-off'] = () => { S.coupon = null; S.couponTry = ''; S.couponErr = null; PL.rerender(); };
   PL.actions.method = (el, ev) => { ev?.preventDefault?.(); if (S.method === el.dataset.m) return; S.method = el.dataset.m; S.confirmed = false; PL.rerender(); };
 
+  // estimated delivery charge for a point: distance from the cart's restaurant (straight line) x the per-km rate, to the rupee.
+  // The bill shows the exact charge; this is only a guide while choosing.
+  const estKm = (pt, r) => { if (!pt || pt.lat == null || !r || r.lat == null) return null; const k = Math.PI / 180, h = Math.sin((pt.lat - r.lat) * k / 2) ** 2 + Math.cos(r.lat * k) * Math.cos(pt.lat * k) * Math.sin((pt.lng - r.lng) * k / 2) ** 2; return 12742 * Math.asin(Math.sqrt(h)); };
+  const cartRest = async () => { if (!S.cart?.rid) return null; S.allR ||= (await PL.api('/api/public/restaurants').catch(() => ({ restaurants: [] }))).restaurants; return S.allR.find((x) => x.id === S.cart.rid) || null; };
+  const estTxt = (pt, r, rate) => { const km = estKm(pt, r); return km == null ? 'By distance' : `~${rs(Math.max(100, Math.round(km * rate / 100) * 100))} · ${km < 1 ? Math.round(km * 1000) + ' m' : km.toFixed(1) + ' km'}`; };
+  // a listed place: the server's estimate from the cart's restaurant (place map points are not sent to the app)
+  const placeEst = (l) => (l?.est_fee_paise ? `~${rs(l.est_fee_paise)} · ${l.est_km < 1 ? Math.round(l.est_km * 1000) + ' m' : l.est_km.toFixed(1) + ' km'}` : 'By distance');
+  const placesUrl = () => '/api/public/locations' + (S.cart?.rid ? `?restaurant_id=${S.cart.rid}` : '');
   // searchable list of Pakka Local's places (active only, as returned by the server)
-  async function placesView() { const qs = new URLSearchParams(location.hash.split('?')[1] || ''); const { locations: places } = await PL.api('/api/public/locations');
-    return `<div class="u-pg"><h2>Find your place</h2><p class="small mute mt2">PGs, hostels and colleges Pakka Local delivers to, with each place’s delivery charge.</p>
+  async function placesView() { const qs = new URLSearchParams(location.hash.split('?')[1] || ''); const [{ locations: places, per_km_paise: rate }, rest] = await Promise.all([PL.api(placesUrl()), cartRest()]);
+    return `<div class="u-pg"><h2>Find your place</h2><p class="small mute mt2">PGs, hostels and colleges Pakka Local delivers to. Delivery is charged by distance${rest ? ` from <b>${e(rest.name)}</b>` : ' from the restaurant'} (${rs(rate)} per km); the bill shows the exact amount.</p>
       <label class="u-search">${I('search')}<input id="place-q" type="search" placeholder="Search by name or area" autocomplete="off" aria-label="Search places"></label>
-      <div id="place-list" class="mt">${places.map((l) => `<button class="u-addr place-card" style="width:100%;background:#fff;text-align:left" data-act="place-pick" data-id="${l.id}" data-s="${e([l.name, l.area, l.address, l.kind].join(' ').toLowerCase())}"><span class="u-loc" style="padding:0;flex:none"><span class="pin">${I('pin')}</span></span><span class="t"><b>${e(l.name)}</b><div class="l1">${l.kind ? `${e(l.kind)} · ` : ''}${e([l.area, l.address].filter(Boolean).join(' · '))}</div></span><span class="fee">${rs(l.delivery_fee_paise)}</span></button>`).join('') || empty('search', 'No places yet', 'No places are on the list yet.')}</div>
+      <div id="place-list" class="mt">${places.map((l) => `<button class="u-addr place-card" style="width:100%;background:#fff;text-align:left" data-act="place-pick" data-id="${l.id}" data-s="${e([l.name, l.area, l.address, l.kind].join(' ').toLowerCase())}"><span class="u-loc" style="padding:0;flex:none"><span class="pin">${I('pin')}</span></span><span class="t"><b>${e(l.name)}</b><div class="l1">${l.kind ? `${e(l.kind)} · ` : ''}${e([l.area, l.address].filter(Boolean).join(' · '))}</div></span><span class="fee">${placeEst(l)}</span></button>`).join('') || empty('search', 'No places yet', 'No places are on the list yet.')}</div>
       <div id="place-none" class="hide">${empty('search', 'No place matches', `Check the spelling, or <a href="#" data-act="go" data-path="/addresses/new?back=${e(qs.get('back') || 'cart')}">use your GPS location</a>.`)}</div></div>`; }
   document.addEventListener('input', (ev) => { if (ev.target.id !== 'place-q') return; const n = ev.target.value.trim().toLowerCase(); let shown = 0;
     document.querySelectorAll('.place-card').forEach((c) => { const ok = !n || c.dataset.s.includes(n); c.classList.toggle('hide', !ok); shown += ok; }); PL.$('#place-none')?.classList.toggle('hide', shown > 0); });
@@ -505,7 +513,7 @@
         <label class="check"><input type="checkbox" id="gps-here" ${F.here ? 'checked' : ''}> I am standing at my delivery location right now.</label>
         <button class="btn ghost sm mt2" data-act="gps-go">Capture again</button>` : ''}</div>`;
     const inp = (k, l, attrs = '') => `<label for="a-${k}">${l}</label><input id="a-${k}" name="${k}" value="${e(a[k] ?? '')}" ${attrs}>`;
-    const placeCard = listed ? `<div class="u-box place-sel"><div class="small mute">Delivering to a place on Pakka Local’s list</div><div class="row between"><b style="font:800 1rem var(--head)">${e(place.name)}</b><span class="u-pill">${rs(place.delivery_fee_paise)}</span></div>
+    const placeCard = listed ? `<div class="u-box place-sel"><div class="small mute">Delivering to a place on Pakka Local’s list</div><div class="row between"><b style="font:800 1rem var(--head)">${e(place.name)}</b><span class="u-pill">By distance</span></div>
       <div class="small">${e([place.kind, place.area, place.address].filter(Boolean).join(' · '))}</div><button class="btn ghost sm mt2" data-act="form-change-place">Change place</button></div>` : '';
     const gpsPart = listed ? `<details class="card gps-opt" ${F.open || F.state === 'got' || F.state === 'busy' || F.state === 'error' ? 'open' : ''}><summary><b>Add my exact GPS point (optional)</b><div class="small mute">${a.lat != null ? `Saved: ±${Math.round(a.accuracy_m)} m` : 'Helps the delivery partner find your exact building. Without it, the place’s map point is used.'}</div></summary>${gpsBox}</details>` : gpsBox;
     return `<div class="u-pg"><h2>${isNew ? 'Add delivery address' : 'Edit delivery address'}</h2>${placeCard}${gpsPart}
@@ -688,8 +696,9 @@
   async function support() {
     const qs = new URLSearchParams(location.hash.split('?')[1] || ''); if (qs.get('order')) S.hbOrder = qs.get('order');
     const { tickets } = await PL.api('/api/customer/support/tickets');
-    S.hb ||= [{ from: 'bot', body: `Hi${PL.session()?.user?.name ? ' ' + PL.session().user.name.split(' ')[0] : ''}! I’m the Pakka Local help assistant. Ask me anything about your orders, or pick a question below.`,
-      acts: [{ label: 'Where is my order?', ask: 'Where is my order?' }, { label: 'Refund status', ask: 'Refund status' }, { label: 'Can I cancel?', ask: 'Can I cancel my order?' }, { label: 'Delivery charges', ask: 'Why is the delivery charge this much?' }, { label: 'Missing or wrong item', ask: 'An item is missing or wrong' }] }];
+    // first message: the assistant greets with the order in progress (time, track) or the usual questions
+    if (!S.hb) { const g = await PL.post('/api/customer/support/assistant', { q: '__start__' }).catch(() => ({ reply: 'Hi! Ask me anything about your orders.', actions: [] }));
+      S.hb = [{ from: 'bot', body: g.reply, acts: g.actions }]; }
     return `<div class="u-pg u-help">
       <div class="u-hbox"><div class="hd"><span class="av">${I('chat')}</span><span><b>Help assistant</b><small>Instant answers from your orders</small></span></div>
         <div class="log" id="hb-log">${S.hb.map((m, k) => bubble(m.from, m.body, m.from === 'bot' ? botActs(m.acts) + (m.fb && k === S.hb.length - 1 && !S.hbBusy ? feedback : '') : '')).join('')}${S.hbBusy ? `<div class="u-bub bot"><span class="who">${I('chat')}</span><div class="b typing"><i></i><i></i><i></i></div></div>` : ''}</div>

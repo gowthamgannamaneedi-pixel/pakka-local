@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { authenticate, requireRole } from '../auth.js';
 import { config } from '../config.js';
-import { quote, createOrder, settlePayment, eligibleRiderCount, reopenDue, getSetting, deliveryCodeFor, NO_RIDER_MSG } from '../services/core.js';
+import { perKmRate, straightM, quote, createOrder, settlePayment, eligibleRiderCount, reopenDue, getSetting, deliveryCodeFor, NO_RIDER_MSG } from '../services/core.js';
 import { send, parse, wrap, wrapA } from './util.js';
 import * as Pricing from '../services/distancePricing.js';
 import { addressPoint } from '../services/core.js';
@@ -29,7 +29,15 @@ const breakdown = (q) => ({ delivery_type: q.feeSource, delivery_location: q.des
 export function publicRoutes(db) {
   const r = Router();
   r.get('/config', (req, res) => res.json({ loginChannel: loginChannel(), emailLogin: !!config.emailOtp.enabled, testPayments: config.sandboxPayments, paymentsAvailable: config.sandboxPayments, ridersAvailable: eligibleRiderCount(db) > 0, noRiderMessage: NO_RIDER_MSG }));
-  r.get('/locations', (req, res) => res.json({ locations: db.prepare('SELECT id,name,kind,address,area,delivery_fee_paise,distance_km FROM delivery_locations WHERE active=1 ORDER BY name').all() }));
+  // places on the list (no map points are sent). With ?restaurant_id= each place gets the estimated distance and charge from that
+  // restaurant (straight line x the per-km rate, rounded to the rupee); the bill always shows the exact charge.
+  r.get('/locations', (req, res) => { const rate = perKmRate(db), rid = Number(req.query.restaurant_id) || 0;
+    const rp = rid ? db.prepare('SELECT pickup_lat AS lat, pickup_lng AS lng FROM restaurants WHERE id=? AND approved=1 AND admin_visible=1').get(rid) : null;
+    const fixed = getSetting(db, 'fixed_place_fees') === '1';      // older fixed prices only if switched back on
+    res.json({ per_km_paise: rate, locations: db.prepare('SELECT id,name,kind,address,area,distance_km,delivery_fee_paise,lat,lng FROM delivery_locations WHERE active=1 ORDER BY name').all().map(({ lat, lng, delivery_fee_paise, ...l }) => {
+      if (fixed) l.delivery_fee_paise = delivery_fee_paise;
+      if (!rp || rp.lat == null || lat == null) return l; const m = straightM(rp, { lat, lng });
+      return { ...l, est_km: Math.round(m / 100) / 10, est_fee_paise: Math.max(100, Math.round(m * rate / 1000 / 100) * 100) }; }) }); });
   // what customers see: open only when the switch is on, it is within today's hours and the location is confirmed
   const openInfo = (id) => { const a = availability(db, id); return { is_open: a.open ? 1 : 0, closed_reason: a.open ? null : a.reason, today_hours: a.today ?? null, next_open_at: a.next_open_at ?? null }; };
   r.get('/restaurants', (req, res) => { reopenDue(db);
@@ -66,7 +74,7 @@ export function customerRoutes(db) {
   r.get('/support/tickets/:ref', noStore, (req, res) => send(res, Support.getMine(db, req.user, req.params.ref)));
   r.post('/support/tickets/:ref/messages', noStore, wrap((req, res) => send(res, Support.customerSend(db, req.user, req.params.ref, req.body?.body), 201)));
   r.get('/addresses', noStore, (req, res) => res.json({ addresses: Addr.list(db, req.user.id), policy: Addr.gpsPolicy(db), max: Addr.MAX_ADDRESSES,
-    gps_fee_paise: Number(getSetting(db, 'gps_delivery_fee_paise')), gps_per_km_paise: Number(getSetting(db, 'gps_per_km_paise')) || null, gps_min_fee_paise: Number(getSetting(db, 'gps_min_fee_paise')) || null }));      // fixed charge for places not on the list (shown before choosing)
+    gps_fee_paise: Number(getSetting(db, 'gps_delivery_fee_paise')), gps_per_km_paise: perKmRate(db), gps_min_fee_paise: Number(getSetting(db, 'gps_min_fee_paise')) || null }));      // fixed charge for places not on the list (shown before choosing)
   r.post('/addresses', noStore, wrap((req, res) => send(res, Addr.create(db, req.user.id, req.body), 201)));
   r.put('/addresses/:id(\\d+)', noStore, wrap((req, res) => send(res, Addr.update(db, req.user.id, Number(req.params.id), req.body))));
   r.delete('/addresses/:id(\\d+)', noStore, wrap((req, res) => send(res, Addr.remove(db, req.user.id, Number(req.params.id)))));
