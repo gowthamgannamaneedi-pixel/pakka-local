@@ -16,8 +16,10 @@
       return S.push;
     },
     async enable() {
+      // the permission question must be the first thing after the tap: phones (iPhone especially) ignore it after any network wait
+      const perm = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
+      if (perm !== 'granted') { await P.refresh(); throw new Error('Notifications were blocked. You can allow them in your browser or phone settings.'); }
       const k = await PL.api('/api/push/key'); if (!k.enabled) throw new Error('Notifications are not switched on for this server yet.');
-      if ((await Notification.requestPermission()) !== 'granted') { await P.refresh(); throw new Error('Notifications were blocked. You can allow them in your browser or phone settings.'); }
       const r = await reg(); const sub = (await r.pushManager.getSubscription()) || (await r.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: u8(k.publicKey) }));
       const j = sub.toJSON(); await PL.post('/api/push/subscribe', { endpoint: j.endpoint, keys: j.keys, label: label() }); await P.refresh();
     },
@@ -54,5 +56,7 @@
     asking = true; try { await P.enable(); PL.rerender && PL.rerender(); } catch {} finally { asking = false; }
   };
   ['pointerdown', 'keydown'].forEach((t) => document.addEventListener(t, () => { if (S.push !== 'on') autoOn(); }, { passive: true }));
+  // already allowed earlier but this device is not registered (new browser data, expired registration): register without asking
+  setTimeout(async () => { if (PL.portal === 'user' && supported && PL.session() && Notification.permission === 'granted') { await P.refresh(); if (S.push !== 'on') autoOn(); } }, 2500);
   if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', (ev) => { const m = ev.data || {}; if (m.type === 'goto' && m.path) PL.go(m.path); if (m.type === 'push') PL.rerender && PL.rerender(); });
 })();

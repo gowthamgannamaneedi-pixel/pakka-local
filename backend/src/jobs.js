@@ -6,6 +6,7 @@ import { pruneRoutes } from './services/liveRoute.js';
 import { purgeRouteCache } from './services/routing.js';
 import { expireStalePayments } from './services/core.js';
 import { dispatchPush, processCampaigns } from './services/push.js';
+import { sendDaily } from './services/daily.js';
 // Runs on the server regardless of any browser session.
 export function reopenDueRestaurants(db, now = new Date()) {
   return db.prepare(`UPDATE restaurant_operating_status SET is_open = 1, reopen_mode = NULL, reopen_at = NULL, updated_at = ?
@@ -32,6 +33,7 @@ export async function runJobsOnce(db, backupDir, { backupEveryHours = 24, backup
   await run('reopened', () => reopenDueRestaurants(db));
   await run('payments_expired', () => expireStalePayments(db));
   await run('campaigns', () => processCampaigns(db));
+  await run('daily', () => sendDaily(db));
   await run('push', () => dispatchPush(db));
   await run('locations_purged', () => purgeLocations(db));
   await run('routes_purged', () => purgeRouteCache(db));
@@ -45,6 +47,7 @@ export function startJobs(db, backupDir, { backupKeep = 14 } = {}) {
     setInterval(() => { try { expireStalePayments(db); } catch (e) { console.error('payment expiry:', e.message); } }, 60_000),
     (() => { let busy = false; return setInterval(async () => { if (busy) return; busy = true; try { processCampaigns(db); await dispatchPush(db); } catch (e) { console.error('push job:', e.message); } finally { busy = false; } }, 2000); })(),
     setInterval(() => { try { purgeLocations(db); pruneRoutes(new Set(db.prepare("SELECT id FROM orders WHERE status='PICKED_UP'").pluck().all())); } catch (e) { console.error('location cleanup:', e.message); } }, 60_000),      // backstop; the database trigger does the immediate cleanup
+    setInterval(() => { try { sendDaily(db); } catch (e) { console.error('daily notify:', e.message); } }, 5 * 60_000),      // one friendly message a day per customer
     setInterval(() => { try { purgeRouteCache(db); } catch (e) { console.error('route cache cleanup:', e.message); } }, 6 * 3600_000),      // expired road distances
     setInterval(() => backupIfDue(db, backupDir, { everyHours: 6, keep: backupKeep }).catch(e => console.error('backup:', e.message)), 6 * 3600_000)
   ];

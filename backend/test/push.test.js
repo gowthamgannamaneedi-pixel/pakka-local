@@ -54,7 +54,7 @@ test('accept: only ONLINE riders are offered; each status push is sent once with
   await call('POST', `/api/restaurant/orders/${S.o1.id}/accept`, {}, S.rest); await dispatchPush(db);
   assert.equal(pushesFor('rd1').length, 1); assert.equal(pushesFor('rd3').length, 1); assert.equal(pushesFor('rd2').length, 0);   // rd2 is offline
   assert.equal(pushesFor('rd1')[0].url, `/rider/#/job/${S.o1.id}`);
-  assert.ok(pushesFor('c1').some((p) => p.title === 'Restaurant accepted' && p.url === `/user/orders/${S.o1.code}`));
+  assert.ok(pushesFor('c1').some((p) => p.title === 'Order accepted' && p.url === `/user/orders/${S.o1.code}`));
 });
 
 test('stale offers are never delivered once someone has claimed the order', async () => {
@@ -73,7 +73,7 @@ test('payloads never carry phone numbers, addresses, OTPs or rider identity', as
   const otp = (await call('GET', '/api/restaurant/orders', null, S.rest)).body.orders.find((x) => x.id === o.id).pickup_otp;
   await call('POST', `/api/rider/orders/${o.id}/pickup`, { otp }, S.rd3); await dispatchPush(db);
   const all = JSON.stringify(sent); for (const bad of ['9876543210', 'Secret Lane', 'Hostel', 'rider+9195', otp]) assert.ok(!all.includes(bad), `leaked ${bad}`);
-  assert.ok(pushesFor('c1').some((p) => p.title === 'Order picked up'));
+  assert.ok(pushesFor('c1').some((p) => p.title === 'On the way!'));
 });
 
 test('expired subscription (410) is removed; temporary failure retries with backoff then gives up', async () => {

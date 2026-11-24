@@ -27,6 +27,8 @@ const DEFAULTS = { tax_bps: '0', gps_delivery_fee_paise: '4000', rider_payout_pa
   gps_per_km_paise: '', gps_min_fee_paise: '', gps_max_km: '',
   // '1' brings back the older fixed prices (each listed place's own charge, a fixed GPS charge). Off: everything by distance.
   fixed_place_fees: '0',
+  // one personalised notification a day for each customer ('0' switches it off)
+  daily_notify_enabled: '1',
   // Rider pay per delivery by distance (restaurant -> customer, every metre, rounded off to the rupee). Empty = same rate as the
   // GPS per-km charge; if that is empty too, the fixed rider_payout_paise applies. Optional minimum per delivery.
   rider_per_km_paise: '', rider_min_payout_paise: '',
@@ -271,7 +273,7 @@ export function settlePayment(db, merchantOrderId, outcome, providerTxn, raw) {
         Coupons.markUsed(db, o.id);
         refreshEta(db, o, 'PLACED');
         logEvent(db, o.id, 'PAYMENT_SUCCESS', null, { provider_txn: providerTxn });
-        notify(db, o.customer_id, 'transactional', 'Order placed', `Order ${o.order_code} is confirmed.`, `/user/orders/${o.order_code}`, o.id, `st:${o.id}:PLACED`);
+        notify(db, o.customer_id, 'transactional', 'Order placed!', `Payment received. We’ve sent your order to ${db.prepare('SELECT name FROM restaurants WHERE id=?').pluck().get(o.restaurant_id) || 'the restaurant'} (${o.order_code}).`, `/user/orders/${o.order_code}`, o.id, `st:${o.id}:PLACED`);
         for (const u of db.prepare('SELECT user_id FROM restaurant_users WHERE restaurant_id=?').pluck().all(o.restaurant_id))
           notify(db, u, 'transactional', 'New order', `New order ${o.order_code}`, `/restaurant/#/order/${o.id}`, o.id, `new:${o.id}:${u}`, 'restaurant_new');
       } else startRefund(db, o, 'Late payment on an expired order');
@@ -319,7 +321,12 @@ const RS = (db, restId, id) => db.prepare('SELECT * FROM orders WHERE id=? AND r
 function move(db, id, from, to, extra = '', params = []) {
   return db.prepare(`UPDATE orders SET status=?, updated_at=?${extra} WHERE id=? AND status IN (${from.map(() => '?').join(',')})`).run(to, iso(), ...params, id, ...from).changes === 1;
 }
-export const statusNote = (db, o, key, title, body) => notify(db, o.customer_id, 'transactional', title, body, `/user/orders/${o.order_code}`, o.id, `st:${o.id}:${key}`);
+// order updates for the customer, in plain words with the restaurant's name (shown on the phone even with the app closed)
+const FRIENDLY = { ACCEPTED: ['Order accepted', '{r} accepted your order and will start cooking now.'], PREPARING: ['Your food is being prepared', '{r} is cooking your order.'],
+  READY: ['Food is packed', 'Your order from {r} is packed. A delivery partner is picking it up.'], RIDER_ASSIGNED: ['Delivery partner assigned', 'A delivery partner is heading to {r} for your order.'],
+  PICKED_UP: ['On the way!', 'Your order from {r} has been picked up and is on its way to you.'], DELIVERED: ['Delivered. Enjoy your meal!', 'Your order from {r} was delivered. Tap to rate it.'] };
+export const statusNote = (db, o, key, title, body) => { const f = FRIENDLY[key], r = f && db.prepare('SELECT name FROM restaurants WHERE id=?').pluck().get(o.restaurant_id);
+  return notify(db, o.customer_id, 'transactional', f ? f[0] : title, f ? `${f[1].replace('{r}', r || 'The restaurant')} (${o.order_code})` : body, `/user/orders/${o.order_code}`, o.id, `st:${o.id}:${key}`); };
 export function restaurantStep(db, actor, restId, id, step, body = {}) {
   return db.transaction(() => {
     const o = RS(db, restId, id);
