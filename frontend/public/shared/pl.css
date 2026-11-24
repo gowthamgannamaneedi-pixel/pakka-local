@@ -642,3 +642,9 @@ body.p-admin .tbl td .btn.sm{white-space:nowrap}
 .d-dg{width:100%;min-width:0;height:64px;margin:0;padding:0;text-align:center;font:800 1.9rem var(--head);border-radius:14px;border:2px solid #d9dbe1;background:#fff;caret-color:var(--brand)}
 .d-dg:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(208,69,11,.18);outline:0}.d-dg.on{border-color:#1d2030}
 .d-onway{display:flex;gap:8px;align-items:flex-start;padding:8px 10px;margin-bottom:6px;border-radius:12px;background:#eef8f1;color:#14532d;font-size:.86rem}.d-onway svg{width:18px;height:18px;flex:none;margin-top:1px}
+
+/* admin: support inbox */
+.a-sup{display:grid;gap:10px}.a-supr{display:flex;flex-direction:column;gap:5px;width:100%;text-align:left;cursor:pointer;margin:0}
+.a-thread{display:flex;flex-direction:column;gap:12px;max-height:55vh;overflow-y:auto;background:var(--tile)}
+.a-msg{max-width:80%;display:flex;flex-direction:column;gap:3px}.a-msg .b{padding:10px 13px;border-radius:14px;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.06);line-height:1.45}
+.a-msg.me{align-self:flex-end;align-items:flex-end}.a-msg.me .b{background:var(--brand);color:#fff}

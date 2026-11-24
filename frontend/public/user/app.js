@@ -613,7 +613,8 @@
     const rcard = `<div class="u-box u-crest">${img(restPic(o.restaurant, o.restaurant_image, o.items.map((i) => i.name).join(' ')))}<span class="txt"><b>${e(o.restaurant)}</b><small>${nItems} item${nItems > 1 ? 's' : ''} · ${rs(o.total_paise)} · ${e(o.order_code)}</small></span></div>`;
     const chat = o.chat && (o.chat.open || o.chat.any) ? `<button class="u-box u-chatbtn" data-act="chat-open" data-code="${e(o.order_code)}"><span class="ic">${I('chat')}${o.chat.unread ? `<i class="dot">${o.chat.unread}</i>` : ''}</span><span class="txt"><b>${o.chat.unread ? `${o.chat.unread} new message${o.chat.unread > 1 ? 's' : ''}` : 'Message your delivery partner'}</b><small>${o.chat.open ? 'Gate number, landmark or where to meet' : 'Chat history for this order'}</small></span>${I('chev')}</button>` : '';
     const bar = `<div class="u-trkbar"><span>Updated ${PL.time(new Date().toISOString())}</span><button class="btn ghost sm" data-act="trk-refresh" aria-label="Refresh order status">${I('refresh')} Refresh</button></div>`;
-    return `${map}${bar}${hero}${banner}${refundCard}${chat}${rcard}
+    const help = `<button class="u-helpbtn" data-act="go" data-path="/support?order=${e(code)}">${I('chat')}<span><b>Need help with this order?</b><small>Ask the assistant or our team</small></span>${I('chev')}</button>`;
+    return `${map}${bar}${hero}${banner}${refundCard}${chat}${rcard}${help}
       ${o.delivery_otp ? `<div class="u-box u-otp"><span><b style="font:800 1rem var(--head)">Delivery code</b><div class="small mute">Share it with your delivery partner at your door</div></span><span class="dg" aria-label="Delivery code ${e(o.delivery_otp)}">${String(o.delivery_otp).split('').map((d) => `<span>${e(d)}</span>`).join('')}</span></div>` : ''}
       ${o.rider ? `<div class="u-box"><div class="u-rider">${o.rider.has_photo ? `<img alt="" data-authimg="/api/files/order-rider-photo/${e(code)}">` : `<span class="av">${e((o.rider.name || 'R').trim().charAt(0).toUpperCase())}</span>`}<span class="txt"><b>${e(o.rider.name)}</b><small>${['Your delivery partner', [o.rider.vehicle_category, o.rider.vehicle_make, o.rider.vehicle_model].filter(Boolean).join(' ')].filter(Boolean).map(e).join(' · ')}</small>${o.rider.vehicle_reg_no ? `<span class="plate">${e(o.rider.vehicle_reg_no)}</span>` : ''}</span>${o.status === 'PICKED_UP' ? `<a class="u-call" href="tel:${e(o.rider.phone)}" aria-label="Call your delivery partner">${I('phone')}</a>` : ''}</div></div>` : ''}
       ${o.status === 'DELIVERED' ? `<div class="u-box"><h3>${o.rating ? 'Your rating' : 'How was your food?'}</h3><div class="u-stars">${[1, 2, 3, 4, 5].map((n) => o.rating ? `<span class="${n <= o.rating ? 'on' : ''}">${star}</span>` : `<button data-act="rate" data-code="${e(o.order_code)}" data-s="${n}" aria-label="${n} star${n > 1 ? 's' : ''}">${star}</button>`).join('')}</div></div>` : ''}
@@ -679,12 +680,55 @@
   PL.actions['install-later'] = (el) => { try { sessionStorage.setItem('pl.install.later', '1'); } catch {} el.closest('.u-install')?.remove(); };
   // (notifications are switched on automatically on the first tap: see shared/push.js)
 
+  // ---------- Help & support: assistant (answers from the customer's own orders) + tickets with the Pakka Local team ----------
+  const ST = { open: ['Waiting for the team', 'o'], answered: ['Team replied', 'g'], closed: ['Closed', ''] };
+  const bubble = (from, body, extra = '') => `<div class="u-bub ${from}">${from === 'bot' ? `<span class="who">${I('chat')}</span>` : ''}<div class="b">${e(body).replace(/\n/g, '<br>')}${extra}</div></div>`;
+  const botActs = (acts = []) => acts.length ? `<div class="u-bacts">${acts.map((a) => a.path ? `<button data-act="go" data-path="${e(a.path)}">${e(a.label)}</button>` : a.ask === 'ticket' ? `<button class="team" data-act="hb-team">${I('chat')} ${e(a.label)}</button>` : `<button data-act="hb-ask" data-q="${e(a.ask)}">${e(a.label)}</button>`).join('')}</div>` : '';
+  async function support() {
+    const qs = new URLSearchParams(location.hash.split('?')[1] || ''); if (qs.get('order')) S.hbOrder = qs.get('order');
+    const { tickets } = await PL.api('/api/customer/support/tickets');
+    S.hb ||= [{ from: 'bot', body: `Hi${PL.session()?.user?.name ? ' ' + PL.session().user.name.split(' ')[0] : ''}! I’m the Pakka Local help assistant. Ask me anything about your orders, or pick a question below.`,
+      acts: [{ label: 'Where is my order?', ask: 'Where is my order?' }, { label: 'Refund status', ask: 'Refund status' }, { label: 'Can I cancel?', ask: 'Can I cancel my order?' }, { label: 'Delivery charges', ask: 'Why is the delivery charge this much?' }, { label: 'Talk to the team', ask: 'ticket' }] }];
+    return `<div class="u-pg u-help">
+      <div class="u-hbox"><div class="hd"><span class="av">${I('chat')}</span><span><b>Help assistant</b><small>Instant answers from your orders</small></span></div>
+        <div class="log" id="hb-log">${S.hb.map((m) => bubble(m.from, m.body, m.from === 'bot' ? botActs(m.acts) : '')).join('')}${S.hbBusy ? `<div class="u-bub bot"><span class="who">${I('chat')}</span><div class="b typing"><i></i><i></i><i></i></div></div>` : ''}</div>
+        <form data-form="hb-ask" class="u-hform"><input name="q" placeholder="Type your question…" autocomplete="off" maxlength="300" aria-label="Your question"><button class="btn" type="submit" aria-label="Send">${I('chev')}</button></form></div>
+      <div class="u-sec"><h2>Your tickets<small>Chats with the Pakka Local team</small></h2><button class="lk" data-act="hb-team">+ New</button></div>
+      ${tickets.length ? `<div class="u-tickets">${tickets.map((t) => `<button class="u-tk" data-act="go" data-path="/support/${e(t.code)}"><span class="top"><b>${e(t.code)}</b><span class="u-tag ${ST[t.status][1]}">${ST[t.status][0]}</span></span>
+          <span class="tp">${e(t.topic)}${t.order_code ? ` · ${e(t.order_code)}` : ''}</span><span class="ls">${e(t.last || '')}</span>${t.unread ? `<span class="nb">${t.unread} new</span>` : ''}</button>`).join('')}</div>`
+        : `<div class="u-empty slim">${I('chat')}<span>No tickets yet. If the assistant can’t help, open one and our team will reply here.</span></div>`}</div>`; }
+  PL.forms['hb-ask'] = async (f) => { const q = PL.form(f).q.trim(); if (!q) return; f.reset(); await hbAsk(q); };
+  PL.actions['hb-ask'] = (el) => hbAsk(el.dataset.q);
+  async function hbAsk(q) { S.hb.push({ from: 'me', body: q }); S.hbBusy = true; PL.rerender();
+    try { const a = await PL.post('/api/customer/support/assistant', { q }); await new Promise((r) => setTimeout(r, 450)); S.hb.push({ from: 'bot', body: a.reply, acts: a.actions }); if (a.handoff) S.hbTopic = a.handoff; }
+    catch (x) { S.hb.push({ from: 'bot', body: 'Sorry, I could not answer just now. You can still contact our team.', acts: [{ label: 'Talk to the team', ask: 'ticket' }] }); }
+    S.hbBusy = false; PL.rerender(); }
+  PL.actions['hb-team'] = () => PL.go('/support/new');
+  async function supportNew() {
+    const [{ topics }, { orders }] = await Promise.all([PL.api('/api/customer/support/topics'), PL.api('/api/customer/orders').catch(() => ({ orders: [] }))]);
+    const last = (S.hb || []).filter((m) => m.from === 'me').map((m) => m.body).slice(-1)[0] || '', pre = S.hbOrder || '';
+    return `<div class="u-pg"><div class="u-box"><h3>${I('chat')} Contact the Pakka Local team</h3><p class="small mute">You’ll get a ticket ID. Our team replies here, and you get a notification.</p>
+      <form data-form="tk-new" class="mt2"><label>What is it about?</label><div class="u-topics">${topics.map((t, i) => `<label class="u-topic"><input type="radio" name="topic" value="${e(t)}" ${(S.hbTopic || (pre ? 'Order issue' : topics[0])) === t ? 'checked' : ''}><span>${e(t)}</span></label>`).join('')}</div>
+        ${orders.length ? `<label>Which order? (optional)</label><select name="order_code"><option value="">Not about a specific order</option>${orders.slice(0, 10).map((o) => `<option value="${e(o.order_code)}" ${o.order_code === pre ? 'selected' : ''}>${e(o.order_code)} · ${e(o.restaurant)} · ${rs(o.total_paise)}</option>`).join('')}</select>` : ''}
+        <label>Your message</label><textarea name="message" rows="5" maxlength="1000" required placeholder="Tell us what happened">${e(last)}</textarea>
+        <button class="btn block lg mt" type="submit">Send to the team</button></form></div></div>`; }
+  PL.forms['tk-new'] = async (f) => { const v = PL.form(f); const r = await PL.run(() => PL.post('/api/customer/support/tickets', { topic: v.topic, order_code: v.order_code || undefined, message: v.message }));
+    if (!r) return; S.hbTopic = null; S.hbOrder = null; PL.toast(`Ticket ${r.ticket.code} created. Our team will reply here.`, 'ok'); PL.go(`/support/${r.ticket.code}`, true); };
+  async function supportTicket({ code }) {
+    const { ticket: t, messages } = await PL.api(`/api/customer/support/tickets/${encodeURIComponent(code)}`);
+    return `<div class="u-pg u-help"><div class="u-tkhead"><div><b>${e(t.code)}</b><small>${e(t.topic)}${t.order_code ? ` · ${e(t.order_code)}` : ''} · opened ${PL.dt(t.created_at)}</small></div><span class="u-tag ${ST[t.status][1]}">${ST[t.status][0]}</span></div>
+      <div class="u-hbox"><div class="log tall" id="tk-log">${messages.map((m) => bubble(m.from === 'customer' ? 'me' : 'team', m.body, `<span class="tm">${m.from === 'admin' ? 'Pakka Local team · ' : ''}${PL.time(m.created_at)}</span>`)).join('')}
+        ${t.status === 'open' ? `<div class="u-wait small mute">${I('clock')} Our team usually replies within a few hours.</div>` : ''}</div>
+        <form data-form="tk-send" data-code="${e(t.code)}" class="u-hform"><input name="body" placeholder="${t.status === 'closed' ? 'Write to reopen this ticket…' : 'Type a message…'}" autocomplete="off" maxlength="1000" aria-label="Message"><button class="btn" type="submit" aria-label="Send">${I('chev')}</button></form></div></div>`; }
+  PL.forms['tk-send'] = async (f) => { const body = PL.form(f).body.trim(); if (!body) return; const r = await PL.run(() => PL.post(`/api/customer/support/tickets/${encodeURIComponent(f.dataset.code)}/messages`, { body })); if (r) { f.reset(); PL.rerender(); } };
+
   // Account: profile, notifications, offers, install. (Orders live in the Orders tab; addresses are chosen in the cart.)
   async function account() { const [me, pf] = await Promise.all([PL.api('/api/customer/me'), PL.api('/api/customer/preferences')]); const u = me.user;
     if (!pf.promo_opt_in) PL.put('/api/customer/preferences', { promo_opt_in: true }).catch(() => {});      // offers are always on now (no switch)
     return `<div class="u-pg"><div class="u-prof"><div class="av">${e((u.name || 'P').trim().charAt(0).toUpperCase())}</div><div style="min-width:0"><h1>${e(u.name || 'Pakka Local customer')}</h1><small>${e(u.phone)}</small></div><button class="btn ghost sm" data-act="name-edit">Edit name</button></div>
       ${installCard()}
-      <div class="u-menu"><button data-act="inbox"><span class="ic">${I('bell')}</span><span><b>Notifications</b><small>Order updates, offers and messages</small></span><span class="chev">${I('chev')}</span></button></div>
+      <div class="u-menu"><button data-act="go" data-path="/support"><span class="ic">${I('chat')}</span><span><b>Help &amp; support</b><small>Ask the assistant or chat with the Pakka Local team</small></span><span class="chev">${I('chev')}</span></button>
+        <button data-act="inbox"><span class="ic">${I('bell')}</span><span><b>Notifications</b><small>Order updates, offers and messages</small></span><span class="chev">${I('chev')}</span></button></div>
       ${PL.push.card('user')}
       <button class="btn ghost block mt" data-act="logout">${I('logout')} Sign out</button></div>`; }
   PL.actions['name-edit'] = () => PL.modal(`<h3>Your name</h3><form data-form="name-change"><input name="name" maxlength="60" required autocomplete="name"><button class="btn block mt" type="submit">Save</button></form>`);
@@ -698,5 +742,7 @@
     onReady: () => { checkName(); const tick = async () => { try { const { orders } = await PL.api('/api/customer/orders'); PL.badge('/orders', orders.filter((o) => ACTIVE.includes(o.status)).length); } catch {} }; tick(); const iv = setInterval(tick, 10000); PL.hooks.stop = [() => clearInterval(iv)]; },
     routes: { '/home': { title: 'Home', render: home, poll: 6000, after: homeAfter, skel: 'cards' }, '/search': { title: 'Search', render: search, after: () => { runSearch(); const i = PL.$('#s-q'); if (i && !S.sq) i.focus(); }, skel: 'list' },
       '/r/:id': { title: 'Menu', render: menu, poll: 8000, noNav: true, after: () => { filterMenu(); S.popId = null; }, skel: 'menu' }, '/cart': { title: 'Cart', render: cart, poll: 8000, noNav: true, after: () => { S.popId = null; }, skel: 'detail' }, '/pay/:code': { title: 'Payment', render: pay, noNav: true, skel: 'detail' },
-      '/orders': { title: 'My orders', render: orders, poll: 5000 }, '/orders/:code': { title: 'Track order', render: track, poll: 2000, skel: 'detail', after: () => { PL.track.customerMount(); mountLottie(); } }, '/me': { title: 'Account', render: account }, '/addresses': { title: 'Delivery addresses', render: addresses }, '/places': { title: 'Find your place', render: placesView }, '/addresses/:id': { title: 'Delivery address', render: addressForm } } });
+      '/orders': { title: 'My orders', render: orders, poll: 5000 }, '/orders/:code': { title: 'Track order', render: track, poll: 2000, skel: 'detail', after: () => { PL.track.customerMount(); mountLottie(); } }, '/me': { title: 'Account', render: account }, '/addresses': { title: 'Delivery addresses', render: addresses }, '/places': { title: 'Find your place', render: placesView }, '/addresses/:id': { title: 'Delivery address', render: addressForm },
+      '/support': { title: 'Help & support', render: support, after: () => { const l = PL.$('#hb-log'); if (l) l.scrollTop = l.scrollHeight; } }, '/support/new': { title: 'Contact the team', render: supportNew },
+      '/support/:code': { title: 'Support ticket', render: supportTicket, poll: 6000, after: () => { const l = PL.$('#tk-log'); if (l) l.scrollTop = l.scrollHeight; } } } });
 })();

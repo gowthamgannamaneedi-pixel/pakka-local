@@ -16,6 +16,7 @@ import { USERNAME_RE } from './auth.js';
 import { mountMenu, ADDR, saveAddress, putHours, setStatus } from './restaurant.js';
 import { restaurantStep } from '../services/core.js';
 import * as Hours from '../services/hours.js';
+import * as Support from '../services/support.js';
 import * as Coupons from '../services/coupons.js';
 import * as Refunds from '../services/refunds.js';
 
@@ -89,7 +90,8 @@ export function adminRoutes(db) {
       { key: 'placed', level: 'warn', n: t ? 0 : one("SELECT COUNT(*) FROM orders WHERE status='PLACED'"), text: 'order(s) waiting for a restaurant to accept', path: '/orders' },
       { key: 'unassigned', level: 'warn', n: one("SELECT COUNT(*) FROM orders WHERE rider_id IS NULL AND status IN ('ACCEPTED','PREPARING','READY')"), text: 'accepted order(s) without a delivery agent yet', path: '/orders' },
       { key: 'cashouts', level: 'warn', n: one("SELECT COUNT(*) FROM cashout_requests WHERE status IN ('PENDING','APPROVED')"), text: 'payout request(s) to process', path: '/cashouts' },
-      { key: 'refunds', level: 'warn', n: one("SELECT COUNT(*) FROM refunds WHERE stage IN ('requested','approved')"), text: 'refund(s) with UPI details waiting for review or payment', path: '/refunngs' },
+      { key: 'refunds', level: 'warn', n: one("SELECT COUNT(*) FROM refunds WHERE stage IN ('requested','approved')"), text: 'refund(s) with UPI details waiting for review or payment', path: '/refunds' },
+      { key: 'support', level: 'warn', n: one("SELECT COUNT(*) FROM support_tickets WHERE status='open'"), text: 'customer support ticket(s) waiting for a reply', path: '/support' },
       { key: 'pay_failed', level: 'info', n: one("SELECT COUNT(*) FROM payments WHERE status IN ('FAILED','EXPIRED') AND substr(datetime(created_at,'+330 minutes'),1,10)=?", today), text: 'payment(s) failed or expired today', path: '/orders' },
       { key: 'closed', level: 'info', n: one('SELECT COUNT(*) FROM restaurants r LEFT JOIN restaurant_operating_status s ON s.restaurant_id=r.id WHERE r.admin_visible=1 AND r.approved=1 AND COALESCE(s.is_open,0)=0'), text: 'visible restaurant(s) are closed right now', path: '/restaurants' },
       { key: 'routing_off', level: 'bad', n: Pricing.getConfig(db).enabled && Routing.providerName() === 'none' ? 1 : 0, text: 'Distance pricing is on but no routing engine is set up (OSRM_URL), so every order uses the fallback charge or is refused', path: '/distance', flag: true },
@@ -287,6 +289,13 @@ export function adminRoutes(db) {
     db.prepare(`UPDATE users SET name=?, phone=?${d.phone !== u.phone ? ', token_version=token_version+1' : ''} WHERE id=?`).run(d.name, d.phone, u.id);
     audit(db, req, 'user.update', 'user', u.id, { role: u.role, changed: { ...(d.name !== u.name && { name: { from: u.name, to: d.name } }), ...(d.phone !== u.phone && { phone: { from: u.phone, to: d.phone } }) } });
     res.json({ ok: true }); }));
+  // ---------- customer support inbox ----------
+  r.get('/support', (req, res) => res.json(Support.adminList(db, { status: req.query.status })));
+  r.get('/support/:id(\\d+)', (req, res) => send(res, Support.adminGet(db, Number(req.params.id))));
+  r.post('/support/:id(\\d+)/reply', wrap((req, res) => { const out = Support.adminReply(db, req.user, Number(req.params.id), req.body?.body, !!req.body?.close);
+    if (!out.error) audit(db, req, 'support.reply', 'support_ticket', req.params.id, { closed: !!req.body?.close }); send(res, out); }));
+  r.post('/support/:id(\\d+)/status', wrap((req, res) => { const out = Support.adminStatus(db, Number(req.params.id), req.body?.status);
+    if (!out.error) audit(db, req, 'support.status', 'support_ticket', req.params.id, { status: req.body?.status }); send(res, out); }));
   r.post('/users/:id/active', wrap((req, res) => { const a = req.body?.active ? 1 : 0; if (Number(req.params.id) === req.user.id) return res.status(400).json({ error: 'You cannot deactivate your own account.' });
     db.prepare('UPDATE users SET active=?, token_version=token_version+1 WHERE id=?').run(a, req.params.id); audit(db, req, 'user.active', 'user', req.params.id, { active: a }); res.json({ ok: true }); }));
 

@@ -714,5 +714,32 @@ INSERT INTO restaurant_hours (restaurant_id, dow, closed, open_min, close_min)
 -- before this change only an admin could enter a pickup point (Distance page), so existing points count as confirmed by an admin
 UPDATE restaurants SET location_source='admin', location_confirmed_at=COALESCE(pickup_updated_at, datetime('now'))
   WHERE pickup_lat IS NOT NULL AND pickup_lng IS NOT NULL;`
+  },
+  {
+    // Customer support: tickets (shown as PLS-<1000+id>) and their message thread with the Pakka Local team
+    id: 'p11_001_support',
+    sql: `
+CREATE TABLE support_tickets (
+  id INTEGER PRIMARY KEY,
+  customer_id INTEGER NOT NULL REFERENCES users(id),
+  topic TEXT NOT NULL,
+  order_code TEXT,
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','answered','closed')),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX idx_support_customer ON support_tickets(customer_id, updated_at);
+CREATE INDEX idx_support_status ON support_tickets(status, updated_at);
+CREATE TABLE support_messages (
+  id INTEGER PRIMARY KEY,
+  ticket_id INTEGER NOT NULL REFERENCES support_tickets(id),
+  sender_role TEXT NOT NULL CHECK (sender_role IN ('customer','admin')),
+  sender_id INTEGER,
+  body TEXT NOT NULL,
+  read_by_customer INTEGER NOT NULL DEFAULT 0,
+  read_by_admin INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX idx_support_msg ON support_messages(ticket_id, id);`
   }
 ];

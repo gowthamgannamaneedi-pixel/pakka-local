@@ -14,6 +14,7 @@ import * as Chat from '../services/chat.js';
 import { loginChannel } from '../otpProviders.js';
 import { providerName } from '../services/routing.js';
 import { availability } from '../services/hours.js';
+import * as Support from '../services/support.js';
 import { freshness } from '../services/tracking.js';
 
 // An order always goes to one of the customer's own saved GPS addresses, and the customer confirms that delivery point.
@@ -56,6 +57,13 @@ export function customerRoutes(db) {
   r.get('/me', (req, res) => res.json({ user: { id: req.user.id, name: req.user.name, phone: req.user.phone } }));
   // ---------- saved delivery addresses (own addresses only; every query is scoped to the signed-in customer) ----------
   const noStore = (req, res, next) => { res.set('Cache-Control', 'no-store, private'); next(); };
+  // ---------- help & support: assistant + tickets with the Pakka Local team ----------
+  r.post('/support/assistant', noStore, wrap((req, res) => res.json(Support.assistant(db, req.user, req.body?.q))));
+  r.get('/support/topics', noStore, (req, res) => res.json({ topics: Support.TOPICS }));
+  r.get('/support/tickets', noStore, (req, res) => res.json(Support.listMine(db, req.user)));
+  r.post('/support/tickets', noStore, wrap((req, res) => send(res, Support.create(db, req.user, req.body || {}), 201)));
+  r.get('/support/tickets/:ref', noStore, (req, res) => send(res, Support.getMine(db, req.user, req.params.ref)));
+  r.post('/support/tickets/:ref/messages', noStore, wrap((req, res) => send(res, Support.customerSend(db, req.user, req.params.ref, req.body?.body), 201)));
   r.get('/addresses', noStore, (req, res) => res.json({ addresses: Addr.list(db, req.user.id), policy: Addr.gpsPolicy(db), max: Addr.MAX_ADDRESSES,
     gps_fee_paise: Number(getSetting(db, 'gps_delivery_fee_paise')), gps_per_km_paise: Number(getSetting(db, 'gps_per_km_paise')) || null, gps_min_fee_paise: Number(getSetting(db, 'gps_min_fee_paise')) || null }));      // fixed charge for places not on the list (shown before choosing)
   r.post('/addresses', noStore, wrap((req, res) => send(res, Addr.create(db, req.user.id, req.body), 201)));
