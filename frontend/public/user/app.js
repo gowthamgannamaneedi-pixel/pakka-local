@@ -230,6 +230,7 @@
     // banners: only true statements (real free-delivery rules from restaurants, real features)
     const fd = open.filter((x) => x.free_delivery_above_paise).sort((p, q) => p.free_delivery_above_paise - q.free_delivery_above_paise)[0];
     const top = cats[0];
+    const plates = [...new Set([...cats.map(([k]) => k), 'biryani', 'dosa', 'thali', 'momos', 'noodles'])].slice(0, 4).map(catPic);
     // photo slides: real dishes (with photos) from open kitchens, one per restaurant first, then more; plus real offers
     // any available dish of an open kitchen; its own photo, or the matching food photo when the restaurant has not uploaded one
     const pool = []; for (let k = 0; k < 3; k++) for (const x of ranked.slice(0, 6)) { const i = (menus[x.id] || []).filter((d) => d.available)[k]; if (i) pool.push({ i, x, src: i.image_path ? pubImg(i.image_path) : catPic(catsOf(i.name)[0] || catsOf(textOf(x))[0] || 'thali') }); }
@@ -240,9 +241,11 @@
         <b>${e(i.name)}</b><span class="s">${e(x.name)}${etaOf(x) ? ` · ${etaOf(x)}` : ''}</span>
         <span class="glass">${dietMark(i.diet)}<span class="pr">${rs(i.price_paise)}</span><span class="cta">Order now ${I('chev')}</span></span></button>`;
     const bans = [...feat.map(photoSlide), fd && `<button class="u-ban u-pban" data-act="go" data-path="/r/${fd.id}"><img class="bg" src="${e(coverOf(fd))}" alt="" loading="lazy"><span class="shade or"></span><span class="k">Free delivery</span><b>On orders above ${rs(fd.free_delivery_above_paise)}</b><span class="s">from ${e(fd.name)}</span><span class="glass"><span class="cta">Order now ${I('chev')}</span></span></button>`,
-      feat.length < 2 && top && `<button class="u-ban b-gr" data-act="cat" data-k="${top[0]}"><span class="k">Near you</span><b>${e(top[1])} from local kitchens</b><span class="s">${counts[top[0]]} restaurant${counts[top[0]] > 1 ? 's' : ''} serving it now</span><span class="cta">Explore ${I('chev')}</span>${img(catPic(top[0]), 'ph')}</button>`,
-      !feat.length && `<div class="u-ban b-dk"><span class="k">Live tracking</span><b>Watch your rider on the map</b><span class="s">From the restaurant to your gate</span><svg class="art" viewBox="0 0 140 100" fill="none"><rect x="6" y="8" width="128" height="84" rx="16" fill="#2b3046"/><path d="M18 70c20-30 40 10 60-20s30-20 46-34" stroke="#ff9248" stroke-width="4" stroke-dasharray="7 7" stroke-linecap="round"/><circle cx="18" cy="70" r="7" fill="#fff"/><path d="M118 6c-8 0-13 6-13 12 0 9 13 20 13 20s13-11 13-20c0-6-5-12-13-12z" fill="#d0450b"/><circle cx="118" cy="18" r="4" fill="#fff"/></svg></div>`,
-      !feat.length && `<div class="u-ban b-pl"><span class="k">Simple checkout</span><b>Pay online. No cash needed.</b><span class="s">Every charge shown before you pay</span><svg class="art" viewBox="0 0 140 100" fill="none"><rect x="20" y="18" width="100" height="66" rx="12" fill="#fff" opacity=".95"/><rect x="20" y="32" width="100" height="12" fill="#5b2a86" opacity=".35"/><rect x="32" y="58" width="36" height="8" rx="4" fill="#8a3ea8" opacity=".5"/><circle cx="104" cy="66" r="12" fill="#0f8a4f"/><path d="M98 66l4 4 8-8" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></div>`].filter(Boolean);
+      // three colourful feature slides with floating 3D plates (real food photos); always true statements
+      fxSlide(1, top ? `data-act="cat" data-k="${top[0]}"` : `data-act="go" data-path="/search"`, top ? 'Near you' : 'Hungry?', top ? `${e(top[1])} from local kitchens` : 'Local kitchens, delivered hot',
+        top ? `${counts[top[0]]} restaurant${counts[top[0]] > 1 ? 's' : ''} serving it now` : 'Fresh food from kitchens around you', 'Explore', plates.slice(0, 3)),
+      fxSlide(2, `data-act="go" data-path="/orders"`, 'Live tracking', 'Watch your rider on the map', 'From the restaurant to your gate', 'My orders', plates.slice(1, 2), 'route'),
+      fxSlide(3, `data-act="go" data-path="/search"`, 'Easy checkout', 'Pay online. No cash needed.', 'Every charge shown before you pay', 'Order now', plates.slice(2, 3), 'card')].filter(Boolean);
     const notes = [c.paymentsAvailable === false ? `<div class="u-pill-note">${I('info')}<span>Ordering opens soon. You can browse menus now.</span></div>` : '', !c.ridersAvailable ? `<div class="u-pill-note warn">${I('bike')}<span>${e(c.noRiderMessage)}</span></div>` : ''].join('');
     const live = active[0];
     return `<div class="u-head" id="u-head"><div class="row1"><button class="u-loc" data-act="go" data-path="/addresses"><span class="pin">${I('pin')}</span><span class="txt"><b>${cur ? e(cur.kind === 'listed' ? cur.place_name || 'Selected place' : LBL[cur.label] || 'Home') : 'Set delivery location'}${I('chev')}</b><small>${c.testPayments ? '<i class="u-test">TEST</i>' : ''}${cur ? e(addrLine(cur, cur.kind === 'listed')) : 'Choose your PG, hostel or college'}</small></span></button>${PL.inbox.btn()}<button class="u-av" data-act="go" data-path="/me" aria-label="Account">${e((name || 'P').charAt(0).toUpperCase())}</button></div>
@@ -278,6 +281,12 @@
   PL.actions.sort = () => PL.modal(`<h3>Sort restaurants</h3><div class="u-menu" style="margin-top:12px">${[['rel', 'Relevance', 'Open kitchens first'], ['rating', 'Rating: high to low', 'Based on customer ratings'], ['eta', 'Delivery time', 'Fastest first']].map(([k, l, s]) => `<button data-act="sort-set" data-k="${k}"><span class="ic">${I(k === 'rating' ? 'star' : k === 'eta' ? 'clock' : 'filter')}</span><span><b>${l}</b><small>${s}</small></span>${(S.sort || 'rel') === k ? `<span class="chev" style="color:var(--brand)">${I('check')}</span>` : ''}</button>`).join('')}</div>`);
   PL.actions['sort-set'] = (el) => { S.sort = el.dataset.k; PL.closeModal(); const b = PL.$('[data-act=sort]'); if (b) b.firstChild && (b.innerHTML = `${I('filter')} Sort${S.sort !== 'rel' ? ': ' + { rating: 'Rating', eta: 'Fastest' }[S.sort] : ''} ${I('chev', 'style="transform:rotate(90deg);width:14px;height:14px"')}`); filterHome(); };
   // home motion: rotating search word, banner auto-advance with dots, header shadow when scrolled
+  // feature slide: gradient + glow, copy on the left, a small 3D stage on the right (transform-only animation: smooth on low-end phones)
+  const fxSlide = (n, act, k, title, sub, cta, imgs, extra) => `<button class="u-ban u-fx fx-${n}" ${act}><span class="glow" aria-hidden="true"></span>
+      <span class="fxc"><span class="k">${k}</span><b>${title}</b><span class="s">${sub}</span><span class="cta">${cta} ${I('chev')}</span></span>
+      <span class="stage" aria-hidden="true">${extra === 'route' ? `<span class="map"><svg viewBox="0 0 120 80"><path class="rt" d="M12 64 C 34 30, 58 74, 78 40 S 100 14, 108 16" fill="none"/><circle class="go" r="5"><animateMotion dur="3.2s" repeatCount="indefinite" path="M12 64 C 34 30, 58 74, 78 40 S 100 14, 108 16"/></circle><circle cx="108" cy="16" r="6" class="pin"/></svg></span>` : ''}
+        ${extra === 'card' ? `<span class="pay"><i class="chip"></i><i class="l1"></i><i class="l2"></i><span class="ok">${I('check')}</span></span>` : ''}
+        ${imgs.map((src, j) => `<img class="pl p${j + 1}" src="${src}" alt="" loading="lazy" decoding="async">`).join('')}<i class="sp a"></i><i class="sp b"></i><i class="sp c"></i></span></button>`;
   const homeAfter = () => { filterHome(); if (S.offerNow) setTimeout(() => S.offerNow && offerPop(S.offerNow), 600);
     const w = PL.$('#u-word'), words = S.words?.length ? S.words : ['your favourite food']; let wi = 0;
     if (w && words.length > 1 && !reduce()) { const iv = setInterval(() => { if (!w.isConnected) return clearInterval(iv); wi = (wi + 1) % words.length; w.textContent = words[wi]; w.style.animation = 'none'; void w.offsetWidth; w.style.animation = ''; }, 2600); }
@@ -418,7 +427,7 @@
       ${err ? `<div class="u-note ${err.code === 'NO_RIDERS' ? '' : 'bad'}">${I('alert')}<span>${e(err.message)}${err.code === 'NO_MAP_POINT' && sel ? `<br><button class="btn sm mt2" data-act="go" data-path="/addresses/${sel.id}?back=cart&gps=1">Add my GPS location</button>` : ''}</span></div>` : ''}
       ${bill}
       <div class="u-cod">${I('shield')} Online payment only. Cash on delivery is not available.</div></div>
-      <div class="u-paybar"><span class="l"><b>${q ? rs(q.total_paise) : rs(cartTotal())}</b><small>${q ? (q.discount_paise ? `To pay · saved ${rs(q.discount_paise)}` : 'To pay') : 'Item total'}</small></span><button class="go" data-act="${!sel || !S.confirmed ? 'to-deliver' : 'place'}" ${!sel || (!S.confirmed && q && !err) || (q && !err && S.confirmed) ? '' : 'disabled'}>${!sel ? 'Choose where to deliver' : !S.confirmed ? 'Confirm delivery point' : q ? `Continue to payment ${I('chev')}` : 'Not available'}</button></div>`;
+      <div class="u-paybar"><span class="l"><b>${q ? rs(q.total_paise) : rs(cartTotal())}</b><small>${q ? (q.discount_paise ? `To pay · saved ${rs(q.discount_paise)}` : 'To pay') : 'Item total'}</small></span><button class="go" data-act="${!sel || !S.confirmed ? 'to-deliver' : inApp() ? 'place' : 'install-gate'}" ${!sel || (!S.confirmed && q && !err) || (q && !err && S.confirmed) ? '' : 'disabled'}>${!sel ? 'Choose where to deliver' : !S.confirmed ? 'Confirm delivery point' : !q ? 'Not available' : inApp() ? `Continue to payment ${I('chev')}` : `Install the app to order ${I('chev')}`}</button></div>`;
   }
   PL.actions['addr-change'] = () => { S.addrOpen = true; PL.rerender(); };
   PL.actions['to-deliver'] = () => { const b = document.getElementById('u-deliver'); if (b) { b.scrollIntoView({ behavior: 'smooth', block: 'start' }); b.classList.remove('flash'); void b.offsetWidth; b.classList.add('flash'); } };
@@ -447,7 +456,7 @@
   document.addEventListener('change', (ev) => { const t = ev.target;
     if (t.name === 'addr' && t.closest('.addr-pick')) { S.addrId = Number(t.value); save('pl.addr', S.addrId); S.confirmed = false; S.addrOpen = false; PL.rerender(); }      // picking an address keeps its method
     if (t.id === 'confirm-dest') { S.confirmed = t.checked; PL.rerender(); } });
-  PL.actions.place = async (el) => { if (!S.confirmed) return PL.toast('Confirm the delivery point first.', true); el.disabled = true; el.classList.add('busy');
+  PL.actions.place = async (el) => { if (!inApp()) return installGate(); if (!S.confirmed) return PL.toast('Confirm the delivery point first.', true); el.disabled = true; el.classList.add('busy');
     const r = await PL.run(() => PL.post('/api/customer/orders', { ...body(), confirm_destination: true })); if (r) { S.confirmed = false; S.coupon = null; S.couponTry = ''; S.couponErr = null; PL.go('/pay/' + r.order_code, true); } else { el.disabled = false; el.classList.remove('busy'); } };
 
   // ---------- delivery addresses (GPS-first) ----------
@@ -629,10 +638,39 @@
   document.addEventListener('pl-installable', () => document.querySelectorAll('.u-install').forEach((c) => { c.outerHTML = installCard(c.dataset.where); }));
   window.addEventListener('appinstalled', () => { document.querySelectorAll('.u-install').forEach((c) => c.remove()); });
   const homeInstallHidden = () => { try { return isInstalled() || sessionStorage.getItem('pl.install.later') === '1'; } catch { return isInstalled(); } };      // "Not now" hides it until the next visit
+  // Customers order only from the installed Pakka Local app. In a browser tab they can browse and fill the cart; the bar below
+  // stays on every page (no close button) and the order button opens the install steps instead of payment.
+  const inApp = () => PL.isStandalone();
+  const howTo = () => (PL.isIOS() ? 'In Safari, tap the <b>Share</b> button (square with an arrow), then <b>Add to Home Screen</b>, then <b>Add</b>.'
+    : 'Open your browser menu (<b>⋮</b> at the top right) and tap <b>Install app</b> (or <b>Add to Home screen</b>), then <b>Install</b>.');
+  function installGate() {
+    const done = isInstalled();
+    PL.modal(`<div class="cf u-gate"><span class="cf-ic" style="background:none"><img src="/assets/icon-192.png" alt="" width="64" height="64" style="border-radius:16px"></span>
+      <h3>${done ? 'Open the Pakka Local app to order' : 'Install Pakka Local to order'}</h3>
+      <p class="small mute">${done ? 'Pakka Local is installed on this phone. Orders are placed from the app: open <b>Pakka Local</b> from your home screen (your cart is kept).' : 'Orders are placed from the Pakka Local app, so you get live order updates and delivery alerts. It takes a few seconds and your cart is kept.'}</p>
+      <p class="small u-how hide" style="text-align:left;margin-top:10px">${howTo()}</p></div>
+      ${done ? `<button class="btn block mt" data-act="close-modal">OK</button>` : `<button class="btn block lg mt u-installbtn" data-act="install-now">${I('plus')} Install</button>`}`); }
+  // Install: Chrome / Edge / Samsung Internet install straight away (the browser's own "Install app?" box, one more tap).
+  // Only where the browser offers no direct install (iPhone Safari, some in-app browsers) do the steps appear.
+  PL.actions['install-now'] = async (el) => {
+    if (PL.installEvt) { await PL.install(); if (isInstalled()) { await PL.closeModalAsync(); syncBar(); } return; }
+    const how = el.closest('.sheet')?.querySelector('.u-how'); if (how) { how.classList.remove('hide'); el.textContent = 'OK'; el.dataset.act = 'close-modal'; return; }
+    installGate(); };
+  PL.actions['install-gate'] = () => installGate();
+  const barHtml = () => { const done = isInstalled();
+    return `<img src="/assets/icon-192.png" alt=""><span class="txt"><b>${done ? 'Open the Pakka Local app to order' : 'Install Pakka Local to order'}</b><small>${done ? 'Ordering works in the app, not in this browser tab' : 'Free · takes a few seconds · live order alerts'}</small></span>
+      <button class="btn sm" data-act="${done ? 'install-gate' : 'install-now'}">${done ? 'How?' : 'Install'}</button>`; };
+  const syncBar = () => { let b = document.getElementById('u-installbar'); const need = !inApp() && !!PL.session();
+    document.body.classList.toggle('has-ibar', need);
+    if (!need) { b?.remove(); return; }
+    if (!b) { b = document.createElement('div'); b.id = 'u-installbar'; b.className = 'u-ibar'; b.setAttribute('role', 'region'); b.setAttribute('aria-label', 'Install the app'); document.body.append(b); }
+    const h = barHtml(); if (b.dataset.h !== h) { b.innerHTML = h; b.dataset.h = h; } };
+  document.addEventListener('pl-installable', syncBar); window.addEventListener('appinstalled', () => setTimeout(syncBar, 300));
+  setInterval(syncBar, 1500); setTimeout(syncBar, 300);
   function installCard(where = 'account') {
     if (isInstalled()) return '';
     const head = `<span class="ic"><img src="/assets/icon-192.png" alt=""></span><span class="txt"><b>Install the Pakka Local app</b><small>Opens in one tap from your home screen, full screen, with order alerts.</small></span>`;
-    const notNow = where === 'home' ? '<button class="btn ghost sm" data-act="install-later">Not now</button>' : '';
+    const notNow = '';      // installing is required to order: no "Not now"
     if (PL.installEvt) return `<div class="u-install" data-where="${where}"><div class="row1">${head}</div><div class="row2">${notNow}<button class="btn sm" data-act="install-go">${I('plus')} Install app</button></div></div>`;
     const how = isIOS() ? 'In Safari, tap the <b>Share</b> button, then <b>Add to Home Screen</b>.' : 'Open your browser menu (<b>⋮</b>) and tap <b>Install app</b> or <b>Add to Home screen</b>.';
     return `<div class="u-install" data-where="${where}"><div class="row1">${head}</div><p class="how">${how}</p>${notNow ? `<div class="row2">${notNow}</div>` : ''}</div>`;

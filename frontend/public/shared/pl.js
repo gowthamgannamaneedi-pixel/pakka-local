@@ -306,7 +306,7 @@
     const how = PL.installEvt ? '' : `<p class="small mt2" style="text-align:left">${PL.isIOS() ? 'In Safari, tap the <b>Share</b> button (square with an arrow), then <b>Add to Home Screen</b>.' : 'Open your browser menu (<b>⋮</b> at the top right) and tap <b>Install app</b> or <b>Add to Home screen</b>.'}</p>`;
     PL.modal(`<div class="cf pl-install"><span class="cf-ic" style="background:none"><img src="/assets/icon-192.png" alt="" width="56" height="56" style="border-radius:14px"></span><h3>Install ${APPNAME[PL.portal]}</h3>
       <p class="small mute">Open it in one tap from your home screen, full screen, with alerts.</p>${how}</div>
-      <div class="row mt"><button class="btn ghost grow" data-act="close-modal">Not now</button>${PL.installEvt ? `<button class="btn grow" data-act="pl-install">${PL.icon('plus')} Install</button>` : '<button class="btn grow" data-act="close-modal">OK</button>'}</div>`); };
+      ${PL.installEvt ? `<button class="btn block lg mt" data-act="pl-install">${PL.icon('plus')} Install</button>` : '<button class="btn block mt" data-act="close-modal">OK</button>'}${PL.portal === 'user' ? '' : '<button class="btn ghost block mt2" data-act="close-modal">Not now</button>'}`); };
   // Chrome sends its install event a moment after the page loads: wait a little so the real Install button can be offered
   PL.installAskSoon = () => setTimeout(installAsk, PL.installEvt ? 800 : 3500);
   PL.boot = () => {
