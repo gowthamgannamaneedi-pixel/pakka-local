@@ -265,7 +265,18 @@ export function adminRoutes(db) {
       riders: rows.map((x) => ({ id: x.id, name: x.name, legal_name: x.legal_name, phone: x.phone, active: x.active, verification_status: x.verification_status, is_online: x.is_online,
         vehicle_category: x.vehicle_category, vehicle_reg_no: x.vehicle_reg_no, submitted_at: x.submitted_at, decided_at: x.decided_at, missing_count: missing(x).length })) });
   });
-  r.get('/riders/:id', (req, res) => { const a = adminView(db, Number(req.params.id)); a ? res.json({ application: a, doc_labels: DOC_LABEL, id_types: ID_TYPES }) : res.status(404).json({ error: 'Delivery agent not found.' }); });
+  // STAGING ONLY: made-up demo numbers (+91 5..., never a real Indian mobile) can never receive a code, so admin may confirm them.
+  // Refused on production and for any real-looking number. Approval itself still needs the full application and the normal admin check.
+  const DEMO_NO = /^\+915\d{9}$/;
+  const demoConfirmable = (a) => config.appEnv !== 'production' && !!a && !a.phone_verified && DEMO_NO.test(a.user.phone);
+  r.post('/riders/:id/demo-phone', wrap((req, res) => {
+    const a = adminView(db, Number(req.params.id)); if (!a) return res.status(404).json({ error: 'Delivery agent not found.' });
+    if (config.appEnv === 'production') return res.status(403).json({ error: 'Not available on the live site.' });
+    if (!DEMO_NO.test(a.user.phone)) return res.status(400).json({ error: 'Only made-up demo numbers (+91 5…) can be confirmed this way. Real numbers verify with the SMS code.' });
+    const now = new Date().toISOString();
+    db.prepare('UPDATE riders SET phone_verified_at=COALESCE(phone_verified_at, ?), application_updated_at=? WHERE user_id=?').run(now, now, a.user.id);
+    audit(db, req, 'rider.demo_phone_confirmed', 'user', a.user.id, { phone: a.user.phone, app_env: config.appEnv }); res.json({ ok: true }); }));
+  r.get('/riders/:id', (req, res) => { const a = adminView(db, Number(req.params.id)); a ? res.json({ application: { ...a, demo_phone_confirmable: demoConfirmable(a) }, doc_labels: DOC_LABEL, id_types: ID_TYPES }) : res.status(404).json({ error: 'Delivery agent not found.' }); });
   r.get('/riders/:id/history', (req, res) => res.json({ history: db.prepare('SELECT status,action,note,created_at FROM rider_verification_history WHERE rider_id=? ORDER BY id DESC').all(req.params.id) }));
   // reject / request corrections: reason required. Approve / suspend change who may receive orders: also need fresh authentication.
   const needsFresh = (req, res, next) => (['approve', 'suspend'].includes(req.body?.action) ? fresh(req, res, next) : next());
