@@ -40,7 +40,8 @@ export function seedStagingTestAccounts(db, { secretsDir, appEnv, testOtp, publi
     if (a.password) lines.push(['Admin', '/admin/', TEST.admin.name, TEST.admin.phone, a.password, 'Mobile + password']);
     rec.admin = a.id;
     // test restaurant + menu + open, visible and approved; linked owner login
-    let rid = rec.restaurant && db.prepare('SELECT id FROM restaurants WHERE id = ? AND name = ?').pluck().get(rec.restaurant, TEST.restaurant.name);
+    // the recorded test restaurant is kept even if an admin renamed it (e.g. into a real restaurant): never create a second one
+    let rid = rec.restaurant && db.prepare('SELECT id FROM restaurants WHERE id = ?').pluck().get(rec.restaurant);
     if (!rid) rid = db.prepare('SELECT id FROM restaurants WHERE name = ?').pluck().get(TEST.restaurant.name);
     if (!rid) {
       const r = TEST.restaurant;

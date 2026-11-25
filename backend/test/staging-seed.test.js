@@ -55,6 +55,11 @@ test('never overwrites: a second run creates nothing new and an existing account
   assert.equal(s2.made.length, 0); assert.equal(read(sec).length, size, 'no new passwords written');
   assert.equal(db.prepare('SELECT COUNT(*) FROM restaurants WHERE name = ?').pluck().get(TEST.restaurant.name), 1, 'no duplicate restaurant');
   assert.match(read(sec), /NOT enabled for the staging test code/);
+  // an admin renames the test restaurant into a real one: the next start keeps it and creates no new test restaurant
+  db.prepare('UPDATE restaurants SET name = ? WHERE name = ?').run('Real Family Restaurant', TEST.restaurant.name);
+  const n = db.prepare('SELECT COUNT(*) FROM restaurants').pluck().get();
+  assert.equal(seedStagingTestAccounts(db, { secretsDir: sec, appEnv: 'staging' }).made.length, 0);
+  assert.equal(db.prepare('SELECT COUNT(*) FROM restaurants').pluck().get(), n, 'renamed restaurant kept, no second test restaurant');
 });
 
 test('remove deletes everything recorded (and nothing else); refused on production', () => {
