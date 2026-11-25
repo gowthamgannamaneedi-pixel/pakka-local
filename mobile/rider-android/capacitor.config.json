@@ -3,7 +3,7 @@
   "appName": "Pakka Rider (Staging)",
   "webDir": "www",
   "server": {
-    "url": "https://mediumpurple-barracuda-979163.hostingersite.com/rider/",
+    "url": "https://pakkalocal.online/rider/",
     "cleartext": false,
     "errorPath": "offline.html"
   },
