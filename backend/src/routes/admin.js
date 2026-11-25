@@ -9,6 +9,7 @@ import * as Pricing from '../services/distancePricing.js';
 import * as Routing from '../services/routing.js';
 import { perKmRate, allSettings, setSetting, SETTING_KEYS, adminCashout, balances, settleRefund, eligibleRiderCount, getSetting, iso, adminCancel, adminUnassign } from '../services/core.js';
 import { send, parse, wrap, wrapA, money } from './util.js';
+import { importMenu } from '../services/menuImport.js';
 import { newSecret, encrypt, decrypt, verifyTotp, otpauthUri } from '../totp.js';
 import { audienceUsers, campaignStats, processCampaigns } from '../services/push.js';
 import { saveUpload } from '../services/core.js';
@@ -138,6 +139,14 @@ export function adminRoutes(db) {
     next(); });
   mountMenu(am, db);
   r.use('/restaurants/:rid(\\d+)', am);
+  // Import menu: many dishes at once from a pasted list (Category, Dish, Price, Diet, Prep_min). check=true only counts.
+  r.post('/restaurants/:rid(\\d+)/menu-import', wrap((req, res) => {
+    const d = parse(z.object({ csv: z.string().max(200_000), check: z.boolean().optional() }), req, res); if (!d) return;
+    const rid = Number(req.params.rid); if (!db.prepare('SELECT 1 FROM restaurants WHERE id=?').get(rid)) return res.status(404).json({ error: 'Restaurant not found.' });
+    const out = importMenu(db, rid, d.csv, { dryRun: !!d.check });
+    if (!out.ok) return res.status(out.status).json({ error: out.error, errors: out.errors });
+    if (!d.check) audit(db, req, 'menu.import', 'restaurant', rid, { added: out.added, skipped: out.skipped, new_categories: out.new_categories.length });
+    res.json(out); }));
   // Coupons (Super Admin). Discount is paid by Pakka Local; payouts unaffected.
   r.get('/coupons', (req, res) => res.json({ coupons: Coupons.adminList(db), restaurants: db.prepare('SELECT id,name FROM restaurants ORDER BY name').all() }));
   r.post('/coupons', wrap((req, res) => { const out = Coupons.save(db, req.user, req.body || {}); if (out.ok) audit(db, req, 'coupon.create', 'coupon', out.id, { code: req.body?.code }); send(res, out, 201); }));

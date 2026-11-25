@@ -18,6 +18,13 @@
     ['rolls', 'Rolls', /\broll|wrap|shawarma|kathi|frankie/i], ['momos', 'Momos', /momo|dumpling/i], ['sweets', 'Sweets', /jamun|sweet|halwa|rasmalai|kheer|mithai|dessert/i], ['cakes', 'Cakes', /cake|brownie|pastr|bake/i],
     ['chai', 'Chai & Coffee', /chai|\btea\b|coffee|cafe/i], ['shakes', 'Shakes & Juice', /shake|cold coffee|juice|smoothie|lassi|beverage/i]];
   const catPic = (k) => `/assets/food/${k}.jpg`;
+  // a dish without its own photo: the closest photo of that kind of dish (most specific first), else its cuisine photo
+  const DISH = [['lollipop', /lollipop/i], ['biryani', /biry?ani|pulao|mandi|\bdum\b/i], ['fried_rice', /fried rice/i], ['curd_rice', /curd rice/i], ['jeera_rice', /jeera rice|plain rice|tomato rice|ghee rice|steamed rice/i],
+    ['paratha', /paratha|parotta/i], ['naan', /naan|roti|kulcha|chapat|phulka/i], ['chicken_fry', /chicken (fry|pakod|65)/i], ['chilli_chicken', /chilli chicken|chicken (manchuria|majestic|555)|pepper chicken|dragon chicken/i],
+    ['chicken_leg', /leg piece|drumstick|extra piece|kodi roast|tandoori chicken|roast chicken/i], ['omelette', /omelet|bhurji/i], ['boiled_egg', /boiled egg/i], ['pakoda', /pakod|pakora|bajji|bhaji/i], ['egg_curry', /\begg\b/i],
+    ['paneer_starter', /chilli paneer|paneer (65|majestic|555|manchuria)/i], ['paneer_curry', /paneer/i], ['mushroom', /mushroom/i], ['corn', /corn/i], ['dal', /\bdal\b|tadka/i], ['chicken_curry', /chicken/i],
+    ['curry', /masala|kadai|sabji|kurma|korma|curry/i]];
+  const dishKey = (name) => (DISH.find(([, re]) => re.test(name || '')) || [])[0];
   const catsOf = (txt) => CATS.filter(([, , re]) => re.test(txt)).map(([k]) => k);
   const textOf = (x) => [x.name, x.cuisine, x.description, x.dish_names].filter(Boolean).join(' | ');
   // a restaurant without its own photo shows a photo of its cuisine (labelled by the cuisine, never as their dish)
@@ -225,7 +232,7 @@
     for (let i = dn.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [dn[i], dn[j]] = [dn[j], dn[i]]; }
     S.words = dn.length ? dn.slice(0, 14) : all.map((x) => x.name).slice(0, 8);
     const ranked = [...open].sort((p, q) => (q.rating || 0) - (p.rating || 0)), menus = await menusFor(ranked.slice(0, 6).map((x) => x.id));
-    const dishes = []; for (let k = 0; k < 3; k++) for (const x of ranked.slice(0, 6)) { const i = (menus[x.id] || []).filter((d) => d.available)[k]; if (i) dishes.push({ i, x, src: i.image_path ? pubImg(i.image_path) : catPic(catsOf(i.name)[0] || catsOf(textOf(x))[0] || 'thali') }); }
+    const dishes = []; for (let k = 0; k < 3; k++) for (const x of ranked.slice(0, 6)) { const i = (menus[x.id] || []).filter((d) => d.available)[k]; if (i) dishes.push({ i, x, src: i.image_path ? pubImg(i.image_path) : catPic(dishKey(i.name) || catsOf(i.name)[0] || catsOf(textOf(x))[0] || 'thali') }); }
     const picks = [...open].sort((p, q) => (q.rating || 0) - (p.rating || 0) || (q.rating_count || 0) - (p.rating_count || 0)).slice(0, 10);
     // banners: only true statements (real free-delivery rules from restaurants, real features)
     const fd = open.filter((x) => x.free_delivery_above_paise).sort((p, q) => p.free_delivery_above_paise - q.free_delivery_above_paise)[0];
@@ -233,7 +240,7 @@
     const plates = [...new Set([...cats.map(([k]) => k), 'biryani', 'dosa', 'thali', 'momos', 'noodles'])].slice(0, 4).map(catPic);
     // photo slides: real dishes (with photos) from open kitchens, one per restaurant first, then more; plus real offers
     // any available dish of an open kitchen; its own photo, or the matching food photo when the restaurant has not uploaded one
-    const pool = []; for (let k = 0; k < 3; k++) for (const x of ranked.slice(0, 6)) { const i = (menus[x.id] || []).filter((d) => d.available)[k]; if (i) pool.push({ i, x, src: i.image_path ? pubImg(i.image_path) : catPic(catsOf(i.name)[0] || catsOf(textOf(x))[0] || 'thali') }); }
+    const pool = []; for (let k = 0; k < 3; k++) for (const x of ranked.slice(0, 6)) { const i = (menus[x.id] || []).filter((d) => d.available)[k]; if (i) pool.push({ i, x, src: i.image_path ? pubImg(i.image_path) : catPic(dishKey(i.name) || catsOf(i.name)[0] || catsOf(textOf(x))[0] || 'thali') }); }
     const used = new Set(), feat = [...pool.filter(({ x }) => !used.has(x.id) && used.add(x.id)), ...pool].filter((v, k, a) => a.indexOf(v) === k).slice(0, 4);
     const photoSlide = ({ i, x, src }, k) => `<button class="u-ban u-pban" data-act="sgo" data-path="/r/${x.id}" data-mq="${e(i.name)}" aria-label="${e(i.name)} from ${e(x.name)}">
         <img class="bg" src="${e(src)}" alt="" ${k ? 'loading="lazy"' : ''}><span class="shade"></span>
@@ -351,7 +358,7 @@
       ${groups.length > 1 ? `<button class="u-fab ${inThis ? 'up' : ''}" data-act="menu-sheet">${I('menu')} MENU</button>` : ''}
       ${inThis ? `<button class="u-cartbar" data-act="go" data-path="/cart"><span class="l"><b>${cartCount()} item${cartCount() > 1 ? 's' : ''} added</b><small>${rs(cartTotal())} · delivery charge shown in cart</small></span><span class="r">View cart ${I('chev')}</span></button>` : ''}`;
   }
-  const repPic = (i) => { const k = catsOf(i.name)[0]; return k ? catPic(k) : ''; };      // dish has no photo of its own: a photo of its kind, labelled as such
+  const repPic = (i) => { const k = dishKey(i.name) || catsOf(i.name)[0]; return k ? catPic(k) : ''; };      // dish has no photo of its own: a photo of its kind, labelled as such
   const noRiders = (c) => (c.ridersAvailable ? '' : `<div class="u-pill-note warn">${I('bike')}<span>${e(c.noRiderMessage)}</span></div>`);
   const filterMenu = () => { const q = (S.mq || '').trim().toLowerCase(); let n = 0; S.popId = null;
     document.querySelectorAll('.u-dishes').forEach((g) => { let k = 0; g.querySelectorAll('.u-dish').forEach((d) => { const ok = (!q || d.dataset.s.includes(q)) && (!S.veg || d.dataset.dt === 'veg'); d.classList.toggle('hide', !ok); k += ok; });
