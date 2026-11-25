@@ -902,3 +902,6 @@ body.has-ibar:has(#nav.hide):has(.u-cartbar,.u-paybar) .u-ibar{bottom:calc(88px 
 
 .u-allow{display:flex;align-items:center;gap:12px;margin:12px 0;padding:14px;border-radius:18px;background:linear-gradient(120deg,#fff1e6,#ffe3d1);border:1px solid #ffd2b5}
 .u-allow>svg{width:24px;height:24px;color:var(--brand);flex:none}.u-allow span{flex:1;min-width:0}.u-allow b{display:block;font:800 .95rem var(--head)}.u-allow small{font-size:.8rem;color:var(--u-sub)}
+
+.u-dsheet .rep{position:relative;display:block}
+.u-dsheet .rep i{position:absolute;left:10px;bottom:10px;font:600 .62rem var(--font);font-style:normal;color:#fff;background:rgba(17,19,24,.55);padding:2px 7px;border-radius:6px}
