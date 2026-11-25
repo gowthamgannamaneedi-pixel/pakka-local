@@ -316,6 +316,14 @@ export function adminRoutes(db) {
     if (!out.error) audit(db, req, 'support.reply', 'support_ticket', req.params.id, { closed: !!req.body?.close }); send(res, out); }));
   r.post('/support/:id(\\d+)/status', wrap((req, res) => { const out = Support.adminStatus(db, Number(req.params.id), req.body?.status);
     if (!out.error) audit(db, req, 'support.status', 'support_ticket', req.params.id, { status: req.body?.status }); send(res, out); }));
+  // admin sets a new password for a restaurant or rider login (forgotten password / locked out): unlocks it and signs out old sessions.
+  // Needs the admin's own password again. The new password is typed by the admin and never shown back or logged.
+  r.post('/users/:id(\\d+)/password', fresh, wrap((req, res) => {
+    const d = parse(z.object({ password: z.string().min(10, 'Use at least 10 characters.').max(128), reauth_password: z.any().optional(), reauth_totp: z.any().optional() }), req, res); if (!d) return;
+    const u = db.prepare('SELECT id, role FROM users WHERE id=?').get(req.params.id); if (!u) return res.status(404).json({ error: 'Account not found.' });
+    if (!['restaurant', 'rider'].includes(u.role)) return res.status(403).json({ error: 'Only restaurant and delivery-agent logins can be reset here.' });
+    db.prepare('UPDATE users SET password_hash=?, failed_logins=0, locked_until=NULL, token_version=token_version+1 WHERE id=?').run(bcrypt.hashSync(d.password, 12), u.id);
+    audit(db, req, 'user.password_reset', 'user', u.id, { role: u.role }); res.json({ ok: true }); }));
   r.post('/users/:id/active', wrap((req, res) => { const a = req.body?.active ? 1 : 0; if (Number(req.params.id) === req.user.id) return res.status(400).json({ error: 'You cannot deactivate your own account.' });
     db.prepare('UPDATE users SET active=?, token_version=token_version+1 WHERE id=?').run(a, req.params.id); audit(db, req, 'user.active', 'user', req.params.id, { active: a }); res.json({ ok: true }); }));
 
@@ -392,7 +400,7 @@ export function adminRoutes(db) {
     db.prepare('UPDATE users SET mfa_enabled=0, mfa_secret=NULL, mfa_last_step=0 WHERE id=?').run(req.user.id); audit(db, req, 'mfa.disable', 'user', req.user.id); res.json({ ok: true }); }));
 
   // settings & audit
-  r.get('/settings', (req, res) => res.json({ settings: allSettings(db) }));
+  r.get('/settings', (req, res) => res.json({ settings: allSettings(db), test_payments: !!config.sandboxPayments, app_env: config.appEnv }));
   r.put('/settings', wrap((req, res) => { const s = req.body?.settings || {};
     for (const [k, v] of Object.entries(s)) { if (!SETTING_KEYS.includes(k)) return res.status(400).json({ error: `Unknown setting ${k}.` });
       if (k === 'delivery_otp_mode' && !['fixed', 'per_order'].includes(v)) return res.status(400).json({ error: 'Invalid OTP mode.' });
@@ -403,6 +411,7 @@ export function adminRoutes(db) {
       if (k === 'gps_capture_timeout_sec' && !(/^\d{1,3}$/.test(String(v)) && +v >= 5 && +v <= 120)) return res.status(400).json({ error: 'GPS timeout must be 5 to 120 seconds.' });
       if (['rider_per_km_paise', 'rider_min_payout_paise'].includes(k) && v !== '' && !(/^\d{1,6}$/.test(String(v)) && +v <= 100000)) return res.status(400).json({ error: 'Rider pay must be ₹0 to ₹1,000, or empty.' });
       if (k === 'daily_notify_enabled' && !['0', '1'].includes(String(v))) return res.status(400).json({ error: 'daily_notify_enabled must be 0 or 1.' });
+      if (k === 'test_orders_everyone' && !['0', '1'].includes(String(v))) return res.status(400).json({ error: 'test_orders_everyone must be 0 or 1.' });
       if (k === 'fixed_place_fees' && !['0', '1'].includes(String(v))) return res.status(400).json({ error: 'fixed_place_fees must be 0 or 1.' });
       if (k === 'batch_radius_km' && !(/^\d{1,2}(\.\d{1,2})?$/.test(String(v)) && +v > 0 && +v <= 20)) return res.status(400).json({ error: 'Nearby distance must be more than 0 and at most 20 km.' });
       if (['gps_per_km_paise', 'gps_min_fee_paise'].includes(k) && v !== '' && !(/^\d{1,6}$/.test(String(v)) && +v >= 0 && +v <= 100000)) return res.status(400).json({ error: 'Charges must be ₹0 to ₹1,000, or empty.' });

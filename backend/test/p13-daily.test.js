@@ -41,3 +41,10 @@ test('order updates use plain words and the restaurant name', async () => {
   assert.ok(notes.some((x) => x.title === 'Order placed!' && x.body.includes('Test Kitchen')));
   assert.ok(notes.some((x) => x.title === 'Order accepted' && x.body.includes('Test Kitchen accepted your order')));
 });
+
+test('admin can switch test ordering for everyone on and off (0/1 only)', async () => {
+  assert.equal((await W.call('PUT', '/api/admin/settings', { settings: { test_orders_everyone: '1' } }, W.admin)).status, 200);
+  const g = await W.call('GET', '/api/admin/settings', null, W.admin); assert.equal(g.body.settings.test_orders_everyone, '1'); assert.equal(typeof g.body.test_payments, 'boolean');
+  assert.equal((await W.call('PUT', '/api/admin/settings', { settings: { test_orders_everyone: 'yes' } }, W.admin)).status, 400);
+  assert.equal((await W.call('PUT', '/api/admin/settings', { settings: { test_orders_everyone: '0' } }, W.admin)).status, 200);
+});

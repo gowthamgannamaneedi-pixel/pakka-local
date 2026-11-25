@@ -61,7 +61,8 @@ export function publicRoutes(db) {
 export function customerRoutes(db) {
   const r = Router(), auth = authenticate(db);
   r.use(auth, requireRole('customer'));
-  const sandboxTester = (req) => config.appEnv !== 'staging' || config.sandboxPhones.includes(req.user.phone);      // staging: allow-listed testers only
+  // staging: allow-listed testers, or every customer while admin has test ordering open to everyone (never on production: no test payments there)
+  const sandboxTester = (req) => config.appEnv !== 'staging' || getSetting(db, 'test_orders_everyone') === '1' || config.sandboxPhones.includes(req.user.phone);
   r.get('/me', (req, res) => res.json({ user: { id: req.user.id, name: req.user.name, phone: req.user.phone } }));
   // ---------- saved delivery addresses (own addresses only; every query is scoped to the signed-in customer) ----------
   const noStore = (req, res, next) => { res.set('Cache-Control', 'no-store, private'); next(); };

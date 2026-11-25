@@ -29,6 +29,7 @@ const DEFAULTS = { tax_bps: '0', gps_delivery_fee_paise: '4000', rider_payout_pa
   fixed_place_fees: '0',
   // one personalised notification a day for each customer ('0' switches it off)
   daily_notify_enabled: '1',
+  test_orders_everyone: '0',          // staging only: 1 = every signed-in customer may place test-payment orders, not just SANDBOX_PAYMENT_PHONES
   // Rider pay per delivery by distance (restaurant -> customer, every metre, rounded off to the rupee). Empty = same rate as the
   // GPS per-km charge; if that is empty too, the fixed rider_payout_paise applies. Optional minimum per delivery.
   rider_per_km_paise: '', rider_min_payout_paise: '',

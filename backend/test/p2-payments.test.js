@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
+import Database from 'better-sqlite3';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 let port = 18300;
@@ -61,5 +62,12 @@ test('staging: simulated payments only for allow-listed tester phones', async ()
     const tester = await login(s.base, '+919811111111');
     const o = await call(s.base, 'POST', '/api/customer/orders', { restaurant_id: 1, items: [{ id: 1, qty: 1 }], location_id: 1 }, tester);
     assert.notEqual(o.status, 503); assert.notEqual(o.status, 403);                                // gets past the payment gate (fails later only because this empty database has no restaurant)
+    // admin opens test ordering to everyone (team testing): the outsider can now order too; switching it off closes it again
+    const sw = (v) => { const d = new Database(s.db); d.prepare("INSERT INTO app_settings (key,value,updated_at) VALUES ('test_orders_everyone',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(v, new Date().toISOString()); d.close(); };
+    sw('1');
+    const open = await call(s.base, 'POST', '/api/customer/orders', { restaurant_id: 1, items: [{ id: 1, qty: 1 }], location_id: 1 }, outsider);
+    assert.notEqual(open.status, 403); assert.notEqual(open.status, 503);
+    sw('0');
+    assert.equal((await call(s.base, 'POST', '/api/customer/orders', { restaurant_id: 1, items: [{ id: 1, qty: 1 }], location_id: 1 }, outsider)).status, 403);
   } finally { s.stop(); }
 });
