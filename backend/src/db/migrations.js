@@ -741,5 +741,38 @@ CREATE TABLE support_messages (
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 CREATE INDEX idx_support_msg ON support_messages(ticket_id, id);`
+  },
+  {
+    // One mobile number may have one account of each kind (customer, restaurant login, delivery agent, admin):
+    // the number is unique per role instead of across all roles. Rebuilds the users table (SQLite cannot drop a
+    // UNIQUE column constraint); every row and id is kept, so all links to users stay as they are.
+    id: 'p14_001_phone_per_role',
+    noFk: true,
+    sql: `
+CREATE TABLE users_new (
+  id INTEGER PRIMARY KEY,
+  role TEXT NOT NULL CHECK (role IN ('customer','restaurant','rider','admin')),
+  phone TEXT NOT NULL,
+  email TEXT,
+  name TEXT NOT NULL,
+  password_hash TEXT,
+  active INTEGER NOT NULL DEFAULT 1,
+  token_version INTEGER NOT NULL DEFAULT 0,
+  failed_logins INTEGER NOT NULL DEFAULT 0,
+  locked_until TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  mfa_secret TEXT,
+  mfa_enabled INTEGER NOT NULL DEFAULT 0,
+  mfa_last_step INTEGER NOT NULL DEFAULT 0,
+  username TEXT COLLATE NOCASE,
+  UNIQUE (phone, role)
+);
+INSERT INTO users_new (id, role, phone, email, name, password_hash, active, token_version, failed_logins, locked_until, created_at, mfa_secret, mfa_enabled, mfa_last_step, username)
+  SELECT id, role, phone, email, name, password_hash, active, token_version, failed_logins, locked_until, created_at, mfa_secret, mfa_enabled, mfa_last_step, username FROM users;
+DROP TABLE users;
+ALTER TABLE users_new RENAME TO users;
+CREATE INDEX idx_users_role ON users(role);
+CREATE INDEX idx_users_phone ON users(phone);
+CREATE UNIQUE INDEX idx_users_username ON users(username) WHERE username IS NOT NULL;`
   }
 ];

@@ -33,7 +33,7 @@ export function authRoutes(db) {
     let id = p.data.username || p.data.phone || '';
     const asPhone = phoneSchema.safeParse(id.replace(/[\s-]/g, ''));
     let u;
-    if (asPhone.success) u = db.prepare('SELECT * FROM users WHERE phone = ?').get(normPhone(asPhone.data));
+    if (asPhone.success) u = db.prepare('SELECT * FROM users WHERE phone = ? AND role = ?').get(normPhone(asPhone.data), p.data.portal);      // the account of this portal's kind
     else if (p.data.portal === 'admin' && USERNAME_RE.test(id.toLowerCase())) u = db.prepare("SELECT * FROM users WHERE username = ? AND role = 'admin'").get(id.toLowerCase());
     else if (p.data.portal !== 'admin') return res.status(400).json({ error: 'Enter a valid mobile number' });
     const bad = () => res.status(401).json({ error: p.data.portal === 'admin' ? 'Incorrect username / mobile number or password.' : 'Incorrect mobile number or password.' });
@@ -75,7 +75,7 @@ export function authRoutes(db) {
     const ok = checkCode(db, p.data.phone, p.data.otp); if (otpSend(res, ok) !== null) return;
     const phone = ok.phone;
     const user = db.transaction(() => {
-      let u = db.prepare('SELECT * FROM users WHERE phone = ?').get(phone);
+      let u = db.prepare("SELECT * FROM users WHERE phone = ? AND role = 'customer'").get(phone);
       if (!u) {                                                  // new customer: one account per number; the app then asks "What should we call you?"
         const nm = p.data.name && nameSchema.safeParse(p.data.name).success ? p.data.name.trim() : null;
         const id = db.prepare("INSERT INTO users (role, phone, name) VALUES ('customer', ?, ?)").run(phone, nm || '').lastInsertRowid;
@@ -128,7 +128,7 @@ export function authRoutes(db) {
     if (!crypto.timingSafeEqual(Buffer.from(ch.otp_hash), Buffer.from(hashEmailOtp(email, p.data.otp)))) return fail();
     const user = db.transaction(() => {
       if (db.prepare('UPDATE email_otp_challenges SET used = 1 WHERE id = ? AND used = 0').run(ch.id).changes !== 1) return null;   // single use
-      let u = db.prepare('SELECT * FROM users WHERE phone = ?').get(phone);
+      let u = db.prepare("SELECT * FROM users WHERE phone = ? AND role = 'customer'").get(phone);
       if (!u) {
         const id = db.prepare("INSERT INTO users (role, phone, name) VALUES ('customer', ?, ?)").run(phone, p.data.name || 'Test customer').lastInsertRowid;
         db.prepare('INSERT INTO customers (user_id) VALUES (?)').run(id);

@@ -13,7 +13,7 @@ export function bootstrapAdmin(db, { phone, name, secretsDir }) {
   if (!secretsDir) throw new Error('BOOTSTRAP_ADMIN_PHONE needs SECRETS_DIR (where the first password is saved).');
   if (!/^\+91[6-9]\d{9}$/.test(phone)) throw new Error('BOOTSTRAP_ADMIN_PHONE must look like +91XXXXXXXXXX.');
   if (db.prepare("SELECT 1 FROM users WHERE role = 'admin' LIMIT 1").get()) return { created: false, reason: 'admin_exists' };
-  if (db.prepare('SELECT 1 FROM users WHERE phone = ?').get(phone)) throw new Error('BOOTSTRAP_ADMIN_PHONE is already used by another account.');
+  if (db.prepare("SELECT 1 FROM users WHERE phone = ? AND role = 'admin'").get(phone)) throw new Error('BOOTSTRAP_ADMIN_PHONE is already used by another account.');
   const pw = crypto.randomBytes(18).toString('base64url');                 // 24 characters, ~144 bits
   fs.mkdirSync(secretsDir, { recursive: true, mode: 0o700 });
   const file = path.join(secretsDir, FIRST_LOGIN_FILE);

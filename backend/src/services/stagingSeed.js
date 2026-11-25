@@ -26,9 +26,9 @@ export function seedStagingTestAccounts(db, { secretsDir, appEnv, testOtp, publi
   if (!secretsDir) throw new Error('STAGING_TEST_ACCOUNTS needs SECRETS_DIR (where the generated passwords are saved).');
   fs.mkdirSync(secretsDir, { recursive: true, mode: 0o700 });
   const rec = readData(secretsDir), made = [], skipped = [], lines = [];
-  const userByPhone = (p) => db.prepare('SELECT id, role FROM users WHERE phone = ?').get(p);
+  const userByPhone = (p, role) => db.prepare('SELECT id, role FROM users WHERE phone = ? AND role = ?').get(p, role);
   const newUser = (role, t, withPw) => {
-    const ex = userByPhone(t.phone);
+    const ex = userByPhone(t.phone, role);
     if (ex) { skipped.push(`${t.phone} already used (${ex.role}); left unchanged`); return { id: ex.id, existed: true, role: ex.role }; }
     const p = withPw ? pw() : null;
     const id = db.prepare('INSERT INTO users (role, phone, name, password_hash) VALUES (?,?,?,?)').run(role, t.phone, t.name, p ? bcrypt.hashSync(p, 12) : null).lastInsertRowid;

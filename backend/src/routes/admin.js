@@ -45,7 +45,7 @@ export function adminRoutes(db) {
     const d = parse(z.object({ role: z.enum(['restaurant', 'rider', 'admin']), name: z.string().trim().min(1).max(80), phone: z.string().trim().regex(/^\+[1-9]\d{9,14}$/, 'Use international format, e.g. +919876543210'),
       password: z.string().min(10).max(128), restaurant_id: z.number().int().positive().optional(), approve_now: z.any().optional() }), req, res); if (!d) return;
     if (d.role === 'restaurant' && !db.prepare('SELECT 1 FROM restaurants WHERE id = ?').get(d.restaurant_id)) return res.status(400).json({ error: 'A valid restaurant_id is required for restaurant accounts.' });
-    if (db.prepare('SELECT 1 FROM users WHERE phone = ?').get(d.phone)) return res.status(409).json({ error: 'That mobile number is already registered.' });
+    if (db.prepare('SELECT 1 FROM users WHERE phone = ? AND role = ?').get(d.phone, d.role)) return res.status(409).json({ error: `That mobile number already has a ${{ restaurant: 'restaurant login', rider: 'delivery-agent account', admin: 'admin account' }[d.role]}.` });      // the same number may also be a customer or another kind of account
     const id = db.transaction(() => {
       const uid = db.prepare('INSERT INTO users (role, phone, name, password_hash) VALUES (?,?,?,?)').run(d.role, d.phone, d.name, bcrypt.hashSync(d.password, 12)).lastInsertRowid;
       if (d.role === 'restaurant') db.prepare('INSERT INTO restaurant_users VALUES (?,?)').run(uid, d.restaurant_id);
@@ -294,7 +294,7 @@ export function adminRoutes(db) {
     const d = parse(z.object({ name: z.string().trim().min(1).max(80), phone: z.string().trim().regex(/^\+[1-9]\d{9,14}$/, 'Use international format, e.g. +919876543210') }).strict(), req, res); if (!d) return;
     const u = db.prepare('SELECT id, role, name, phone FROM users WHERE id=?').get(req.params.id); if (!u) return res.status(404).json({ error: 'Account not found.' });
     if (u.role === 'admin' && u.id !== req.user.id) return res.status(403).json({ error: 'Other admin accounts can only be changed by that admin.' });
-    if (d.phone !== u.phone && db.prepare('SELECT 1 FROM users WHERE phone=? AND id<>?').get(d.phone, u.id)) return res.status(409).json({ error: 'That mobile number is already registered to another account.' });
+    if (d.phone !== u.phone && db.prepare('SELECT 1 FROM users WHERE phone=? AND role=? AND id<>?').get(d.phone, u.role, u.id)) return res.status(409).json({ error: 'That mobile number is already registered to another account.' });
     db.prepare(`UPDATE users SET name=?, phone=?${d.phone !== u.phone ? ', token_version=token_version+1' : ''} WHERE id=?`).run(d.name, d.phone, u.id);
     audit(db, req, 'user.update', 'user', u.id, { role: u.role, changed: { ...(d.name !== u.name && { name: { from: u.name, to: d.name } }), ...(d.phone !== u.phone && { phone: { from: u.phone, to: d.phone } }) } });
     res.json({ ok: true }); }));

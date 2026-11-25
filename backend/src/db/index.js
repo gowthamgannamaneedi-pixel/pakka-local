@@ -18,10 +18,16 @@ export function migrate(db) {
   const done = new Set(db.prepare('SELECT id FROM schema_migrations').pluck().all());
   for (const m of migrations) {
     if (done.has(m.id)) continue;
-    db.transaction(() => {
-      db.exec(m.sql);
-      db.prepare('INSERT INTO schema_migrations VALUES (?, ?)').run(m.id, new Date().toISOString());
-    })();
+    // table rebuilds: foreign keys are paused (they cannot be switched inside a transaction) and checked afterwards
+    const fk = m.noFk && db.pragma('foreign_keys', { simple: true });
+    if (fk) db.pragma('foreign_keys = OFF');
+    try {
+      db.transaction(() => {
+        db.exec(m.sql);
+        if (m.noFk && db.pragma('foreign_key_check').length) throw new Error(`Migration ${m.id} broke a foreign key link.`);
+        db.prepare('INSERT INTO schema_migrations VALUES (?, ?)').run(m.id, new Date().toISOString());
+      })();
+    } finally { if (fk) db.pragma('foreign_keys = ON'); }
   }
 }
 

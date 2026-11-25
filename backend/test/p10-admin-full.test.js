@@ -47,7 +47,8 @@ test('admin can accept / prepare / ready / reject for a restaurant; same rules, 
 test('admin edits a customer\'s / rider\'s name and mobile, blocks and unblocks; mobile change signs them out; audited', async () => {
   const before = W.db.prepare('SELECT token_version FROM users WHERE id=?').pluck().get(W.custId);
   assert.equal((await W.call('PUT', `/api/admin/users/${W.custId}`, { name: 'Asha K', phone: '9876' }, W.admin)).status, 400, 'format checked');
-  assert.equal((await W.call('PUT', `/api/admin/users/${W.custId}`, { name: 'Asha K', phone: W.ph(201) }, W.admin)).status, 409, 'number already used');
+  await W.customer(W.ph(390), 'Other customer');
+  assert.equal((await W.call('PUT', `/api/admin/users/${W.custId}`, { name: 'Asha K', phone: W.ph(390) }, W.admin)).status, 409, 'number already used by another customer');
   assert.equal((await W.call('PUT', `/api/admin/users/${W.custId}`, { name: 'Asha K', phone: W.ph(301) }, W.admin)).status, 200, 'name only');
   assert.equal(W.db.prepare('SELECT token_version FROM users WHERE id=?').pluck().get(W.custId), before, 'name change keeps them signed in');
   assert.equal((await W.call('PUT', `/api/admin/users/${W.custId}`, { name: 'Asha K', phone: W.ph(399) }, W.admin)).status, 200);

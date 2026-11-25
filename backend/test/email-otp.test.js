@@ -73,7 +73,9 @@ test('right code signs in as the mapped customer once; reuse and expiry fail', a
 test('an allow-list entry pointing at a staff phone can never open a staff account', async () => {
   db.prepare("INSERT INTO users (role, phone, name, password_hash) VALUES ('admin', '+919700000088', 'Admin', 'x')").run();
   assert.equal((await req('staff@example.com')).status, 200);
-  assert.equal((await ver('staff@example.com', lastCode('staff@example.com'))).status, 401);
+  const r = await ver('staff@example.com', lastCode('staff@example.com'));      // only ever a customer account for that number, never the staff one
+  assert.ok(r.status === 401 || r.body.user?.role === 'customer', JSON.stringify(r.body));
+  assert.equal(db.prepare("SELECT COUNT(*) FROM users WHERE phone='+919700000088' AND role='admin'").pluck().get(), 1);
 });
 
 test('staff password login and phone OTP routes are unchanged', async () => {
