@@ -65,7 +65,7 @@ export function createApp(db) {
     if (!config.isTest && !fs.existsSync(path.join(root, 'vendor/leaflet/leaflet.js'))) console.warn('Map library missing: run scripts/vendor-leaflet.sh before deploying. Tracking works, but maps show a notice instead.');
     if (config.isProd && !config.map.tileUrl) console.warn('MAP_TILE_URL is not set: tracking pages will show status without a map.');
     app.use(express.static(root, { index: false, setHeaders: (res, f) => { if (f.endsWith('sw.js')) res.set('Cache-Control', 'no-cache'); } }));
-    app.get('/', (req, res) => res.redirect('/user/'));
+    app.get('/', (req, res) => res.redirect(301, '/user/'));      // permanent: search engines treat /user/ as the home page
     for (const p of ['user', 'restaurant', 'rider', 'admin']) app.get([`/${p}`, `/${p}/*`], (req, res, next) => /\.\w+$/.test(req.path) ? next() : res.sendFile(path.join(root, p, 'index.html')));
   }
   // eslint-disable-next-line no-unused-vars

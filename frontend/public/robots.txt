@@ -1,0 +1,8 @@
+# Pakka Local - search engines may index the customer app only
+User-agent: *
+Allow: /user/
+Disallow: /admin/
+Disallow: /restaurant/
+Disallow: /rider/
+Disallow: /api/
+Sitemap: https://pakkalocal.online/sitemap.xml
