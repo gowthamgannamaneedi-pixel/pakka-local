@@ -41,7 +41,8 @@ export function adminRoutes(db) {
   r.get('/ping', (req, res) => res.json({ ok: true }));
   const one = (sql, ...a) => db.prepare(sql).pluck().get(...a) || 0;
 
-  r.post('/users', wrap((req, res) => {
+  const freshForAdmin = (req, res, next) => (req.body?.role === 'admin' ? fresh(req, res, next) : next());
+  r.post('/users', freshForAdmin, wrap((req, res) => {
     const d = parse(z.object({ role: z.enum(['restaurant', 'rider', 'admin']), name: z.string().trim().min(1).max(80), phone: z.string().trim().regex(/^\+[1-9]\d{9,14}$/, 'Use international format, e.g. +919876543210'),
       password: z.string().min(10).max(128), restaurant_id: z.number().int().positive().optional(), approve_now: z.any().optional() }), req, res); if (!d) return;
     if (d.role === 'restaurant' && !db.prepare('SELECT 1 FROM restaurants WHERE id = ?').get(d.restaurant_id)) return res.status(400).json({ error: 'A valid restaurant_id is required for restaurant accounts.' });
@@ -325,7 +326,8 @@ export function adminRoutes(db) {
     if (!['restaurant', 'rider'].includes(u.role)) return res.status(403).json({ error: 'Only restaurant and delivery-agent logins can be reset here.' });
     db.prepare('UPDATE users SET password_hash=?, failed_logins=0, locked_until=NULL, token_version=token_version+1 WHERE id=?').run(bcrypt.hashSync(d.password, 12), u.id);
     audit(db, req, 'user.password_reset', 'user', u.id, { role: u.role }); res.json({ ok: true }); }));
-  r.post('/users/:id/active', wrap((req, res) => { const a = req.body?.active ? 1 : 0; if (Number(req.params.id) === req.user.id) return res.status(400).json({ error: 'You cannot deactivate your own account.' });
+  const freshIfAdminTarget = (req, res, next) => (db.prepare('SELECT role FROM users WHERE id=?').pluck().get(req.params.id) === 'admin' ? fresh(req, res, next) : next());
+  r.post('/users/:id/active', freshIfAdminTarget, wrap((req, res) => { const a = req.body?.active ? 1 : 0; if (Number(req.params.id) === req.user.id) return res.status(400).json({ error: 'You cannot deactivate your own account.' });
     db.prepare('UPDATE users SET active=?, token_version=token_version+1 WHERE id=?').run(a, req.params.id); audit(db, req, 'user.active', 'user', req.params.id, { active: a }); res.json({ ok: true }); }));
 
   // cashouts
@@ -425,6 +427,22 @@ export function adminRoutes(db) {
     for (const [k, v] of Object.entries(s)) setSetting(db, k, v);
     if (Object.keys(changed).length) audit(db, req, changed.gps_delivery_fee_paise || changed.gps_per_km_paise || changed.gps_min_fee_paise || changed.gps_max_km ? 'settings.gps_fee_change' : 'settings.update', 'settings', null, { changed });      // exact old -> new values
     res.json({ ok: true, changed }); }));
-  r.get('/audit', (req, res) => res.json({ logs: db.prepare('SELECT a.action,a.target_type,a.target_id,a.actor_role,a.created_at,u.name AS actor FROM audit_logs a LEFT JOIN users u ON u.id=a.actor_user_id ORDER BY a.id DESC LIMIT 100').all() }));
+  // Admin team: every admin login with how much they have done and when they last acted (from the audit log)
+  r.get('/admins', (req, res) => res.json({ me: req.user.id, admins: db.prepare(`SELECT u.id,u.name,u.phone,u.username,u.active,u.mfa_enabled,u.created_at,
+      (SELECT COUNT(*) FROM audit_logs a WHERE a.actor_user_id=u.id) AS actions, (SELECT MAX(a.created_at) FROM audit_logs a WHERE a.actor_user_id=u.id) AS last_action
+      FROM users u WHERE u.role='admin' ORDER BY u.id`).all() }));
+  // Audit log: who did what, on whom. ?actor=<admin id> for one admin, ?kind=decisions for approvals / rejections / cancellations / refunds / payouts.
+  const DECISION = "(a.action LIKE '%approve%' OR a.action LIKE '%reject%' OR a.action LIKE '%suspend%' OR a.action LIKE '%corrections%' OR a.action LIKE '%cancel%' OR a.action LIKE 'refund%' OR a.action LIKE 'cashout%' OR a.action LIKE 'user.active%' OR a.action LIKE 'user.password_reset%' OR a.action LIKE 'order.restaurant_%')";
+  r.get('/audit', (req, res) => {
+    const actor = /^\d+$/.test(String(req.query.actor || '')) ? Number(req.query.actor) : null, dec = req.query.kind === 'decisions', lim = Math.min(Number(req.query.limit) || 200, 500);
+    const logs = db.prepare(`SELECT a.id,a.action,a.target_type,a.target_id,a.actor_role,a.metadata,a.created_at,u.name AS actor,u.phone AS actor_phone,
+        CASE a.target_type WHEN 'rider' THEN (SELECT name FROM users WHERE id=a.target_id) WHEN 'user' THEN (SELECT name || ' (' || role || ')' FROM users WHERE id=a.target_id)
+          WHEN 'restaurant' THEN (SELECT name FROM restaurants WHERE id=a.target_id) WHEN 'order' THEN (SELECT order_code FROM orders WHERE id=a.target_id)
+          WHEN 'refund' THEN (SELECT o.order_code FROM refunds f JOIN orders o ON o.id=f.order_id WHERE f.id=a.target_id)
+          WHEN 'cashout' THEN (SELECT c.account_type || ' payout ₹' || (c.amount_paise / 100) FROM cashout_requests c WHERE c.id=a.target_id) ELSE NULL END AS target_name
+      FROM audit_logs a LEFT JOIN users u ON u.id=a.actor_user_id WHERE (? IS NULL OR a.actor_user_id=?) ${dec ? 'AND ' + DECISION : ''} ORDER BY a.id DESC LIMIT ?`).all(actor, actor, lim)
+      .map((l) => { let m = null; try { m = l.metadata ? JSON.parse(l.metadata) : null; } catch { m = null; } return { ...l, metadata: undefined, note: m?.note || m?.reason || null, order_code: m?.order_code || null }; });
+    res.json({ logs });
+  });
   return r;
 }
