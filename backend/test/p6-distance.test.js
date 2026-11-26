@@ -91,7 +91,7 @@ test('listed places and GPS addresses are both priced by road distance from THIS
 
 test('minimum charge applies when set', async () => {
   await call('PUT', '/api/admin/distance-pricing', { min_fee_paise: 1200 }, S.admin);
-  DIST.set('17.003000', 300); const mid = await addr(17.003), q = (await quote(mid)).body; assert.equal(q.delivery_paise, 1200); assert.match(q.delivery_band, /minimum ₹12/); await call('DELETE', `/api/customer/addresses/${mid}`, null, S.c);
+  DIST.set('17.003000', 300); const mid = await addr(17.003), q = (await quote(mid)).body; assert.equal(q.delivery_paise, 1200); assert.equal(q.delivery_band, undefined); await call('DELETE', `/api/customer/addresses/${mid}`, null, S.c);
   await call('PUT', '/api/admin/distance-pricing', { min_fee_paise: null }, S.admin);
 });
 

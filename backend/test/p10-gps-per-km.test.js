@@ -25,7 +25,7 @@ test('₹10 per km: charged on the exact distance, every metre counted, rounded 
     assert.equal(q.delivery_pricing, 'gps_per_km');
     assert.equal(q.delivery_paise, Math.max(1000, Math.round(m / 100) * 100), `${m} m at ₹10/km (first km ₹10) -> ₹${Math.max(10, Math.round(m / 100))}`);
     assert.equal(q.delivery_paise % 100, 0, 'whole rupees only');
-    assert.match(q.delivery_band, /km × ₹10\/km \(straight distance\)/);
+    assert.equal(q.delivery_band, undefined, 'the rate is not sent to customers');
   }
   // about 5 km -> about ₹50 (not a band, not a fixed value)
   const five = { lat: R.lat + 5000 / 111195, lng: R.lng }, q5 = (await quote(await gpsAddr(five.lat, five.lng))).body;

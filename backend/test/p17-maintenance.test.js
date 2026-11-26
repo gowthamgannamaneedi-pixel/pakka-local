@@ -28,3 +28,12 @@ test('empty message uses the default; off again restores ordering; bad values re
   assert.equal((await W.call('GET', '/api/public/config')).body.maintenance, null);
   assert.equal((await W.call('POST', '/api/customer/orders', W.cart(), W.cust)).status, 201);
 });
+
+test('markup is admin-only: no customer response carries it', async () => {
+  const menu = JSON.stringify((await W.call('GET', `/api/public/restaurants/${W.rest}/menu`)).body);
+  assert.ok(!/markup|restaurant_price|base_price/.test(menu), 'menu');
+  const q = (await W.call('POST', '/api/customer/quote', W.cart(), W.cust)).body; assert.ok(!/markup|items_base|delivery_band/.test(JSON.stringify(q)), 'quote'); assert.ok(q.items_paise > 0);
+  const o = await W.paidOrder(); const d = (await W.call('GET', `/api/customer/orders/${o.order_code}`, null, W.cust)).body;
+  assert.ok(!/markup|items_base|delivery_band|restaurant_payout|commission/.test(JSON.stringify(d)), 'order');
+  const admin = (await W.call('GET', `/api/admin/orders/search/${o.order_code}`, null, W.admin)).body; assert.ok('markup_paise' in admin.order, 'admin still sees it');
+});

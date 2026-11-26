@@ -23,7 +23,7 @@ const cartSchema = z.object({ restaurant_id: z.number().int(), items: z.array(z.
   confirm_destination: z.boolean().optional(), instructions: z.string().max(300).optional(), coupon: z.string().max(30).optional() });   // unknown fields (e.g. a client-sent total) are ignored; prices come from the server
 const qIn = (d, address, route) => ({ restaurantId: d.restaurant_id, items: d.items, address, instructions: d.instructions, route, coupon: d.coupon || null });
 const breakdown = (q) => ({ delivery_type: q.feeSource, delivery_location: q.dest.locationName, delivery_fee_before_offers_paise: q.baseDeliveryFee,
-  delivery_pricing: q.pricing, delivery_distance_km: q.distanceM == null ? null : Math.round(q.distanceM / 10) / 100, delivery_band: q.band, delivery_fallback: q.pricing === 'distance_fallback', items_base_paise: q.base, markup_paise: q.markup, delivery_paise: q.delivery, surge_paise: q.surge, tax_paise: q.tax, discount_paise: q.discount, coupon_code: q.coupon?.code ?? null, coupon_error: q.couponError, total_paise: q.total, prep_min: q.prepMin, delivery_min: q.deliveryMin, trip_km: q.trip?.km ?? null, trip_by_road: q.trip?.byRoad ?? null,
+  delivery_pricing: q.pricing, delivery_distance_km: q.distanceM == null ? null : Math.round(q.distanceM / 10) / 100, delivery_fallback: q.pricing === 'distance_fallback', items_paise: q.base + q.markup, delivery_paise: q.delivery, surge_paise: q.surge, tax_paise: q.tax, discount_paise: q.discount, coupon_code: q.coupon?.code ?? null, coupon_error: q.couponError, total_paise: q.total, prep_min: q.prepMin, delivery_min: q.deliveryMin, trip_km: q.trip?.km ?? null, trip_by_road: q.trip?.byRoad ?? null,
   lines: q.lines.map(l => ({ name: l.name, qty: l.qty, price_paise: l.price })) });
 
 // maintenance mode (admin setting): customers cannot quote or place new orders; tracking, support and the other portals keep working
@@ -54,7 +54,7 @@ export function publicRoutes(db) {
     if (!rest) return res.status(404).json({ error: 'Restaurant not found.' });
     Object.assign(rest, openInfo(rest.id));
     const items = db.prepare('SELECT id,name,description,image_path,base_price_paise,prep_time_min,available,category_id,diet FROM food_items WHERE restaurant_id=? AND deleted=0 AND NOT (available=0 AND image_path IS NULL) ORDER BY name').all(rest.id)
-      .map(i => ({ ...i, restaurant_price_paise: i.base_price_paise, price_paise: i.base_price_paise + rest.markup_paise, base_price_paise: undefined }));
+      .map(i => ({ ...i, price_paise: i.base_price_paise + rest.markup_paise, base_price_paise: undefined }));      // customers see menu prices only (markup is admin-only)
     const categories = db.prepare('SELECT id,name FROM food_categories WHERE restaurant_id=? ORDER BY sort_order, name').all(rest.id);
     res.json({ restaurant: { ...rest, markup_paise: undefined }, items, categories });
   });
@@ -123,7 +123,7 @@ export function customerRoutes(db) {
     const out = { order_code: o.order_code, status: o.status, restaurant: o.restaurant_name, restaurant_image: o.restaurant_image, dest_text: o.dest_text, instructions: o.instructions, eta_at: o.eta_at, created_at: o.created_at,
       destination: { kind: o.dest_kind, location_name: o.dest_location_name, coord_source: o.dest_coord_source, label: o.dest_label, place_name: o.dest_place_name, building: o.dest_building, block: o.dest_block, floor: o.dest_floor, room: o.dest_room, entrance: o.dest_entrance, landmark: o.dest_landmark,
         lat: o.dest_lat, lng: o.dest_lng, accuracy_m: o.dest_accuracy_m, captured_at: o.dest_captured_at },          // the customer's own order only
-      items_base_paise: o.items_base_paise, markup_paise: o.markup_paise, delivery_paise: o.delivery_paise, surge_paise: o.surge_paise, tax_paise: o.tax_paise, discount_paise: o.discount_paise, coupon_code: o.coupon_code, total_paise: o.total_paise, rejection_reason: o.rejection_reason };
+      items_paise: o.items_base_paise + o.markup_paise, delivery_paise: o.delivery_paise, surge_paise: o.surge_paise, tax_paise: o.tax_paise, discount_paise: o.discount_paise, coupon_code: o.coupon_code, total_paise: o.total_paise, rejection_reason: o.rejection_reason };
     out.items = db.prepare('SELECT name,qty,customer_price_paise AS price_paise FROM order_items WHERE order_id=?').all(o.id);
     out.events = db.prepare("SELECT event_type,created_at FROM order_events WHERE order_id=? AND event_type IN ('PAYMENT_SUCCESS','RESTAURANT_ACCEPTED','PREPARING_STARTED','FOOD_READY','PICKED_UP','DELIVERED','RESTAURANT_REJECTED','RIDER_ACCEPTED') ORDER BY id").all(o.id);
     out.payment = db.prepare('SELECT status FROM payments WHERE order_id=?').pluck().get(o.id);

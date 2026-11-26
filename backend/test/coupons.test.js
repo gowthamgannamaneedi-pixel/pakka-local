@@ -22,7 +22,7 @@ test('quote: discount applied by the server, capped, min order enforced, bad cod
   await mk({ code: 'BIG', discount_type: 'flat', value: 5000, min_order_paise: 100000 });
   const plain = (await W.call('POST', '/api/customer/quote', W.cart(), W.cust)).body;
   const ten = (await W.call('POST', '/api/customer/quote', W.cart({ coupon: 'ten' }), W.cust)).body;
-  assert.equal(ten.discount_paise, Math.floor((plain.items_base_paise + plain.markup_paise) * 0.1));
+  assert.equal(ten.discount_paise, Math.floor(plain.items_paise * 0.1));
   assert.equal(ten.total_paise, plain.total_paise - ten.discount_paise);
   assert.equal((await W.call('POST', '/api/customer/quote', W.cart({ coupon: 'CAP' }), W.cust)).body.discount_paise, 3000);
   const big = (await W.call('POST', '/api/customer/quote', W.cart({ coupon: 'BIG' }), W.cust)).body;
@@ -34,7 +34,7 @@ test('quote: discount applied by the server, capped, min order enforced, bad cod
 test('Pakka Local pays: payment amount is discounted, restaurant and rider payouts are not', async () => {
   const plain = (await W.call('POST', '/api/customer/quote', W.cart(), W.cust)).body;
   const o = await W.paidOrder({ coupon: 'TEN' });
-  assert.equal(o.discount_paise, Math.floor((plain.items_base_paise + plain.markup_paise) * 0.1)); assert.equal(o.coupon_code, 'TEN');
+  assert.equal(o.discount_paise, Math.floor(plain.items_paise * 0.1)); assert.equal(o.coupon_code, 'TEN');
   assert.equal(o.total_paise, plain.total_paise - o.discount_paise);
   assert.equal(W.db.prepare('SELECT amount_paise FROM payments WHERE order_id=?').pluck().get(o.id), o.total_paise);
   const ref = W.db.prepare("SELECT restaurant_payout_paise, rider_payout_paise FROM orders WHERE coupon_code IS NULL ORDER BY id DESC LIMIT 1").get();

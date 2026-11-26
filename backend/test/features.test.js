@@ -41,7 +41,7 @@ test('menu shows restaurant base price AND final price; categories group items; 
   assert.equal((await call('PUT', `/api/restaurant/menu/${S.item}`, { name: 'Biryani', category_id: other.body.id }, S.rt0)).status, 400);      // another restaurant's category
   assert.equal((await call('DELETE', `/api/restaurant/categories/${c.body.id}`, null, S.rt1)).status, 404);
   const m = (await call('GET', `/api/public/restaurants/${S.r0}/menu`)).body; const i = m.items.find((x) => x.id === S.item);
-  assert.deepEqual([i.restaurant_price_paise, i.price_paise, i.category_id], [14000, 16000, c.body.id]); assert.equal(m.categories[0].name, 'Mains');
+  assert.deepEqual([i.restaurant_price_paise, i.price_paise, i.category_id], [undefined, 16000, c.body.id], 'customers never see the restaurant price'); assert.equal(m.categories[0].name, 'Mains');
   const r = (await call('GET', '/api/public/restaurants')).body.restaurants.find((x) => x.id === S.r0); assert.equal(r.eta_min, 12 + 5 + 8 + 12);   // avg prep + buffer + rider travel + delivery
 });
 

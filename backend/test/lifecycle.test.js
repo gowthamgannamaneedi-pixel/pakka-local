@@ -69,7 +69,7 @@ test('Test 2: no online rider -> exact message and order blocked server-side', a
 test('Test 1: server prices the order; frontend cannot set amounts; payment releases it to restaurant', async () => {
   await call('POST', '/api/rider/online', { online: true }, S.r1); await call('POST', '/api/rider/online', { online: true }, S.r2);
   const q = await call('POST', '/api/customer/quote', cart({ total_paise: 1 }), S.cust);
-  assert.deepEqual([q.body.items_base_paise, q.body.markup_paise, q.body.delivery_paise, q.body.total_paise], [14000, 2000, 4000, 20000]);
+  assert.deepEqual([q.body.items_paise, q.body.markup_paise, q.body.items_base_paise, q.body.delivery_paise, q.body.total_paise], [16000, undefined, undefined, 4000, 20000], 'one item total; markup hidden');
   const o = await call('POST', '/api/customer/orders', cart(), S.cust);
   assert.equal(o.status, 201); assert.match(o.body.order_code, /^PL\d{8}[A-Z0-9]{6}$/); S.code = o.body.order_code;
   assert.equal((await call('GET', '/api/restaurant/orders', null, S.rt0)).body.orders.length, 0);     // unpaid orders are invisible to the restaurant
