@@ -62,5 +62,7 @@
     <!-- floating side icon over other apps (rider grants it in settings; optional) -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- in-app update: lets the rider install a new Pakka Rider version downloaded from pakkalocal.online (Android asks to confirm) -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 </manifest>

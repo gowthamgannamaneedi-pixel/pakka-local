@@ -6,6 +6,36 @@
   // In a normal browser there is no native side and nothing happens.
   const RN = () => (window.Capacitor?.isNativePlatform?.() && window.Capacitor.Plugins?.RiderNative) || null;
   let nsig = '';
+  // ---------- in-app update (Pakka Rider APK) ----------
+  // On every app start the app compares its own version with /rider-app/latest.json. If a newer APK is there it offers
+  // "Download update": the app downloads it and Android shows its normal "Update" screen (no uninstall, sign-in kept).
+  // required: true in latest.json hides "Later" so the rider must update before continuing.
+  const upd = { busy: false, shown: false };
+  const updBox = (L, cur) => `<div class="cf upd"><span class="cf-ic" style="background:none"><img src="/assets/icon-192.png" alt="" width="56" height="56" style="border-radius:14px"></span>
+      <h3>${L.required ? 'Update required' : 'Update available'}</h3><p class="small mute">Pakka Rider ${e(L.versionName)} is ready (you have ${e(cur.versionName || 'an older version')}).${L.required ? ' Please update to continue.' : ''}</p>
+      ${L.notes?.length ? `<ul class="upd-notes">${L.notes.map((n) => `<li>${e(n)}</li>`).join('')}</ul>` : ''}
+      <div class="upd-bar hide" id="upd-bar"><i id="upd-fill"></i></div><p class="small mute hide" id="upd-msg"></p></div>
+    <button class="btn block lg mt" id="upd-go" data-act="upd-go">${PL.icon('refresh')} Download update</button>${L.required ? '' : '<button class="btn ghost block mt2" data-act="close-modal">Later</button>'}
+    <p class="small mute mt2" style="text-align:center">Android will ask you to confirm <b>Update</b>. You stay signed in.</p>`;
+  const checkUpdate = async () => {
+    const rn = RN(); if (!rn || upd.shown) return;
+    let cur; try { cur = await rn.appInfo(); } catch { return; }      // older app without the updater
+    let L; try { L = await (await fetch('/rider-app/latest.json', { cache: 'no-store' })).json(); } catch { return; }
+    if (!L?.versionCode || !L.url || !(L.versionCode > (cur.versionCode || 0))) return;
+    upd.shown = true; upd.L = L;
+    const open = () => PL.modal(updBox(L, cur), { cls: 'upd-ov', onClose: () => { if (L.required) setTimeout(open, 300); else upd.shown = false; } });
+    open();
+  };
+  PL.actions['upd-go'] = async () => { const rn = RN(); if (!rn || upd.busy) return; upd.busy = true;
+    const go = PL.$('#upd-go'), bar = PL.$('#upd-bar'), fill = PL.$('#upd-fill'), msg = PL.$('#upd-msg');
+    if (go) { go.disabled = true; go.textContent = 'Downloading…'; } bar?.classList.remove('hide'); msg?.classList.add('hide');
+    const h = await rn.addListener('updateProgress', (d) => { if (fill && d.pct >= 0) fill.style.width = d.pct + '%'; if (go && d.pct >= 0) go.textContent = `Downloading… ${d.pct}%`; });
+    try { await rn.installUpdate({ url: new URL(upd.L.url, location.origin).href }); if (go) go.innerHTML = `${PL.icon('check')} Tap “Update” on the Android screen`; }
+    catch (x) { const need = x?.code === 'NEED_PERMISSION'; if (msg) { msg.textContent = need ? 'Turn on “Allow from this source” for Pakka Rider, come back, then tap Download update again.' : (x?.message || 'Download failed. Check your internet and try again.'); msg.classList.remove('hide'); }
+      if (go) { go.disabled = false; go.innerHTML = `${PL.icon('refresh')} Download update`; } bar?.classList.add('hide'); }
+    finally { h?.remove?.(); upd.busy = false; } };
+  setTimeout(checkUpdate, 1500);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && !upd.shown) checkUpdate(); });
   PL.hooks.beforeLogout = async () => { if (S.fcmTok) { await PL.post('/api/push/fcm/remove', { token: S.fcmTok }).catch(() => {}); S.fcmTok = S.fcmSent = null; } };      // this phone stops getting this rider's pushes
   // "Background check" (app only): what the phone allows, with a button to fix each item. Read from Android, nothing is guessed.
   const MAKERS = { xiaomi: 'Xiaomi / Redmi / POCO', redmi: 'Redmi', poco: 'POCO', oppo: 'OPPO', realme: 'realme', oneplus: 'OnePlus', vivo: 'vivo', iqoo: 'iQOO', huawei: 'Huawei', honor: 'Honor', samsung: 'Samsung', motorola: 'Motorola', infinix: 'Infinix', tecno: 'TECNO' };

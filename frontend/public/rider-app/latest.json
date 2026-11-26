@@ -1,0 +1,7 @@
+{
+  "versionCode": 11,
+  "versionName": "1.10",
+  "url": "/rider-app/PakkaRider-1.10.apk",
+  "required": false,
+  "notes": ["Demo update: Pakka Rider now updates itself from inside the app", "No need to uninstall the old app any more"]
+}
