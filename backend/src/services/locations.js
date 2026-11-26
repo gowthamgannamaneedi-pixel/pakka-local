@@ -10,7 +10,7 @@ const optTxt = (max) => z.string().transform(clean).pipe(z.string().max(max)).op
 export const MAX_FEE_PAISE = 100_000;                                                         // ₹1,000 sanity ceiling
 export const locationSchema = z.object({
   name: txt(2, 80), kind: optTxt(30), address: txt(3, 200), area: optTxt(60), contact: optTxt(40),
-  delivery_fee_paise: z.number({ invalid_type_error: 'Enter the delivery charge.', required_error: 'Enter the delivery charge.' }).int('Use whole paise.').min(0, 'The delivery charge cannot be negative.').max(MAX_FEE_PAISE, 'The delivery charge looks too high (max ₹1,000).'),
+  delivery_fee_paise: z.number({ invalid_type_error: 'Enter the delivery charge.' }).int('Use whole paise.').min(0, 'The delivery charge cannot be negative.').max(MAX_FEE_PAISE, 'The delivery charge looks too high (max ₹1,000).').optional(),      // only used in the old fixed-charge mode
   distance_km: z.number().min(0).max(50).nullish(),
   maps_link: z.string().url().max(300).refine((u) => u.startsWith('https://'), 'Use an https:// link.').optional().nullable().or(z.literal('').transform(() => null)),
   lat: z.number().min(-90).max(90).nullish(), lng: z.number().min(-180).max(180).nullish(),
@@ -36,6 +36,7 @@ export function create(db, body) {
   const p = locationSchema.safeParse(body ?? {}); if (!p.success) return fail(p.error.issues[0].message);
   const d = p.data, dup = dupe(db, d.name, d.external_ref); if (dup) return fail(dup, 409);
   const v = { kind: null, area: null, contact: null, distance_km: null, maps_link: null, lat: null, lng: null, external_ref: null, ...d, active: d.active === false ? 0 : 1, t: iso() };
+  if (v.delivery_fee_paise == null) v.delivery_fee_paise = 0;
   const id = db.prepare(`INSERT INTO delivery_locations (name,kind,address,area,contact,delivery_fee_paise,distance_km,maps_link,lat,lng,active,external_ref,updated_at)
     VALUES (@name,@kind,@address,@area,@contact,@delivery_fee_paise,@distance_km,@maps_link,@lat,@lng,@active,@external_ref,@t)`).run(v).lastInsertRowid;
   return { ok: true, id, after: pick(db, id) };
@@ -70,11 +71,11 @@ const money = (s) => { const m = String(s || '').replace(/[₹,\s]|INR|Rs\.?/gi,
 export function importCsv(db, text, { feeColumn, updateFees = false, activate = true, dryRun = true } = {}) {
   const { head, rows } = parseCsv(String(text || ''));
   for (const h of ['Location_ID', 'Place_Name', 'Full_Address']) if (!head.includes(h)) return fail(`The file needs a “${h}” column.`);
-  if (!feeColumn || !head.includes(feeColumn)) return fail('Choose which column holds the delivery charge.');
+  if (feeColumn && !head.includes(feeColumn)) return fail('That charge column is not in the sheet.');      // no column = places are charged by distance
   if (rows.length > 2000) return fail('Too many rows (max 2000).');
   const report = { created: 0, updated: 0, fee_changes: 0, unchanged: 0, errors: [], fee_columns: head.filter((h) => /fee/i.test(h)) }, changes = [];
   const run = () => { for (const [i, r] of rows.entries()) {
-    const line = i + 2, ref = clean(r.Location_ID), fee = money(r[feeColumn]);
+    const line = i + 2, ref = clean(r.Location_ID), fee = feeColumn ? money(r[feeColumn]) : 0;
     if (fee == null) { report.errors.push(`Row ${line} (${ref}): the charge “${r[feeColumn]}” is not a number.`); continue; }
     const num = (v) => (v === '' || v == null ? null : Number(v));
     const body = { external_ref: ref, name: r.Place_Name, kind: r.Category || null, address: r.Full_Address, area: r.Area_Locality || null, lat: num(r.Latitude), lng: num(r.Longitude),

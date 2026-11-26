@@ -255,7 +255,7 @@ export function adminRoutes(db) {
 
   // ---------- delivery locations (PGs, hostels, colleges...) with their own delivery charges ----------
   // Every change is audited with the exact old and new values. Orders keep the charge they were placed with.
-  r.get('/locations', (req, res) => res.json({ locations: Locs.list(db, { q: req.query.q, status: req.query.status }), gps_fee_paise: Number(getSetting(db, 'gps_delivery_fee_paise')), gps_per_km_paise: perKmRate(db), gps_per_km_set: !!Number(getSetting(db, 'gps_per_km_paise')), gps_min_fee_paise: Number(getSetting(db, 'gps_min_fee_paise')) || null, gps_max_km: Number(getSetting(db, 'gps_max_km')) || null, max_fee_paise: Locs.MAX_FEE_PAISE }));
+  r.get('/locations', (req, res) => res.json({ fixed_place_fees: getSetting(db, 'fixed_place_fees') === '1', locations: Locs.list(db, { q: req.query.q, status: req.query.status }), gps_fee_paise: Number(getSetting(db, 'gps_delivery_fee_paise')), gps_per_km_paise: perKmRate(db), gps_per_km_set: !!Number(getSetting(db, 'gps_per_km_paise')), gps_min_fee_paise: Number(getSetting(db, 'gps_min_fee_paise')) || null, gps_max_km: Number(getSetting(db, 'gps_max_km')) || null, max_fee_paise: Locs.MAX_FEE_PAISE }));
   r.post('/locations', wrap((req, res) => { const out = Locs.create(db, req.body); if (out.error) return send(res, out);
     audit(db, req, 'location.create', 'location', out.id, { after: out.after }); res.status(201).json({ id: out.id }); }));
   r.put('/locations/:id(\\d+)', wrap((req, res) => { const out = Locs.update(db, Number(req.params.id), req.body); if (out.error) return send(res, out);
@@ -263,7 +263,7 @@ export function adminRoutes(db) {
     res.json({ ok: true, changed: out.changed }); }));
   r.get('/locations/:id(\\d+)/history', (req, res) => res.json({ history: db.prepare("SELECT a.action, a.metadata, a.created_at, u.name AS admin FROM audit_logs a LEFT JOIN users u ON u.id=a.actor_user_id WHERE a.target_type='location' AND a.target_id=? ORDER BY a.id DESC LIMIT 50").all(String(req.params.id)).map((x) => ({ ...x, metadata: x.metadata ? JSON.parse(x.metadata) : null })) }));
   // CSV import of the owner's sheet. dry_run (default) only previews; the admin chooses the charge column.
-  r.post('/locations/import', wrap((req, res) => { const d = parse(z.object({ csv: z.string().min(10).max(2_000_000), fee_column: z.string().max(60), update_fees: z.boolean().optional(), activate: z.boolean().optional(), dry_run: z.boolean().optional() }), req, res); if (!d) return;
+  r.post('/locations/import', wrap((req, res) => { const d = parse(z.object({ csv: z.string().min(10).max(2_000_000), fee_column: z.string().max(60).optional().default(''), update_fees: z.boolean().optional(), activate: z.boolean().optional(), dry_run: z.boolean().optional() }), req, res); if (!d) return;
     const out = Locs.importCsv(db, d.csv, { feeColumn: d.fee_column, updateFees: !!d.update_fees, activate: d.activate !== false, dryRun: d.dry_run !== false }); if (out.error) return send(res, out);
     if (!out.dry_run) { audit(db, req, 'location.import', 'location', null, { fee_column: d.fee_column, created: out.created, updated: out.updated, fee_changes: out.fee_changes, errors: out.errors.length });
       for (const c of out.changes) audit(db, req, c.created ? 'location.create' : c.changed.delivery_fee_paise ? 'location.fee_change' : 'location.update', 'location', c.id, c.created ? { import_ref: c.ref } : { import_ref: c.ref, changed: c.changed }); }
