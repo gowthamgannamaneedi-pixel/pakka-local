@@ -923,3 +923,4 @@ body.has-ibar:has(#nav.hide):has(.u-cartbar,.u-paybar) .u-ibar{bottom:calc(88px 
 .u-mail{background:linear-gradient(120deg,#fff7ef,#fff3e6 60%,#fdf6ee);border-color:#f6dcc2;box-shadow:0 6px 18px rgba(212,80,15,.08)}
 .u-mail .ig{background:linear-gradient(135deg,#f27a1a,#d4500f)}.u-mail .fb{background:linear-gradient(90deg,#d4500f,#f27a1a)}
 .u-mail+.u-ig{margin-top:10px}
+.u-legal{text-align:center;font-size:.78rem;margin:12px 0 0;color:var(--u-sub)}.u-legal a{color:var(--u-sub)}

@@ -70,7 +70,8 @@
       <div class="u-login"><div class="u-collage" aria-hidden="true"><div class="grid">${pics.map((k, i) => `<img src="${catPic(k)}" alt="" style="animation-delay:${i * 50}ms">`).join('')}</div>
         <div class="brand"><span class="lg"><img src="/assets/logo.png" alt=""></span><p>Your neighbourhood, delivered.</p><span>Hot food from kitchens near your PG, hostel or college</span></div></div>
       <div class="u-lsheet" id="u-lsheet"><h2>Hungry? Let’s get started</h2><p class="s">Log in or sign up with your mobile number.</p><button class="btn block lg" data-act="to-login">${startLabel()}</button>
-        <p class="fine">Online payment only · Live order tracking</p></div></div>`;
+        <p class="fine">Online payment only · Live order tracking</p><a class="btn ghost block mt2" href="/#menu">See menu &amp; prices first</a>
+        <p class="u-legal"><a href="/contact">Contact</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/refund-policy">Refunds</a> · <a href="/delivery-policy">Delivery</a></p></div></div>`;
     loadChannel(); setTimeout(() => PL.$('#splash')?.classList.add('out'), 1100); setTimeout(() => PL.$('#splash')?.remove(), 1600);
   }
   const sheet = (html) => { const s = PL.$('#u-lsheet'); if (s) { s.innerHTML = html; s.style.animation = 'none'; void s.offsetWidth; s.style.animation = ''; return; } loginView(PL.$('#root')); PL.$('#splash')?.remove(); PL.$('#u-lsheet').innerHTML = html; };

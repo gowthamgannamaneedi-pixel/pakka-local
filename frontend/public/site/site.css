@@ -1,0 +1,38 @@
+:root{--o:#d4500f;--o2:#f27a1a;--ink:#1d1a16;--sub:#6b645a;--line:#ece6dd;--bg:#fffaf5;--card:#fff}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;font:16px/1.55 'DM Sans',system-ui,sans-serif;color:var(--ink);background:var(--bg)}
+a{color:var(--o)}h1,h2,h3,h4,.brand b{font-family:Manrope,system-ui,sans-serif}
+.wrap{max-width:1040px;margin:0 auto;padding:0 16px}
+.top{position:sticky;top:0;z-index:5;background:rgba(255,250,245,.94);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.top .wrap{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:60px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:8px;text-decoration:none;color:var(--ink)}.brand img{border-radius:10px}.brand b{font-size:1.15rem}
+nav{display:flex;gap:4px;flex-wrap:wrap}nav a{padding:7px 11px;border-radius:999px;text-decoration:none;color:var(--ink);font-weight:600;font-size:.92rem}
+nav a:hover{background:#f6ece2}nav a.cta{background:var(--o);color:#fff}
+.hero{background:linear-gradient(135deg,#fff1e4,#ffe2cc);padding:48px 0 40px;border-bottom:1px solid var(--line)}
+.hero h1{font-size:clamp(2.2rem,6vw,3.4rem);margin:0;color:var(--o)}.lead{font-size:1.15rem;max-width:560px;margin:8px 0 20px}
+.btns{display:flex;gap:10px;flex-wrap:wrap}.btn{display:inline-block;padding:12px 20px;border-radius:14px;background:var(--o);color:#fff;font-weight:700;text-decoration:none}
+.btn.ghost{background:#fff;color:var(--o);border:1px solid #f3cfb3}
+.facts{list-style:none;padding:0;margin:22px 0 0;display:flex;gap:8px;flex-wrap:wrap}.facts li{background:#fff;border:1px solid #f3dccb;border-radius:999px;padding:5px 12px;font-size:.88rem}
+section{padding:28px 0}h2{font-size:1.5rem;margin:0 0 8px}.sub{color:var(--sub);margin:0 0 16px}
+.how ol{list-style:none;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;counter-reset:s}
+.how li{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;counter-increment:s}
+.how li::before{content:counter(s);display:inline-grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--o);color:#fff;font-weight:700;margin-bottom:6px}
+.how b{display:block}
+.rest{background:var(--card);border:1px solid var(--line);border-radius:18px;margin:0 0 12px;overflow:hidden}
+.rest summary{display:flex;align-items:center;gap:12px;padding:12px 14px;cursor:pointer;list-style:none}.rest summary::-webkit-details-marker{display:none}
+.rest summary::after{content:'▾';margin-left:auto;color:var(--sub)}.rest[open] summary::after{content:'▴'}
+.rest summary img,.rest .ph{width:52px;height:52px;border-radius:12px;object-fit:cover;background:#f6ece2;flex:none}
+.rn b{display:block;font-size:1.05rem}.rn small{color:var(--sub)}
+.rest h3{font-size:.95rem;margin:10px 14px 4px;color:var(--sub);text-transform:uppercase;letter-spacing:.04em}
+.dishes{list-style:none;margin:0;padding:0 14px}.dishes li{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid var(--line)}
+.dn{min-width:0}.dn small{display:block;color:var(--sub);font-size:.85rem}.pr{font-weight:700;white-space:nowrap}
+.diet{display:inline-block;width:12px;height:12px;border:2px solid;border-radius:3px;margin-right:6px;vertical-align:-1px;position:relative}
+.diet::after{content:'';position:absolute;inset:2px;border-radius:50%;background:currentColor}.diet.veg{color:#1a8f4a}.diet.nv{color:#b3261e}
+.note{margin:6px 14px 12px;color:var(--sub);font-size:.88rem}
+.doc{padding:32px 16px 40px;max-width:780px}.doc h1{color:var(--o);margin:0}.doc h2{font-size:1.15rem;margin:22px 0 6px}.upd{color:var(--sub);font-size:.88rem}
+.contact{list-style:none;padding:0}.contact li{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin:0 0 8px}.contact b{display:block;font-size:.8rem;color:var(--sub);text-transform:uppercase}
+.foot{background:#1f1a15;color:#e9e2d8;margin-top:24px;padding:32px 0 16px}.foot a{color:#ffb987}
+.foot .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:20px}.foot .brand{color:#fff}.foot p{color:#bfb5a8;margin:8px 0}
+.foot h4{margin:0 0 8px;color:#fff}.foot address{font-style:normal}.foot address span,.foot .cols>div>a{display:block;margin:0 0 6px}
+.copy{border-top:1px solid #3a322a;margin-top:20px;padding-top:12px;color:#9d9488;font-size:.85rem}
+@media (max-width:560px){nav a:not(.cta){padding:6px 8px;font-size:.85rem}.hero{padding:32px 0}}
