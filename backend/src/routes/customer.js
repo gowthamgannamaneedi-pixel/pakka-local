@@ -26,9 +26,12 @@ const breakdown = (q) => ({ delivery_type: q.feeSource, delivery_location: q.des
   delivery_pricing: q.pricing, delivery_distance_km: q.distanceM == null ? null : Math.round(q.distanceM / 10) / 100, delivery_band: q.band, delivery_fallback: q.pricing === 'distance_fallback', items_base_paise: q.base, markup_paise: q.markup, delivery_paise: q.delivery, surge_paise: q.surge, tax_paise: q.tax, discount_paise: q.discount, coupon_code: q.coupon?.code ?? null, coupon_error: q.couponError, total_paise: q.total, prep_min: q.prepMin, delivery_min: q.deliveryMin, trip_km: q.trip?.km ?? null, trip_by_road: q.trip?.byRoad ?? null,
   lines: q.lines.map(l => ({ name: l.name, qty: l.qty, price_paise: l.price })) });
 
+// maintenance mode (admin setting): customers cannot quote or place new orders; tracking, support and the other portals keep working
+export const MAINT_DEFAULT = 'We are making Pakka Local better. Ordering will be back shortly. Orders already placed will still be delivered.';
+export const maintenance = (db) => (getSetting(db, 'maintenance_mode') === '1' ? { message: (getSetting(db, 'maintenance_message') || '').trim() || MAINT_DEFAULT } : null);
 export function publicRoutes(db) {
   const r = Router();
-  r.get('/config', (req, res) => res.json({ loginChannel: loginChannel(), emailLogin: !!config.emailOtp.enabled, testPayments: config.sandboxPayments, paymentsAvailable: config.sandboxPayments, ridersAvailable: eligibleRiderCount(db) > 0, noRiderMessage: NO_RIDER_MSG }));
+  r.get('/config', (req, res) => res.json({ maintenance: maintenance(db), loginChannel: loginChannel(), emailLogin: !!config.emailOtp.enabled, testPayments: config.sandboxPayments, paymentsAvailable: config.sandboxPayments, ridersAvailable: eligibleRiderCount(db) > 0, noRiderMessage: NO_RIDER_MSG }));
   // places on the list (no map points are sent). With ?restaurant_id= each place gets the estimated distance and charge from that
   // restaurant (straight line x the per-km rate, rounded to the rupee); the bill always shows the exact charge.
   r.get('/locations', (req, res) => { const rate = perKmRate(db), rid = Number(req.query.restaurant_id) || 0;
@@ -84,8 +87,10 @@ export function customerRoutes(db) {
   // road distance: for distance pricing, and also for the delivery-time estimate whenever a routing service exists
   const routeFor = async (d, a) => { if (!Pricing.getConfig(db).enabled && providerName() === 'none') return undefined; const ap = addressPoint(db, a); if (ap.error) return { distance_m: null, reason: 'invalid_delivery_point' }; return Pricing.routeFor(db, d.restaurant_id, ap.point); };
   r.get('/coupons', wrap((req, res) => res.json({ coupons: Coupons.visibleCoupons(db, req.user.id, req.query.restaurant_id ? Number(req.query.restaurant_id) : null) })));
-  r.post('/quote', wrapA(async (req, res) => { const d = parse(cartSchema, req, res); if (!d) return; const a = withAddress(d, req, res); if (!a) return; const q = quote(db, { ...qIn(d, a, await routeFor(d, a)), customerId: req.user.id }); q.error ? send(res, q) : res.json(breakdown(q)); }));
+  const inMaint = (res) => { const m = maintenance(db); if (m) res.status(503).json({ error: m.message, code: 'MAINTENANCE' }); return !!m; };
+  r.post('/quote', wrapA(async (req, res) => { if (inMaint(res)) return; const d = parse(cartSchema, req, res); if (!d) return; const a = withAddress(d, req, res); if (!a) return; const q = quote(db, { ...qIn(d, a, await routeFor(d, a)), customerId: req.user.id }); q.error ? send(res, q) : res.json(breakdown(q)); }));
   r.post('/orders', wrapA(async (req, res) => {
+    if (inMaint(res)) return;
     // No real payment gateway is integrated yet. Unless this is an explicitly configured test environment, no order is created at all.
     if (!config.sandboxPayments) return res.status(503).json({ error: 'Online ordering is not open yet. Please check back soon.', code: 'ORDERING_CLOSED' });
     if (!sandboxTester(req)) return res.status(403).json({ error: 'This test environment only accepts orders from approved tester numbers.', code: 'NOT_A_TESTER' });

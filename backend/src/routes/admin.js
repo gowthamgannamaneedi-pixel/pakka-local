@@ -89,6 +89,7 @@ export function adminRoutes(db) {
       { key: 'no_riders', level: 'bad', n: eligibleRiderCount(db) ? 0 : 1, text: 'No approved delivery agent is online, so customers cannot order', path: '/riders', set: 'approved', flag: true },
       { key: 'placed_over', level: 'bad', n: placedOver, text: `order(s) waiting for the restaurant longer than ${t} min`, path: '/orders', flag: false },
       { key: 'placed', level: 'warn', n: t ? 0 : one("SELECT COUNT(*) FROM orders WHERE status='PLACED'"), text: 'order(s) waiting for a restaurant to accept', path: '/orders' },
+      { key: 'maintenance', level: 'bad', n: getSetting(db, 'maintenance_mode') === '1' ? 1 : 0, text: 'Maintenance mode is ON: customers cannot place new orders. Switch it off in Settings', path: '/settings' },
       { key: 'unassigned', level: 'warn', n: one("SELECT COUNT(*) FROM orders WHERE rider_id IS NULL AND status IN ('ACCEPTED','PREPARING','READY')"), text: 'accepted order(s) without a delivery agent yet', path: '/orders' },
       { key: 'cashouts', level: 'warn', n: one("SELECT COUNT(*) FROM cashout_requests WHERE status IN ('PENDING','APPROVED')"), text: 'payout request(s) to process', path: '/cashouts' },
       { key: 'refunds', level: 'warn', n: one("SELECT COUNT(*) FROM refunds WHERE stage IN ('requested','approved')"), text: 'refund(s) with UPI details waiting for review or payment', path: '/refunds' },
@@ -412,12 +413,14 @@ export function adminRoutes(db) {
       if (['rider_per_km_paise', 'rider_min_payout_paise'].includes(k) && v !== '' && !(/^\d{1,6}$/.test(String(v)) && +v <= 100000)) return res.status(400).json({ error: 'Rider pay must be ₹0 to ₹1,000, or empty.' });
       if (k === 'daily_notify_enabled' && !['0', '1'].includes(String(v))) return res.status(400).json({ error: 'daily_notify_enabled must be 0 or 1.' });
       if (k === 'test_orders_everyone' && !['0', '1'].includes(String(v))) return res.status(400).json({ error: 'test_orders_everyone must be 0 or 1.' });
+      if (k === 'maintenance_mode' && !['0', '1'].includes(String(v))) return res.status(400).json({ error: 'maintenance_mode must be 0 or 1.' });
+      if (k === 'maintenance_message' && String(v).length > 200) return res.status(400).json({ error: 'Maintenance message: up to 200 characters.' });
       if (k === 'fixed_place_fees' && !['0', '1'].includes(String(v))) return res.status(400).json({ error: 'fixed_place_fees must be 0 or 1.' });
       if (k === 'batch_radius_km' && !(/^\d{1,2}(\.\d{1,2})?$/.test(String(v)) && +v > 0 && +v <= 20)) return res.status(400).json({ error: 'Nearby distance must be more than 0 and at most 20 km.' });
       if (['gps_per_km_paise', 'gps_min_fee_paise'].includes(k) && v !== '' && !(/^\d{1,6}$/.test(String(v)) && +v >= 0 && +v <= 100000)) return res.status(400).json({ error: 'Charges must be ₹0 to ₹1,000, or empty.' });
       if (k === 'gps_max_km' && v !== '' && !(/^\d{1,3}(\.\d{1,2})?$/.test(String(v)) && +v > 0 && +v <= 100)) return res.status(400).json({ error: 'Maximum distance must be more than 0 and at most 100 km, or empty.' });
       if (k === 'gps_fix_max_age_min' && !(/^\d{1,3}$/.test(String(v)) && +v >= 1 && +v <= 120)) return res.status(400).json({ error: 'GPS reading age must be 1 to 120 minutes.' });
-      if (!['delivery_otp_mode', 'fixed_delivery_otp', 'payout_methods', 'restaurant_accept_timeout_min', 'gps_accuracy_warn_m', 'gps_per_km_paise', 'gps_min_fee_paise', 'gps_max_km', 'rider_per_km_paise', 'rider_min_payout_paise', 'batch_radius_km'].includes(k) && !/^\d{1,9}$/.test(String(v))) return res.status(400).json({ error: `${k} must be a whole number.` }); }
+      if (!['delivery_otp_mode', 'fixed_delivery_otp', 'payout_methods', 'restaurant_accept_timeout_min', 'gps_accuracy_warn_m', 'gps_per_km_paise', 'gps_min_fee_paise', 'gps_max_km', 'rider_per_km_paise', 'rider_min_payout_paise', 'batch_radius_km', 'maintenance_message'].includes(k) && !/^\d{1,9}$/.test(String(v))) return res.status(400).json({ error: `${k} must be a whole number.` }); }
     const changed = Object.fromEntries(Object.entries(s).filter(([k, v]) => String(getSetting(db, k)) !== String(v)).map(([k, v]) => [k, { from: getSetting(db, k), to: String(v) }]));
     for (const [k, v] of Object.entries(s)) setSetting(db, k, v);
     if (Object.keys(changed).length) audit(db, req, changed.gps_delivery_fee_paise || changed.gps_per_km_paise || changed.gps_min_fee_paise || changed.gps_max_km ? 'settings.gps_fee_change' : 'settings.update', 'settings', null, { changed });      // exact old -> new values
