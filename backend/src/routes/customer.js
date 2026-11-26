@@ -6,7 +6,7 @@ import { perKmRate, straightM, quote, createOrder, settlePayment, eligibleRiderC
 import { send, parse, wrap, wrapA } from './util.js';
 import * as Pricing from '../services/distancePricing.js';
 import { addressPoint } from '../services/core.js';
-import { iso } from '../services/core.js';
+import { iso, serviceArea } from '../services/core.js';
 import * as Addr from '../services/addresses.js';
 import { customerRefund, submitUpi } from '../services/refunds.js';
 import * as Coupons from '../services/coupons.js';
@@ -37,7 +37,8 @@ export function publicRoutes(db) {
   r.get('/locations', (req, res) => { const rate = perKmRate(db), rid = Number(req.query.restaurant_id) || 0;
     const rp = rid ? db.prepare('SELECT pickup_lat AS lat, pickup_lng AS lng FROM restaurants WHERE id=? AND approved=1 AND admin_visible=1').get(rid) : null;
     const fixed = getSetting(db, 'fixed_place_fees') === '1';      // older fixed prices only if switched back on
-    res.json({ per_km_paise: rate, locations: db.prepare('SELECT id,name,kind,address,area,distance_km,delivery_fee_paise,lat,lng FROM delivery_locations WHERE active=1 ORDER BY name').all().map(({ lat, lng, delivery_fee_paise, ...l }) => {
+    const area = serviceArea(db);      // places outside the service area are not offered
+    res.json({ per_km_paise: rate, service_area: area ? { km: area.km, name: area.name } : null, locations: db.prepare('SELECT id,name,kind,address,area,distance_km,delivery_fee_paise,lat,lng FROM delivery_locations WHERE active=1 ORDER BY name').all().filter((x) => !area || x.lat == null || straightM(area, x) / 1000 <= area.km).map(({ lat, lng, delivery_fee_paise, ...l }) => {
       if (fixed) l.delivery_fee_paise = delivery_fee_paise;
       if (!rp || rp.lat == null || lat == null) return l; const m = straightM(rp, { lat, lng });
       return { ...l, est_km: Math.round(m / 100) / 10, est_fee_paise: Math.max(Number(getSetting(db, 'gps_min_fee_paise')) || rate, Math.round(m * rate / 1000 / 100) * 100) }; }) }); });

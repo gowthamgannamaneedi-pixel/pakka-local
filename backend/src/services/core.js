@@ -31,7 +31,9 @@ const DEFAULTS = { tax_bps: '0', gps_delivery_fee_paise: '4000', rider_payout_pa
   daily_notify_enabled: '1',
   test_orders_everyone: '0',
   maintenance_mode: '0',
-  main_admin_phone: '',               // the one admin who adds / turns off other admins (empty = any admin may)              // 1 = customers see a maintenance screen and cannot place new orders; orders in progress, restaurants and riders carry on
+  main_admin_phone: '',
+  // service area: orders only to delivery points within service_radius_km of this centre (empty radius = no area limit)
+  service_center_name: '', service_center_lat: '', service_center_lng: '', service_radius_km: '',               // the one admin who adds / turns off other admins (empty = any admin may)              // 1 = customers see a maintenance screen and cannot place new orders; orders in progress, restaurants and riders carry on
   maintenance_message: '',            // optional text shown to customers while maintenance is on          // staging only: 1 = every signed-in customer may place test-payment orders, not just SANDBOX_PAYMENT_PHONES
   // Rider pay per delivery by distance (restaurant -> customer, every metre, rounded off to the rupee). Empty = same rate as the
   // GPS per-km charge; if that is empty too, the fixed rider_payout_paise applies. Optional minimum per delivery.
@@ -132,6 +134,7 @@ export function quote(db, input) {
   const { loc, point, coordSource } = ap;
   const words = [loc ? loc.name : a.place_name, a.building, a.block && `Block ${a.block}`, a.floor && `Floor ${a.floor}`, a.room && `Room ${a.room}`].filter(Boolean).join(', ') || 'Saved location';
   const dest = { text: words.slice(0, 200), lat: point.lat, lng: point.lng, link: mapsLink(point.lat, point.lng), kind: loc ? 'listed' : 'gps', locationName: loc?.name ?? null, coordSource };
+  const out = outsideArea(db, point); if (out) return { error: out.message, status: 409, code: 'OUTSIDE_AREA', distance_km: out.km };
   if (r.min_order_paise && base + markup < r.min_order_paise) return { error: `Minimum order for this restaurant is ${PLrs(r.min_order_paise)}.`, status: 400, code: 'MIN_ORDER' };
   // Charge: distance-based when the admin has switched it on (for every order: listed places and GPS addresses alike),
   // otherwise the listed place's own charge or the fixed GPS-address charge. The road distance was looked up beforehand
@@ -209,6 +212,13 @@ const etaFrom = (db, prepMin, deliveryMin, stage) => {
 // Restaurant -> customer trip: the road distance when a routing service measured it, otherwise the straight-line distance
 // between the two saved points (labelled as such; never invented). null when either point is missing.
 const R_EARTH = 6371000, rad = (x) => (x * Math.PI) / 180;
+// Service area (admin setting): a centre point and a radius. Delivery points farther than that cannot order.
+export const serviceArea = (db) => { const km = Number(getSetting(db, 'service_radius_km')), lat = Number(getSetting(db, 'service_center_lat')), lng = Number(getSetting(db, 'service_center_lng'));
+  if (!(km > 0) || !Number.isFinite(lat) || !Number.isFinite(lng) || getSetting(db, 'service_center_lat') === '' || getSetting(db, 'service_center_lng') === '') return null;
+  return { lat, lng, km, name: getSetting(db, 'service_center_name') || 'our area' }; };
+export function outsideArea(db, point) { const a = serviceArea(db); if (!a || !point || point.lat == null || point.lng == null) return null;
+  const km = straightM(a, point) / 1000; if (km <= a.km) return null;
+  return { km: Math.round(km * 10) / 10, message: `Sorry, we don’t deliver here yet. Pakka Local delivers within ${a.km} km of ${a.name}, and this address is ${(Math.round(km * 10) / 10).toFixed(1)} km away.` }; }
 export const straightM = (a, b) => { const h = Math.sin(rad(b.lat - a.lat) / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(rad(b.lng - a.lng) / 2) ** 2; return 2 * R_EARTH * Math.asin(Math.sqrt(h)); };
 export function tripInfo(from, to, roadM) {
   if (Number.isFinite(roadM)) return { km: Math.round(roadM / 100) / 10, byRoad: true };

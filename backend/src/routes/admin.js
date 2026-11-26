@@ -255,7 +255,7 @@ export function adminRoutes(db) {
 
   // ---------- delivery locations (PGs, hostels, colleges...) with their own delivery charges ----------
   // Every change is audited with the exact old and new values. Orders keep the charge they were placed with.
-  r.get('/locations', (req, res) => res.json({ fixed_place_fees: getSetting(db, 'fixed_place_fees') === '1', locations: Locs.list(db, { q: req.query.q, status: req.query.status }), gps_fee_paise: Number(getSetting(db, 'gps_delivery_fee_paise')), gps_per_km_paise: perKmRate(db), gps_per_km_set: !!Number(getSetting(db, 'gps_per_km_paise')), gps_min_fee_paise: Number(getSetting(db, 'gps_min_fee_paise')) || null, gps_max_km: Number(getSetting(db, 'gps_max_km')) || null, max_fee_paise: Locs.MAX_FEE_PAISE }));
+  r.get('/locations', (req, res) => res.json({ service_area: { name: getSetting(db, 'service_center_name'), lat: getSetting(db, 'service_center_lat'), lng: getSetting(db, 'service_center_lng'), km: getSetting(db, 'service_radius_km') }, fixed_place_fees: getSetting(db, 'fixed_place_fees') === '1', locations: Locs.list(db, { q: req.query.q, status: req.query.status }), gps_fee_paise: Number(getSetting(db, 'gps_delivery_fee_paise')), gps_per_km_paise: perKmRate(db), gps_per_km_set: !!Number(getSetting(db, 'gps_per_km_paise')), gps_min_fee_paise: Number(getSetting(db, 'gps_min_fee_paise')) || null, gps_max_km: Number(getSetting(db, 'gps_max_km')) || null, max_fee_paise: Locs.MAX_FEE_PAISE }));
   r.post('/locations', wrap((req, res) => { const out = Locs.create(db, req.body); if (out.error) return send(res, out);
     audit(db, req, 'location.create', 'location', out.id, { after: out.after }); res.status(201).json({ id: out.id }); }));
   r.put('/locations/:id(\\d+)', wrap((req, res) => { const out = Locs.update(db, Number(req.params.id), req.body); if (out.error) return send(res, out);
@@ -427,6 +427,10 @@ export function adminRoutes(db) {
       if (['rider_per_km_paise', 'rider_min_payout_paise'].includes(k) && v !== '' && !(/^\d{1,6}$/.test(String(v)) && +v <= 100000)) return res.status(400).json({ error: 'Rider pay must be ₹0 to ₹1,000, or empty.' });
       if (k === 'daily_notify_enabled' && !['0', '1'].includes(String(v))) return res.status(400).json({ error: 'daily_notify_enabled must be 0 or 1.' });
       if (k === 'test_orders_everyone' && !['0', '1'].includes(String(v))) return res.status(400).json({ error: 'test_orders_everyone must be 0 or 1.' });
+      if (k === 'service_radius_km' && v !== '' && !(/^\d{1,3}(\.\d{1,2})?$/.test(String(v)) && +v > 0 && +v <= 200)) return res.status(400).json({ error: 'Service area radius must be more than 0 and at most 200 km, or empty for no limit.' });
+      if (k === 'service_center_lat' && v !== '' && !(/^-?\d{1,2}\.\d{3,8}$/.test(String(v)) && Math.abs(+v) <= 90)) return res.status(400).json({ error: 'Latitude looks wrong (e.g. 17.33814).' });
+      if (k === 'service_center_lng' && v !== '' && !(/^-?\d{1,3}\.\d{3,8}$/.test(String(v)) && Math.abs(+v) <= 180)) return res.status(400).json({ error: 'Longitude looks wrong (e.g. 78.31310).' });
+      if (k === 'service_center_name' && String(v).length > 80) return res.status(400).json({ error: 'Centre name: up to 80 characters.' });
       if (k === 'maintenance_mode' && !['0', '1'].includes(String(v))) return res.status(400).json({ error: 'maintenance_mode must be 0 or 1.' });
       if (k === 'maintenance_message' && String(v).length > 200) return res.status(400).json({ error: 'Maintenance message: up to 200 characters.' });
       if (k === 'fixed_place_fees' && !['0', '1'].includes(String(v))) return res.status(400).json({ error: 'fixed_place_fees must be 0 or 1.' });
@@ -434,7 +438,7 @@ export function adminRoutes(db) {
       if (['gps_per_km_paise', 'gps_min_fee_paise'].includes(k) && v !== '' && !(/^\d{1,6}$/.test(String(v)) && +v >= 0 && +v <= 100000)) return res.status(400).json({ error: 'Charges must be ₹0 to ₹1,000, or empty.' });
       if (k === 'gps_max_km' && v !== '' && !(/^\d{1,3}(\.\d{1,2})?$/.test(String(v)) && +v > 0 && +v <= 100)) return res.status(400).json({ error: 'Maximum distance must be more than 0 and at most 100 km, or empty.' });
       if (k === 'gps_fix_max_age_min' && !(/^\d{1,3}$/.test(String(v)) && +v >= 1 && +v <= 120)) return res.status(400).json({ error: 'GPS reading age must be 1 to 120 minutes.' });
-      if (!['delivery_otp_mode', 'fixed_delivery_otp', 'payout_methods', 'restaurant_accept_timeout_min', 'gps_accuracy_warn_m', 'gps_per_km_paise', 'gps_min_fee_paise', 'gps_max_km', 'rider_per_km_paise', 'rider_min_payout_paise', 'batch_radius_km', 'maintenance_message'].includes(k) && !/^\d{1,9}$/.test(String(v))) return res.status(400).json({ error: `${k} must be a whole number.` }); }
+      if (!['delivery_otp_mode', 'fixed_delivery_otp', 'payout_methods', 'restaurant_accept_timeout_min', 'gps_accuracy_warn_m', 'gps_per_km_paise', 'gps_min_fee_paise', 'gps_max_km', 'rider_per_km_paise', 'rider_min_payout_paise', 'batch_radius_km', 'maintenance_message', 'service_radius_km', 'service_center_lat', 'service_center_lng', 'service_center_name'].includes(k) && !/^\d{1,9}$/.test(String(v))) return res.status(400).json({ error: `${k} must be a whole number.` }); }
     const changed = Object.fromEntries(Object.entries(s).filter(([k, v]) => String(getSetting(db, k)) !== String(v)).map(([k, v]) => [k, { from: getSetting(db, k), to: String(v) }]));
     for (const [k, v] of Object.entries(s)) setSetting(db, k, v);
     if (Object.keys(changed).length) audit(db, req, changed.gps_delivery_fee_paise || changed.gps_per_km_paise || changed.gps_min_fee_paise || changed.gps_max_km ? 'settings.gps_fee_change' : 'settings.update', 'settings', null, { changed });      // exact old -> new values
