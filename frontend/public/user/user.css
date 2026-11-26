@@ -985,7 +985,7 @@ body.has-ibar:has(#nav.hide):has(.u-cartbar,.u-paybar) .u-ibar{bottom:calc(88px 
 @keyframes zin{from{opacity:0}}@keyframes zout{to{opacity:0}}@keyframes zup{from{opacity:0;transform:translateY(14px)}}
 
 /* opening screen: motion (kept light for low-end phones; off when the phone asks for reduced motion) */
-.u-intro .fees .z s{display:none}
+.u-intro .fees .t s{text-decoration:line-through;text-decoration-thickness:2px;text-decoration-color:#d4500f;color:var(--u-sub)}
 .u-intro .go{display:flex;align-items:center;justify-content:center;gap:6px;position:relative;overflow:hidden}.u-intro .go svg{width:18px;height:18px}
 .u-intro h1 mark{background:none;color:inherit;position:relative;white-space:nowrap;isolation:isolate}
 @media (prefers-reduced-motion:no-preference){
@@ -1006,8 +1006,9 @@ body.has-ibar:has(#nav.hide):has(.u-cartbar,.u-paybar) .u-ibar{bottom:calc(88px 
   .u-intro .fees .ic{animation:itick .45s cubic-bezier(.3,1.6,.5,1) calc(var(--d) + 1.15s) both}
   /* each fee: a crossed-out "fee" flips to a green ₹0 */
   .u-intro .fees .z{position:relative;display:inline-grid;min-width:34px;justify-items:end}
-  .u-intro .fees .z s{display:block;grid-area:1/1;color:#b8b2aa;font-weight:600;font-size:.82rem;animation:ifeeout .35s ease-in calc(var(--d) + 1.35s) forwards}
-  .u-intro .fees .z b{grid-area:1/1;opacity:0;animation:izero .4s cubic-bezier(.3,1.6,.5,1) calc(var(--d) + 1.6s) forwards}
+  /* a line is drawn across each fee name, then its ₹0 pops in */
+  .u-intro .fees .t s{text-decoration:none;color:var(--u-ink);background:linear-gradient(#d4500f,#d4500f) left 56%/0 2px no-repeat;animation:istrike .45s ease-out calc(var(--d) + 1.3s) forwards}
+  .u-intro .fees .z b{display:inline-block;opacity:0;animation:izero .4s cubic-bezier(.3,1.6,.5,1) calc(var(--d) + 1.7s) forwards}
   .u-intro .note{animation:zup .45s ease-out 2s both}
   .u-intro .go{animation:zup .45s ease-out 2.1s both,ipulse 2.6s ease-in-out 3s infinite}
   .u-intro .go::after{content:'';position:absolute;inset:0;background:linear-gradient(100deg,transparent 30%,rgba(255,255,255,.35) 50%,transparent 70%);transform:translateX(-120%);animation:ishine 3.2s ease-in-out 2.6s infinite}
@@ -1022,7 +1023,7 @@ body.has-ibar:has(#nav.hide):has(.u-cartbar,.u-paybar) .u-ibar{bottom:calc(88px 
 @keyframes imark{to{transform:scaleX(1)}}
 @keyframes irow{from{opacity:0;transform:translateX(-16px)}}
 @keyframes itick{from{transform:scale(0)}}
-@keyframes ifeeout{to{opacity:0;transform:translateY(-8px)}}
+@keyframes istrike{to{background-size:100% 2px;color:var(--u-sub)}}
 @keyframes izero{from{opacity:0;transform:scale(.4)}to{opacity:1;transform:none}}
 @keyframes ipulse{0%,100%{box-shadow:0 6px 16px rgba(212,80,15,.25)}50%{box-shadow:0 10px 26px rgba(212,80,15,.45)}}
 @keyframes ishine{0%,60%{transform:translateX(-120%)}100%{transform:translateX(120%)}}
