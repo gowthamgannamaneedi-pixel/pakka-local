@@ -120,8 +120,9 @@ export function quote(db, input) {
   for (const [id, qty] of want) {
     const f = db.prepare('SELECT * FROM food_items WHERE id=? AND restaurant_id=? AND deleted=0').get(id, r.id);
     if (!f || !f.available) return { error: `${f ? f.name : 'An item'} is not available.`, status: 409 };
-    lines.push({ food_item_id: id, name: f.name, qty, base: f.base_price_paise, price: f.base_price_paise + r.markup_paise, prep: f.prep_time_min });
-    base += f.base_price_paise * qty; markup += r.markup_paise * qty; prep = Math.max(prep, f.prep_time_min);
+    const mk = f.markup_paise ?? r.markup_paise;      // the dish's own markup, else the restaurant's (admin-only)
+    lines.push({ food_item_id: id, name: f.name, qty, base: f.base_price_paise, price: f.base_price_paise + mk, prep: f.prep_time_min });
+    base += f.base_price_paise * qty; markup += mk * qty; prep = Math.max(prep, f.prep_time_min);
   }
   // Destination = the customer's saved address: GPS coordinates captured on their phone at the delivery point + written details.
   // Every order needs one. If the address is linked to an admin delivery area, that area's fee and surge rules apply exactly as
@@ -218,7 +219,7 @@ export const serviceArea = (db) => { const km = Number(getSetting(db, 'service_r
   return { lat, lng, km, name: getSetting(db, 'service_center_name') || 'our area' }; };
 export function outsideArea(db, point) { const a = serviceArea(db); if (!a || !point || point.lat == null || point.lng == null) return null;
   const km = straightM(a, point) / 1000; if (km <= a.km) return null;
-  return { km: Math.round(km * 10) / 10, message: `Sorry, we don’t deliver here yet. Pakka Local delivers within ${a.km} km of ${a.name}, and this address is ${(Math.round(km * 10) / 10).toFixed(1)} km away.` }; }
+  return { km: Math.round(km * 10) / 10, message: 'Sorry, we don’t deliver to this address yet. Please choose a nearby address.' }; }
 export const straightM = (a, b) => { const h = Math.sin(rad(b.lat - a.lat) / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(rad(b.lng - a.lng) / 2) ** 2; return 2 * R_EARTH * Math.asin(Math.sqrt(h)); };
 export function tripInfo(from, to, roadM) {
   if (Number.isFinite(roadM)) return { km: Math.round(roadM / 100) / 10, byRoad: true };

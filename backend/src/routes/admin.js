@@ -152,6 +152,18 @@ export function adminRoutes(db) {
     next(); });
   mountMenu(am, db);
   r.use('/restaurants/:rid(\\d+)', am);
+  // Markup (admin-only): the restaurant's default and each dish's own markup. Customers pay restaurant price + markup.
+  r.get('/restaurants/:rid(\\d+)/markup', (req, res) => { const r0 = db.prepare('SELECT id, markup_paise FROM restaurants WHERE id=?').get(req.params.rid); if (!r0) return res.status(404).json({ error: 'Restaurant not found.' });
+    res.json({ restaurant_markup_paise: r0.markup_paise, items: db.prepare('SELECT id, markup_paise FROM food_items WHERE restaurant_id=? AND deleted=0').all(r0.id) }); });
+  r.put('/restaurants/:rid(\\d+)/markup', wrap((req, res) => {
+    const d = parse(z.object({ item_ids: z.array(z.number().int().positive()).min(1).max(1000).optional(), markup_paise: z.number().int().min(0).max(100000).nullable(), restaurant_default: z.boolean().optional() }), req, res); if (!d) return;
+    const rid = Number(req.params.rid); if (!db.prepare('SELECT 1 FROM restaurants WHERE id=?').get(rid)) return res.status(404).json({ error: 'Restaurant not found.' });
+    if (d.restaurant_default) { if (d.markup_paise == null) return res.status(400).json({ error: 'Enter the default markup.' });
+      db.prepare('UPDATE restaurants SET markup_paise=? WHERE id=?').run(d.markup_paise, rid); audit(db, req, 'menu.markup_default', 'restaurant', rid, { markup_paise: d.markup_paise }); return res.json({ ok: true, updated: 0 }); }
+    if (!d.item_ids) return res.status(400).json({ error: 'Choose at least one dish.' });
+    const upd = db.prepare('UPDATE food_items SET markup_paise=? WHERE id=? AND restaurant_id=? AND deleted=0');
+    const n = db.transaction(() => d.item_ids.reduce((c, id) => c + upd.run(d.markup_paise, id, rid).changes, 0))();
+    audit(db, req, 'menu.markup', 'restaurant', rid, { items: n, markup_paise: d.markup_paise }); res.json({ ok: true, updated: n }); }));
   // Import menu: many dishes at once from a pasted list (Category, Dish, Price, Diet, Prep_min). check=true only counts.
   r.post('/restaurants/:rid(\\d+)/menu-import', wrap((req, res) => {
     const d = parse(z.object({ csv: z.string().max(200_000), check: z.boolean().optional() }), req, res); if (!d) return;

@@ -789,5 +789,10 @@ CREATE TABLE admin_reset_codes (
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 CREATE INDEX idx_admin_reset_user ON admin_reset_codes(user_id, id);`
+  },
+  {
+    // Markup per dish (admin-only). NULL = the restaurant's markup applies. Customers and restaurants never see it.
+    id: 'p16_001_item_markup',
+    sql: `ALTER TABLE food_items ADD COLUMN markup_paise INTEGER CHECK (markup_paise IS NULL OR (markup_paise >= 0 AND markup_paise <= 100000));`
   }
 ];
