@@ -10,6 +10,7 @@ import * as Routing from '../services/routing.js';
 import { perKmRate, allSettings, setSetting, SETTING_KEYS, adminCashout, balances, settleRefund, eligibleRiderCount, getSetting, iso, adminCancel, adminUnassign } from '../services/core.js';
 import { send, parse, wrap, wrapA, money } from './util.js';
 import { importMenu } from '../services/menuImport.js';
+import { sendMail, mailReady } from '../emailProviders.js';
 import { newSecret, encrypt, decrypt, verifyTotp, otpauthUri } from '../totp.js';
 import { audienceUsers, campaignStats, processCampaigns } from '../services/push.js';
 import { saveUpload } from '../services/core.js';
@@ -41,19 +42,29 @@ export function adminRoutes(db) {
   r.get('/ping', (req, res) => res.json({ ok: true }));
   const one = (sql, ...a) => db.prepare(sql).pluck().get(...a) || 0;
 
-  const freshForAdmin = (req, res, next) => (req.body?.role === 'admin' ? fresh(req, res, next) : next());
+  // Main admin: when set, only that admin adds, turns off or edits other admins. Empty = any admin may (as before).
+  const mainPhone = () => getSetting(db, 'main_admin_phone') || '';
+  const isMain = (req) => !mainPhone() || req.user.phone === mainPhone();
+  const MAIN_ONLY = 'Only the main admin can manage admin logins.';
+  const freshForAdmin = (req, res, next) => { if (req.body?.role !== 'admin') return next(); if (!isMain(req)) return res.status(403).json({ error: MAIN_ONLY }); fresh(req, res, next); };
+  const EMAIL = z.string().trim().toLowerCase().max(120).regex(/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/, 'Enter a valid e-mail address.');
+  const welcome = (u) => sendMail(u.email, { subject: 'You are now a Pakka Local admin', tag: 'pakka-admin-welcome',
+    text: `Hi ${u.name},\n\nYou have been added as an admin of Pakka Local.\nSign in at ${(process.env.PUBLIC_SITE_URL || 'https://pakkalocal.online').replace(/\/$/, '')}/admin/ with your mobile number ${u.phone.replace(/^\+91/, '')} and the password you were given.\n\nThis e-mail address is used if you ever forget your password: tap "Forgot password?" on the sign-in page and we will send a code here.\n\nIf this was not expected, reply to let us know.` });
   r.post('/users', freshForAdmin, wrap((req, res) => {
-    const d = parse(z.object({ role: z.enum(['restaurant', 'rider', 'admin']), name: z.string().trim().min(1).max(80), phone: z.string().trim().regex(/^\+[1-9]\d{9,14}$/, 'Use international format, e.g. +919876543210'),
+    if (req.body && /^\d{10}$/.test(String(req.body.phone || '').replace(/[\s-]/g, ''))) req.body.phone = '+91' + String(req.body.phone).replace(/[\s-]/g, '');      // 10-digit Indian numbers without +91
+    const d = parse(z.object({ role: z.enum(['restaurant', 'rider', 'admin']), name: z.string().trim().min(1).max(80), phone: z.string().trim().regex(/^\+[1-9]\d{9,14}$/, 'Enter a 10-digit mobile number'), email: EMAIL.optional(),
       password: z.string().min(10).max(128), restaurant_id: z.number().int().positive().optional(), approve_now: z.any().optional() }), req, res); if (!d) return;
     if (d.role === 'restaurant' && !db.prepare('SELECT 1 FROM restaurants WHERE id = ?').get(d.restaurant_id)) return res.status(400).json({ error: 'A valid restaurant_id is required for restaurant accounts.' });
     if (db.prepare('SELECT 1 FROM users WHERE phone = ? AND role = ?').get(d.phone, d.role)) return res.status(409).json({ error: `That mobile number already has a ${{ restaurant: 'restaurant login', rider: 'delivery-agent account', admin: 'admin account' }[d.role]}.` });      // the same number may also be a customer or another kind of account
+    if (d.role === 'admin' && !d.email) return res.status(400).json({ error: 'Add the admin\'s e-mail address. It is used to reset their password.' });
     const id = db.transaction(() => {
-      const uid = db.prepare('INSERT INTO users (role, phone, name, password_hash) VALUES (?,?,?,?)').run(d.role, d.phone, d.name, bcrypt.hashSync(d.password, 12)).lastInsertRowid;
+      const uid = db.prepare('INSERT INTO users (role, phone, name, password_hash, email) VALUES (?,?,?,?,?)').run(d.role, d.phone, d.name, bcrypt.hashSync(d.password, 12), d.role === 'admin' ? d.email : null).lastInsertRowid;
       if (d.role === 'restaurant') db.prepare('INSERT INTO restaurant_users VALUES (?,?)').run(uid, d.restaurant_id);
       if (d.role === 'rider') db.prepare("INSERT INTO riders (user_id, verification_status) VALUES (?, 'draft')").run(uid);   // every agent completes and submits the application; there is no shortcut to approved
       audit(db, req, 'user.create', 'user', uid, { role: d.role }); return uid;
     })();
-    res.status(201).json({ id });
+    if (d.role === 'admin') welcome({ name: d.name, phone: d.phone, email: d.email }).catch((e) => console.error('Admin welcome e-mail failed:', e.message));
+    res.status(201).json({ id, email_ready: d.role === 'admin' ? mailReady() : undefined });
   }));
 
   // overview
@@ -326,7 +337,8 @@ export function adminRoutes(db) {
     if (!['restaurant', 'rider'].includes(u.role)) return res.status(403).json({ error: 'Only restaurant and delivery-agent logins can be reset here.' });
     db.prepare('UPDATE users SET password_hash=?, failed_logins=0, locked_until=NULL, token_version=token_version+1 WHERE id=?').run(bcrypt.hashSync(d.password, 12), u.id);
     audit(db, req, 'user.password_reset', 'user', u.id, { role: u.role }); res.json({ ok: true }); }));
-  const freshIfAdminTarget = (req, res, next) => (db.prepare('SELECT role FROM users WHERE id=?').pluck().get(req.params.id) === 'admin' ? fresh(req, res, next) : next());
+  const freshIfAdminTarget = (req, res, next) => { const t = db.prepare('SELECT role, phone FROM users WHERE id=?').get(req.params.id); if (t?.role !== 'admin') return next();
+    if (!isMain(req)) return res.status(403).json({ error: MAIN_ONLY }); if (t.phone === mainPhone()) return res.status(400).json({ error: 'The main admin cannot be turned off.' }); fresh(req, res, next); };
   r.post('/users/:id/active', freshIfAdminTarget, wrap((req, res) => { const a = req.body?.active ? 1 : 0; if (Number(req.params.id) === req.user.id) return res.status(400).json({ error: 'You cannot deactivate your own account.' });
     db.prepare('UPDATE users SET active=?, token_version=token_version+1 WHERE id=?').run(a, req.params.id); audit(db, req, 'user.active', 'user', req.params.id, { active: a }); res.json({ ok: true }); }));
 
@@ -427,8 +439,25 @@ export function adminRoutes(db) {
     for (const [k, v] of Object.entries(s)) setSetting(db, k, v);
     if (Object.keys(changed).length) audit(db, req, changed.gps_delivery_fee_paise || changed.gps_per_km_paise || changed.gps_min_fee_paise || changed.gps_max_km ? 'settings.gps_fee_change' : 'settings.update', 'settings', null, { changed });      // exact old -> new values
     res.json({ ok: true, changed }); }));
+  // own account: e-mail (for password reset) and password change (needs the current password)
+  r.put('/me/email', wrap((req, res) => { const d = parse(z.object({ email: EMAIL }), req, res); if (!d) return;
+    db.prepare('UPDATE users SET email=? WHERE id=?').run(d.email, req.user.id); audit(db, req, 'admin.email_update', 'user', req.user.id); res.json({ ok: true }); }));
+  r.post('/me/password', fresh, wrap((req, res) => { const d = parse(z.object({ password: z.string().min(10, 'Use at least 10 characters.').max(128) }), req, res); if (!d) return;
+    db.prepare('UPDATE users SET password_hash=?, token_version=token_version+1 WHERE id=?').run(bcrypt.hashSync(d.password, 12), req.user.id);
+    audit(db, req, 'admin.password_change', 'user', req.user.id); res.json({ ok: true }); }));
+  // main admin edits another admin's name / e-mail
+  r.put('/admins/:id(\\d+)', wrap((req, res) => { if (!isMain(req)) return res.status(403).json({ error: MAIN_ONLY });
+    const d = parse(z.object({ name: z.string().trim().min(1).max(80).optional(), email: EMAIL.optional() }), req, res); if (!d) return;
+    const u = db.prepare("SELECT id FROM users WHERE id=? AND role='admin'").get(req.params.id); if (!u) return res.status(404).json({ error: 'Admin not found.' });
+    if (d.name) db.prepare('UPDATE users SET name=? WHERE id=?').run(d.name, u.id); if (d.email) db.prepare('UPDATE users SET email=? WHERE id=?').run(d.email, u.id);
+    audit(db, req, 'admin.update', 'user', u.id, { name: d.name, email: !!d.email }); res.json({ ok: true }); }));
+  // choose the main admin (only the current main admin, or anyone while none is set); must be an active admin
+  r.put('/admins/main', fresh, wrap((req, res) => { if (!isMain(req)) return res.status(403).json({ error: MAIN_ONLY });
+    let p = String(req.body?.phone || '').replace(/[\s-]/g, ''); if (/^\d{10}$/.test(p)) p = '+91' + p;
+    if (!db.prepare("SELECT 1 FROM users WHERE phone=? AND role='admin' AND active=1").get(p)) return res.status(400).json({ error: 'That number is not an active admin. Add them as an admin first.' });
+    setSetting(db, 'main_admin_phone', p); audit(db, req, 'admin.main_set', 'setting', 'main_admin_phone', { phone: p }); res.json({ ok: true }); }));
   // Admin team: every admin login with how much they have done and when they last acted (from the audit log)
-  r.get('/admins', (req, res) => res.json({ me: req.user.id, admins: db.prepare(`SELECT u.id,u.name,u.phone,u.username,u.active,u.mfa_enabled,u.created_at,
+  r.get('/admins', (req, res) => res.json({ me: req.user.id, main_phone: mainPhone() || null, can_manage: isMain(req), email_ready: mailReady(), admins: db.prepare(`SELECT u.id,u.name,u.phone,u.email,u.username,u.active,u.mfa_enabled,u.created_at,
       (SELECT COUNT(*) FROM audit_logs a WHERE a.actor_user_id=u.id) AS actions, (SELECT MAX(a.created_at) FROM audit_logs a WHERE a.actor_user_id=u.id) AS last_action
       FROM users u WHERE u.role='admin' ORDER BY u.id`).all() }));
   // Audit log: who did what, on whom. ?actor=<admin id> for one admin, ?kind=decisions for approvals / rejections / cancellations / refunds / payouts.

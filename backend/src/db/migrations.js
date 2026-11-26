@@ -774,5 +774,20 @@ ALTER TABLE users_new RENAME TO users;
 CREATE INDEX idx_users_role ON users(role);
 CREATE INDEX idx_users_phone ON users(phone);
 CREATE UNIQUE INDEX idx_users_username ON users(username) WHERE username IS NOT NULL;`
+  },
+  {
+    // Admin "Forgot password?": a 6-digit code e-mailed to the admin's address (hashed, 10 minutes, single use, 5 tries)
+    id: 'p15_001_admin_reset',
+    sql: `
+CREATE TABLE admin_reset_codes (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  code_hash TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  used INTEGER NOT NULL DEFAULT 0,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX idx_admin_reset_user ON admin_reset_codes(user_id, id);`
   }
 ];

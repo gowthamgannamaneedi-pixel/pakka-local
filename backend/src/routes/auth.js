@@ -1,3 +1,5 @@
+import { sendMail } from '../emailProviders.js';
+import { wrapA } from './util.js';
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'node:crypto';
@@ -25,6 +27,39 @@ export function authRoutes(db) {
 
   // Staff login (restaurant / rider / admin). `portal` must match the account's role, so a
   // rider cannot obtain a session through the admin login form, and vice versa.
+  // Admin "Forgot password?": code to the admin's e-mail, then a new password. The reply never says whether the number exists.
+  const resetHash = (uid, code) => crypto.createHmac('sha256', config.jwtSecret).update(`admin-reset:${uid}:${code}`).digest('hex');
+  const adminByPhone = (raw) => { let p = String(raw || '').replace(/[\s-]/g, ''); if (/^\d{10}$/.test(p)) p = '+91' + p;
+    return db.prepare("SELECT id, name, email, active FROM users WHERE phone = ? AND role = 'admin'").get(p); };
+  const GENERIC = 'If this number has an admin account with an e-mail address, we have sent a 6-digit code to it. It works for 10 minutes.';
+  r.post('/admin/reset/request', limiter(8), wrapA(async (req, res) => {
+    const u = adminByPhone(req.body?.phone);
+    if (!u || !u.active || !u.email) return res.json({ ok: true, message: GENERIC });
+    const last = db.prepare('SELECT created_at FROM admin_reset_codes WHERE user_id=? ORDER BY id DESC LIMIT 1').pluck().get(u.id);
+    if (last && Date.now() - Date.parse(last) < 60_000) return res.json({ ok: true, message: GENERIC });
+    const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
+    db.prepare('UPDATE admin_reset_codes SET used=1 WHERE user_id=? AND used=0').run(u.id);
+    const id = db.prepare('INSERT INTO admin_reset_codes (user_id, code_hash, expires_at) VALUES (?,?,?)').run(u.id, resetHash(u.id, code), new Date(Date.now() + 10 * 60_000).toISOString()).lastInsertRowid;
+    try { await sendMail(u.email, { subject: `${code} is your Pakka Local admin reset code`, tag: 'pakka-admin-reset',
+      text: `Hi ${u.name},\n\nYour code to set a new Pakka Local admin password is ${code}.\nIt works once, for 10 minutes.\n\nIf you did not ask for this, ignore this e-mail; your password stays the same.`,
+      html: `<p>Hi ${u.name.replace(/[<>&]/g, '')},</p><p>Your code to set a new <b>Pakka Local admin</b> password is</p><p style="font-size:26px;font-weight:700;letter-spacing:5px">${code}</p><p>It works once, for 10 minutes. If you did not ask for this, ignore this e-mail; your password stays the same.</p>` }); }
+    catch (e) { db.prepare('UPDATE admin_reset_codes SET used=1 WHERE id=?').run(id); console.error('Admin reset e-mail failed:', e.message); return res.status(502).json({ error: 'We could not send the e-mail right now. Please try again in a few minutes.' }); }
+    res.json({ ok: true, message: GENERIC });
+  }));
+  r.post('/admin/reset/verify', limiter(15), (req, res) => {
+    const d = z.object({ phone: z.string().max(20), code: z.string().regex(/^\d{6}$/, 'Enter the 6-digit code.'), password: z.string().min(10, 'Use at least 10 characters.').max(128) }).safeParse(req.body);
+    if (!d.success) return res.status(400).json({ error: d.error.issues[0].message });
+    const bad = () => res.status(400).json({ error: 'That code is incorrect or has expired.' });
+    const u = adminByPhone(d.data.phone); if (!u || !u.active) return bad();
+    const c = db.prepare('SELECT * FROM admin_reset_codes WHERE user_id=? AND used=0 ORDER BY id DESC LIMIT 1').get(u.id);
+    if (!c || c.expires_at < new Date().toISOString() || c.attempts >= 5) return bad();
+    db.prepare('UPDATE admin_reset_codes SET attempts=attempts+1 WHERE id=?').run(c.id);
+    if (!crypto.timingSafeEqual(Buffer.from(c.code_hash), Buffer.from(resetHash(u.id, d.data.code)))) return bad();
+    db.transaction(() => { db.prepare('UPDATE admin_reset_codes SET used=1 WHERE id=?').run(c.id);
+      db.prepare('UPDATE users SET password_hash=?, failed_logins=0, locked_until=NULL, token_version=token_version+1 WHERE id=?').run(bcrypt.hashSync(d.data.password, 12), u.id);
+      db.prepare("INSERT INTO audit_logs (actor_user_id, actor_role, action, target_type, target_id, metadata) VALUES (?, 'admin', 'admin.password_reset_email', 'user', ?, NULL)").run(u.id, u.id); })();
+    res.json({ ok: true });
+  });
   r.post('/login', limiter(20), (req, res) => {
     // Admins may sign in with their username instead of the mobile number; every other check below is the same.
     const p = z.object({ portal: z.enum(['restaurant', 'rider', 'admin']), phone: z.string().trim().max(40).optional(), username: z.string().trim().toLowerCase().max(40).optional(),

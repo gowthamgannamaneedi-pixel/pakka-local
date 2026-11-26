@@ -8,7 +8,7 @@ test.after(() => W.close());
 const NEWPW = 'second-admin-pass-1';
 
 test('creating an admin needs the current admin password; the new admin signs in and is listed', async () => {
-  const body = { role: 'admin', name: 'Priya Admin', phone: '+919876500011', password: NEWPW };
+  const body = { role: 'admin', name: 'Priya Admin', phone: '+919876500011', email: 'priya@example.com', password: NEWPW };
   assert.equal((await W.call('POST', '/api/admin/users', body, W.admin)).status, 401, 'must confirm with own password');
   assert.equal((await W.call('POST', '/api/admin/users', { ...body, reauth_password: PW }, W.admin)).status, 201);
   const login = await W.call('POST', '/api/auth/login', { portal: 'admin', phone: body.phone, password: NEWPW }); assert.equal(login.status, 200);

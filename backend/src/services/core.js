@@ -30,7 +30,8 @@ const DEFAULTS = { tax_bps: '0', gps_delivery_fee_paise: '4000', rider_payout_pa
   // one personalised notification a day for each customer ('0' switches it off)
   daily_notify_enabled: '1',
   test_orders_everyone: '0',
-  maintenance_mode: '0',              // 1 = customers see a maintenance screen and cannot place new orders; orders in progress, restaurants and riders carry on
+  maintenance_mode: '0',
+  main_admin_phone: '',               // the one admin who adds / turns off other admins (empty = any admin may)              // 1 = customers see a maintenance screen and cannot place new orders; orders in progress, restaurants and riders carry on
   maintenance_message: '',            // optional text shown to customers while maintenance is on          // staging only: 1 = every signed-in customer may place test-payment orders, not just SANDBOX_PAYMENT_PHONES
   // Rider pay per delivery by distance (restaurant -> customer, every metre, rounded off to the rupee). Empty = same rate as the
   // GPS per-km charge; if that is empty too, the fixed rider_payout_paise applies. Optional minimum per delivery.

@@ -29,3 +29,18 @@ const providers = {
   }
 };
 export const getEmailProvider = () => providers[config.emailOtp.provider] || null;
+
+// Any other e-mail (admin welcome, admin password-reset code). Works whether or not the staging e-mail LOGIN is switched on.
+export const testMailOutbox = [];
+export const mailReady = () => config.emailOtp.provider === 'test' || (!!config.emailOtp.apiKey && /\S+@\S+\.\S+/.test(config.emailOtp.from || ''));
+export async function sendMail(to, { subject, text, html, tag = 'pakka-admin' }) {
+  if (config.emailOtp.provider === 'test') { testMailOutbox.push({ to, subject, text }); return; }
+  const e = config.emailOtp; if (!mailReady()) throw new Error('E-mail is not set up on this server.');
+  const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 10_000);
+  try {
+    const r = await fetch(e.apiUrl, { method: 'POST', signal: ctl.signal, headers: { 'api-key': e.apiKey, 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ sender: { email: e.from, name: e.fromName || 'Pakka Local' }, to: [{ email: to }], subject, textContent: text, htmlContent: html || `<p>${text.replace(/\n/g, '<br>')}</p>`, tags: [tag] }) });
+    if (!r.ok) throw new Error(`Email provider refused the message (HTTP ${r.status})`);
+  } catch (err) { throw new Error(err.name === 'AbortError' ? 'Email provider timed out' : err.message); }
+  finally { clearTimeout(t); }
+}

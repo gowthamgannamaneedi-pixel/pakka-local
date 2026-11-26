@@ -648,3 +648,21 @@ body.p-admin .tbl td .btn.sm{white-space:nowrap}
 .a-thread{display:flex;flex-direction:column;gap:12px;max-height:55vh;overflow-y:auto;background:var(--tile)}
 .a-msg{max-width:80%;display:flex;flex-direction:column;gap:3px}.a-msg .b{padding:10px 13px;border-radius:14px;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.06);line-height:1.45}
 .a-msg.me{align-self:flex-end;align-items:flex-end}.a-msg.me .b{background:var(--brand);color:#fff}
+
+/* admin team */
+.tm-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.tm-me{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:14px 16px;border-radius:16px;background:linear-gradient(90deg,#fff6ee,#fff);border:1px solid var(--line)}
+.tm-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(320px,1fr))}
+.tm-card{display:grid;grid-template-columns:auto 1fr;gap:12px 14px;padding:16px;border-radius:18px;background:var(--card,#fff);border:1px solid var(--line);box-shadow:0 6px 18px rgba(20,20,40,.05)}
+.tm-card.off{opacity:.62}
+.tm-av{width:48px;height:48px;border-radius:50%;display:grid;place-items:center;font:800 1rem var(--font);color:#fff;background:linear-gradient(135deg,#f27a1a,#d4500f)}
+.tm-av.main{background:linear-gradient(135deg,#7c3aed,#d6247a);box-shadow:0 0 0 3px #f3e8ff}
+.tm-name{font-weight:800;font-size:1.02rem;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.tm-badge{font:700 .68rem var(--font);padding:3px 8px;border-radius:999px;background:#f1f2f4;color:#475467}
+.tm-badge.main{background:#f3e8ff;color:#6b21a8}.tm-badge.ok{background:#e7f6ec;color:#1a7f37}.tm-badge.off{background:#fde8e8;color:#b42318}
+.tm-line{font-size:.84rem;color:var(--mute);margin-top:4px;word-break:break-all}
+.tm-line .warn-t{color:#b54708;font-weight:600}
+.tm-stats{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;font-size:.78rem;color:var(--mute)}
+.tm-act{grid-column:1/-1;display:flex;gap:6px;flex-wrap:wrap;padding-top:10px;border-top:1px dashed var(--line)}
+.field.ph91{display:flex;align-items:center}.field.ph91 .cc{padding:0 10px;font-weight:700;color:var(--mute)}.field.ph91 input{flex:1}
+.linkbtn{border:0;background:none;color:var(--brand,#d4500f);font-weight:700;cursor:pointer;padding:4px}
