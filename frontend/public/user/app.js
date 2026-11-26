@@ -365,9 +365,16 @@
   }
   const repPic = (i) => dishPic(i.name);
   // friendly bill lines: fees other apps add that Pakka Local doesn't (a different line each day, our own words)
-  const QUIPS = { platform: ['We don’t do that', 'Not our style', 'Zero. Always.', 'Never heard of it'], packing: ['On the house', 'Packed with love, free', 'Not on our watch', 'Nope, never'] };
-  const quip = (k) => QUIPS[k][new Date().getDate() % QUIPS[k].length];
-  const noFees = () => `<div class="kv nofee"><span><s>Platform fee</s></span><span class="quip">${quip('platform')}</span></div><div class="kv nofee"><span><s>Packaging charge</s></span><span class="quip">${quip('packing')}</span></div>`;
+  // Only fees Pakka Local really never charges (no platform, packaging, convenience or small-cart fee exists in the app).
+  const QUIPS = {
+    platform: ['We don’t charge you for opening an app 😌', '₹0. Pinky promise 🤙', 'Left it at the kitchen door 🚪', 'Our app, our treat 💛', 'Zero. Today, tomorrow, always ✨', 'Fees for scrolling? Not in this town 😄', 'Not our style, never will be 😎'],
+    packing: ['The box is on us 📦', 'Wrapped with love, billed with none 💛', 'Packed tight, priced right: ₹0 🎁', 'Your biryani’s jacket is free 🧥', 'We pack it, we pay for it 🤝', 'Containers come free, hugs too 🤗', 'Pack charges? Never packed those 😏'],
+    convenience: ['Convenience should be free, so it is ✨', 'Easy ordering, zero extra 🙌', 'Inconvenient fee? Skipped 🙅', 'Tap, eat, repeat. Free 🔁', 'The only convenience fee is your smile 😁', 'Ordering made easy, not pricey 💸', 'Couch to kitchen, no extra charge 🛋️'],
+  };
+  const quip = (k) => { const d = new Date(), i = (d.getDate() * 3 + d.getHours() + (k === 'packing' ? 2 : k === 'convenience' ? 5 : 0)) % QUIPS[k].length; return QUIPS[k][i]; };
+  const SAVED = ['No sneaky fees. Just good food 🍛', 'You just skipped 3 fees other apps love 🎉', 'Honest bill, happy belly 😋', 'What you see is what you pay 👀', 'Local food, fair price 🏡'];
+  const noFees = () => `<div class="kv nofee"><span><s>Platform fee</s></span><span class="quip">${quip('platform')}</span></div><div class="kv nofee"><span><s>Packaging charge</s></span><span class="quip">${quip('packing')}</span></div><div class="kv nofee"><span><s>Convenience fee</s></span><span class="quip">${quip('convenience')}</span></div>`;
+  const savedNote = () => `<div class="u-saved">${SAVED[(new Date().getDate() + new Date().getHours()) % SAVED.length]}</div>`;
   PL.actions['why-delivery'] = () => PL.modal(`<h3>Why a delivery charge?</h3><p class="mt2">It goes to the delivery partner who rides from the kitchen to your door. Kitchens closer to you cost less to deliver from.</p>
     <div class="u-note info mt">${I('info')}<span>No platform fee and no packaging charge. Your bill shows every rupee before you pay.</span></div><button class="btn block mt" data-act="close-modal">Got it</button>`);
   PL.actions['close-modal'] = () => PL.closeModal();      // dish has no photo of its own: a photo of its kind, labelled as such
@@ -439,7 +446,7 @@
         ${noFees()}
         ${q.delivery_fallback ? `<div class="u-note info small">${I('info')}<span>We couldn’t measure the road distance right now, so the standard delivery charge applies.</span></div>` : ''}${q.surge_paise ? `<div class="kv"><span>Surge charge</span><span>${rs(q.surge_paise)}</span></div>` : ''}${q.tax_paise ? `<div class="kv"><span>Taxes</span><span>${rs(q.tax_paise)}</span></div>` : ''}
         ${q.discount_paise ? `<div class="kv save"><span>Coupon ${e(q.coupon_code)}<small>Paid by Pakka Local</small></span><span>− ${rs(q.discount_paise)}</span></div>` : ''}
-        <div class="kv tot"><span>To pay</span><span>${rs(q.total_paise)}</span></div></div>${q.trip_km != null ? `<div class="u-trip">${I('nav')}<span>${q.trip_by_road ? `<b>${q.trip_km} km</b> by road from ${e(S.cart.rname)}` : `About <b>${q.trip_km} km</b> from ${e(S.cart.rname)} <small>(straight line)</small>`}</span></div>` : ''}<div class="small mute">Estimated delivery in ~${q.prep_min + 8 + q.delivery_min} min${q.trip_km != null ? '' : ' (restaurant location not set)'}</div></div>` : '';
+        <div class="kv tot"><span>To pay</span><span>${rs(q.total_paise)}</span></div>${savedNote()}</div>${q.trip_km != null ? `<div class="u-trip">${I('nav')}<span>${q.trip_by_road ? `<b>${q.trip_km} km</b> by road from ${e(S.cart.rname)}` : `About <b>${q.trip_km} km</b> from ${e(S.cart.rname)} <small>(straight line)</small>`}</span></div>` : ''}<div class="small mute">Estimated delivery in ~${q.prep_min + 8 + q.delivery_min} min${q.trip_km != null ? '' : ' (restaurant location not set)'}</div></div>` : '';
     // compact "Deliver to" card; the full chooser opens only when changing it
     const open = !sel || S.addrOpen, spl = sel && placeOf(sel);
     const deliver = open ? `<div class="u-box u-deliver" id="u-deliver"><div class="row between"><h3>${I('pin')} Deliver to</h3>${sel ? '<button class="btn ghost sm" data-act="addr-done">Done</button>' : ''}</div>${addrPart}</div>`
