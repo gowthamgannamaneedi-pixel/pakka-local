@@ -666,3 +666,6 @@ body.p-admin .tbl td .btn.sm{white-space:nowrap}
 .tm-act{grid-column:1/-1;display:flex;gap:6px;flex-wrap:wrap;padding-top:10px;border-top:1px dashed var(--line)}
 .field.ph91{display:flex;align-items:center}.field.ph91 .cc{padding:0 10px;font-weight:700;color:var(--mute)}.field.ph91 input{flex:1}
 .linkbtn{border:0;background:none;color:var(--brand,#d4500f);font-weight:700;cursor:pointer;padding:4px}
+
+.area-map{width:100%;height:340px;border-radius:14px;margin-top:12px;border:1px solid var(--line);overflow:hidden;z-index:0}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle;margin-right:3px}.dot.in{background:#22c55e}.dot.out{background:#d0d5dd}
