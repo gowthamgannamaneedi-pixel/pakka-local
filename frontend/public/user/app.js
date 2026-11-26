@@ -260,18 +260,19 @@
     storm: '<svg viewBox="0 0 48 48" class="wi storm"><path d="M14 28h20a8 8 0 0 0 0-16 11 11 0 0 0-21-2A9 9 0 0 0 14 28z"/><path class="bt" d="M25 29l-5 9h5l-3 7 8-10h-5l3-6z"/></svg>',
   };
   const MOOD = {
-    morning: { icon: 'sun', title: 'Good morning', line: 'Start easy. Idli, dosa and a hot chai.', picks: [['idli', 'Idli'], ['dosa', 'Dosa'], ['chai', 'Chai'], ['paratha', 'Paratha']] },
-    noon: { icon: 'sun', title: 'Lunch time', line: 'Biryani, meals and curries from kitchens near you.', picks: [['biryani', 'Biryani'], ['thali', 'Meals'], ['curry', 'Curry'], ['fried_rice', 'Fried rice']] },
-    evening: { icon: 'sun', title: 'Evening snacks?', line: 'Something crispy with your chai.', picks: [['pakoda', 'Pakoda'], ['chai', 'Chai'], ['momos', 'Momos'], ['rolls', 'Rolls']] },
-    night: { icon: 'moon', title: 'Dinner’s sorted', line: 'Hot food, live tracking, no extra fees.', picks: [['biryani', 'Biryani'], ['naan', 'Naan'], ['chicken_curry', 'Chicken'], ['noodles', 'Noodles']] },
-    late: { icon: 'moon', title: 'Up late?', line: 'Kitchens that are still open are listed below.', picks: [['biryani', 'Biryani'], ['fried_rice', 'Fried rice'], ['noodles', 'Noodles'], ['shakes', 'Shakes']] },
+    morning: { icon: 'sun', title: 'Rise & dine.', line: 'Idli, dosa and chai, hot at your door.', picks: [['dosa', 'Dosa'], ['idli', 'Idli'], ['chai', 'Chai'], ['paratha', 'Paratha']] },
+    noon: { icon: 'sun', title: 'Lunch is calling.', line: 'Biryani and meals from kitchens near you.', picks: [['biryani', 'Biryani'], ['thali', 'Meals'], ['curry', 'Curry'], ['fried_rice', 'Fried rice']] },
+    evening: { icon: 'sun', title: 'Snack o’clock.', line: 'Chai, something crispy, or both?', picks: [['chai', 'Chai'], ['pakoda', 'Pakoda'], ['momos', 'Momos'], ['rolls', 'Rolls']] },
+    night: { icon: 'moon', title: 'Dinner, sorted.', line: 'Hot food, live tracking, zero extra fees.', picks: [['biryani', 'Biryani'], ['chicken_curry', 'Chicken'], ['naan', 'Naan'], ['noodles', 'Noodles']] },
+    late: { icon: 'moon', title: 'Midnight cravings?', line: 'These kitchens are still open.', picks: [['biryani', 'Biryani'], ['fried_rice', 'Fried rice'], ['noodles', 'Noodles'], ['shakes', 'Shakes']] },
   };
   const WXMOOD = {
-    rain: { icon: 'rain', title: 'It’s raining outside', line: 'Stay in. We’ll bring it hot. Deliveries may take a little longer in the rain.', picks: [['chai', 'Chai'], ['pakoda', 'Pakoda'], ['noodles', 'Noodles'], ['biryani', 'Biryani']] },
-    storm: { icon: 'storm', title: 'Stormy out there', line: 'Stay safe indoors. Our riders take the safe road, so allow a few extra minutes.', picks: [['chai', 'Chai'], ['pakoda', 'Pakoda'], ['curry', 'Curry'], ['biryani', 'Biryani']] },
-    fog: { icon: 'cloud', title: 'Foggy morning', line: 'A hot chai fixes most things.', picks: [['chai', 'Chai'], ['idli', 'Idli'], ['dosa', 'Dosa'], ['omelette', 'Omelette']] },
-    hot: { icon: 'sun', title: 'Too hot to step out', line: 'Stay cool. Shakes, juices and curd rice, delivered.', picks: [['shakes', 'Shakes'], ['curd_rice', 'Curd rice'], ['sweets', 'Sweets'], ['cakes', 'Cakes']] },
+    rain: { icon: 'rain', title: 'Rain outside.\n{dish} inside.', line: 'We’ll bring it hot. Rain can slow riders a little.', picks: [['chai', 'Chai'], ['pakoda', 'Pakoda'], ['noodles', 'Noodles'], ['biryani', 'Biryani']] },
+    storm: { icon: 'storm', title: 'Stay in.\nStay dry.', line: 'Riders take the safe road. Allow a few extra minutes.', picks: [['chai', 'Chai'], ['pakoda', 'Pakoda'], ['curry', 'Curry'], ['biryani', 'Biryani']] },
+    fog: { icon: 'cloud', title: 'Foggy start?', line: 'A hot chai fixes most things.', picks: [['chai', 'Chai'], ['idli', 'Idli'], ['dosa', 'Dosa'], ['omelette', 'Omelette']] },
+    hot: { icon: 'sun', title: 'Too hot to\nstep out.', line: 'Cool shakes and curd rice, delivered.', picks: [['shakes', 'Shakes'], ['curd_rice', 'Curd rice'], ['sweets', 'Sweets'], ['cakes', 'Cakes']] },
   };
+  const WXWORD = { clear: 'Clear', clouds: 'Cloudy', fog: 'Foggy', drizzle: 'Drizzle', rain: 'Rain', storm: 'Storm', hot: 'Hot' };
   const moodNow = (wx) => {
     const part = PV.get('mood') || dayPart(), cond = PV.get('wx') || wx?.condition || '', temp = PV.has('temp') ? Number(PV.get('temp')) : wx?.temp_c;
     const k = cond === 'storm' ? 'storm' : cond === 'rain' || cond === 'drizzle' ? 'rain' : cond === 'fog' && part === 'morning' ? 'fog' : temp >= 35 && (part === 'noon' || part === 'evening') ? 'hot' : '';
@@ -294,9 +295,17 @@
       if (out.length >= 4 || seen.has(k)) continue; seen.add(k); const re = reOf(k), hit = re && txt.match(re); if (!hit) continue;
       const w = hit[0].trim(); out.push([k, l, w.charAt(0).toUpperCase() + w.slice(1)]); }
     return out; };
-  const moodCard = (m, all = []) => { const picks = livePicks(m, all); return `<section class="u-mood" aria-label="${e(m.title)}">${sky(m)}
-      <div class="mh"><span class="ico">${WXI[m.icon] || WXI.sun}</span><span class="tx"><b>${e(m.title)}</b><small>${e(m.line)}</small></span>${Number.isFinite(m.temp) ? `<span class="tp">${Math.round(m.temp)}°</span>` : ''}</div>
-      ${picks.length ? `<div class="mp">${picks.map(([k, l, q], i) => `<button class="pk" data-act="mood-q" data-q="${e(q)}" style="--i:${i}"><img src="${catPic(k)}" alt="" loading="lazy"><span>${e(l)}</span></button>`).join('')}</div>` : ''}</section>`; };
+  const moodCard = (m, all = []) => { const picks = livePicks(m, all); if (!picks.length) return '';
+    const [hk, hl, hq] = picks[0], title = m.title.replace('{dish}', hl), cond = WXWORD[m.wx] || '', warm = m.wx === 'rain' || m.wx === 'storm' || m.wx === 'fog' || m.part === 'morning' || m.part === 'evening';
+    return `<section class="u-mood" aria-label="${e(title.replace('\n', ' '))}">
+      <div class="ph" style="background-image:url('${catPic(hk)}')" aria-hidden="true">${warm ? '<span class="steam"><i></i><i></i><i></i></span>' : ''}</div>
+      ${sky(m)}
+      <div class="body">
+        <span class="wx">${WXI[m.icon] || WXI.sun}${Number.isFinite(m.temp) ? `<b>${Math.round(m.temp)}°</b>` : ''}${cond ? `<span>${cond}</span>` : ''}</span>
+        <h2>${e(title).replace('\n', '<br>')}</h2><p>${e(m.line)}</p>
+        <div class="acts"><button class="cta" data-act="mood-q" data-q="${e(hq)}">Order ${e(hl.toLowerCase())} ${I('chev')}</button>
+          ${picks.slice(1, 4).map(([k, l, q], i) => `<button class="mini" data-act="mood-q" data-q="${e(q)}" style="--i:${i}" title="${e(l)}" aria-label="${e(l)}"><img src="${catPic(k)}" alt=""></button>`).join('')}</div>
+      </div></section>`; };
   // 3D depth: cards and banners tilt slightly toward the pointer (mouse / trackpad only; phones get a soft press instead)
   if (matchMedia('(hover:hover) and (pointer:fine)').matches && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
     let tEl = null;

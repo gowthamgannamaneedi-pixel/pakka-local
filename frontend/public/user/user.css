@@ -1030,51 +1030,65 @@ body.has-ibar:has(#nav.hide):has(.u-cartbar,.u-paybar) .u-ibar{bottom:calc(88px 
 @keyframes inudge{0%,100%{transform:none}50%{transform:translateX(4px)}}
 @keyframes idown{to{transform:translateY(40px);opacity:0}}
 
-/* =================== Moods: time of day + live weather =================== */
-.u-mood{--m1:#e2550f;--m2:#b8326a;position:relative;overflow:hidden;isolation:isolate;margin:14px 0 4px;padding:16px;border-radius:22px;color:#fff;
-  background:linear-gradient(135deg,var(--m1),var(--m2));box-shadow:0 12px 28px color-mix(in srgb,var(--m2) 28%,transparent);transition:transform .25s ease,box-shadow .25s ease;transform-style:preserve-3d}
-body[data-mood=morning] .u-mood{--m1:#f7a543;--m2:#e2550f}
-body[data-mood=noon] .u-mood{--m1:#f08a24;--m2:#d0450b}
-body[data-mood=evening] .u-mood{--m1:#e2550f;--m2:#9b2f5c}
-body[data-mood=night] .u-mood{--m1:#2a2350;--m2:#7a2f3f}
-body[data-mood=late] .u-mood{--m1:#16152e;--m2:#3b2350}
-body[data-wx=rain] .u-mood,body[data-wx=drizzle] .u-mood{--m1:#3c4a66;--m2:#5c4a6b}
-body[data-wx=storm] .u-mood{--m1:#252b3d;--m2:#43375a}
-body[data-wx=hot] .u-mood{--m1:#ffb02e;--m2:#e2550f}
-.u-mood .mh{position:relative;z-index:1;display:flex;align-items:center;gap:12px}
-.u-mood .ico{width:52px;height:52px;flex:none;display:grid;place-items:center;border-radius:16px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.22);backdrop-filter:blur(6px)}
-.u-mood .tx{flex:1;min-width:0}.u-mood .tx b{display:block;font:800 1.15rem/1.2 Manrope,var(--font);letter-spacing:-.01em}.u-mood .tx small{display:block;margin-top:3px;font-size:.84rem;line-height:1.35;opacity:.88}
-.u-mood .tp{flex:none;font:800 1.6rem/1 Manrope,var(--font);letter-spacing:-.03em;opacity:.95}
-.u-mood .mp{position:relative;z-index:1;display:flex;gap:8px;margin-top:14px;overflow-x:auto;scrollbar-width:none}.u-mood .mp::-webkit-scrollbar{display:none}
-.u-mood .pk{flex:none;display:flex;align-items:center;gap:8px;padding:5px 12px 5px 5px;border-radius:999px;border:1px solid rgba(255,255,255,.26);background:rgba(255,255,255,.14);color:#fff;font:700 .82rem var(--font);cursor:pointer;backdrop-filter:blur(6px);transition:background .2s,transform .2s}
-.u-mood .pk img{width:30px;height:30px;border-radius:50%;object-fit:cover;box-shadow:0 2px 6px rgba(0,0,0,.25)}
-.u-mood .pk:hover{background:rgba(255,255,255,.24)}.u-mood .pk:active{transform:scale(.96)}
+/* =================== Moods: time of day + live weather (photo-led hero card) =================== */
+.u-mood{--m1:#c2410c;--m2:#7c2d12;position:relative;overflow:hidden;isolation:isolate;margin:14px 0 6px;min-height:188px;border-radius:24px;color:#fff;
+  background:var(--m2);box-shadow:0 16px 34px -12px color-mix(in srgb,var(--m2) 70%,transparent);transition:transform .3s ease}
+body[data-mood=morning] .u-mood{--m1:#ea7a1a;--m2:#9a3412}
+body[data-mood=noon] .u-mood{--m1:#e2550f;--m2:#8a2c0a}
+body[data-mood=evening] .u-mood{--m1:#c2410c;--m2:#6b1d3a}
+body[data-mood=night] .u-mood{--m1:#3b2a6b;--m2:#1c1838}
+body[data-mood=late] .u-mood{--m1:#28224d;--m2:#100f24}
+body[data-wx=rain] .u-mood,body[data-wx=drizzle] .u-mood{--m1:#40506e;--m2:#1d2536}
+body[data-wx=storm] .u-mood{--m1:#2c3246;--m2:#111521}
+body[data-wx=hot] .u-mood{--m1:#f08a24;--m2:#9a3412}
+/* big food photo on the right, melting into the mood colour on the left */
+.u-mood .ph{position:absolute;inset:0 0 0 34%;background-size:cover;background-position:center;z-index:-2;transform:scale(1.04)}
+.u-mood::before{content:'';position:absolute;inset:0;z-index:-1;background:linear-gradient(90deg,var(--m2) 0%,var(--m2) 32%,color-mix(in srgb,var(--m2) 75%,transparent) 52%,color-mix(in srgb,var(--m1) 25%,transparent) 100%),linear-gradient(0deg,color-mix(in srgb,var(--m2) 55%,transparent),transparent 55%)}
+.u-mood .body{position:relative;z-index:2;display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:16px 16px 16px 18px;max-width:72%}
+.u-mood .wx{display:inline-flex;align-items:center;gap:6px;padding:4px 10px 4px 6px;border-radius:999px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.2);font:700 .74rem var(--font);backdrop-filter:blur(8px)}
+.u-mood .wx .wi{width:20px;height:20px}.u-mood .wx b{font:800 .85rem Manrope,var(--font)}.u-mood .wx span{opacity:.85;font-weight:600}
+.u-mood h2{margin:4px 0 0;color:#fff;font:800 1.6rem/1.08 Manrope,var(--font);letter-spacing:-.025em;text-shadow:0 2px 12px rgba(0,0,0,.25)}
+.u-mood p{margin:0;color:rgba(255,255,255,.9);font-size:.84rem;line-height:1.4;opacity:.86;max-width:30ch}
+.u-mood .acts{display:flex;align-items:center;gap:8px;margin-top:8px}
+.u-mood .cta{display:inline-flex;align-items:center;gap:4px;height:38px;padding:0 14px 0 16px;border:0;border-radius:999px;background:#fff;color:var(--m2);font:800 .85rem var(--font);cursor:pointer;box-shadow:0 6px 16px rgba(0,0,0,.25);transition:transform .2s}
+.u-mood .cta svg{width:16px;height:16px}.u-mood .cta:active{transform:scale(.96)}
+.u-mood .mini{width:38px;height:38px;padding:0;border-radius:50%;border:2px solid rgba(255,255,255,.85);overflow:hidden;cursor:pointer;background:#fff;box-shadow:0 4px 10px rgba(0,0,0,.25);transition:transform .2s}
+.u-mood .mini+.mini{margin-left:-14px}.u-mood .mini img{width:100%;height:100%;object-fit:cover;display:block}.u-mood .mini:hover{transform:translateY(-3px);z-index:1}
+@media (min-width:700px){.u-mood{min-height:210px}.u-mood .ph{left:45%}.u-mood h2{font-size:2rem}.u-mood .body{padding:22px 24px;max-width:60%}}
 /* weather icons */
 .wi{width:32px;height:32px;fill:none;stroke:#fff;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
 .wi.sun circle{fill:#ffd166;stroke:#ffd166}.wi.sun line{stroke:#ffd166}
 .wi.moon path{fill:#f3e9c6;stroke:#f3e9c6}.wi.moon .st{fill:#fff;stroke:none}
-.wi.cloud path,.wi.rain path,.wi.storm path{fill:rgba(255,255,255,.92);stroke:none}
+.wi.cloud path,.wi.rain path,.wi.storm path{fill:rgba(255,255,255,.95);stroke:none}
 .wi.rain line{stroke:#bfe3ff}.wi.storm .bt{fill:#ffd166;stroke:none}
-/* sky layers */
-.u-sky{position:absolute;inset:0;z-index:0;pointer-events:none;overflow:hidden;border-radius:inherit}
-.u-sky.rainy i{position:absolute;top:-20%;width:1.5px;height:18px;border-radius:2px;background:linear-gradient(transparent,rgba(210,230,255,.9));transform:rotate(12deg)}
+/* sky layers (over the photo, under the text) */
+.u-sky{position:absolute;inset:0;z-index:1;pointer-events:none;overflow:hidden;border-radius:inherit}
+.u-sky.rainy i{position:absolute;top:-20%;width:1.5px;height:20px;border-radius:2px;background:linear-gradient(transparent,rgba(220,235,255,.95));transform:rotate(12deg)}
+.u-sky.rainy::after{content:'';position:absolute;inset:0;background:radial-gradient(4px 4px at 70% 30%,rgba(255,255,255,.55),transparent),radial-gradient(3px 3px at 82% 62%,rgba(255,255,255,.5),transparent),radial-gradient(5px 5px at 60% 75%,rgba(255,255,255,.4),transparent),radial-gradient(3px 3px at 90% 18%,rgba(255,255,255,.5),transparent),radial-gradient(4px 4px at 76% 88%,rgba(255,255,255,.45),transparent)}
 .u-sky.rainy .flash{position:absolute;inset:0;background:#fff;opacity:0}
-.u-sky.starry i{position:absolute;border-radius:50%;background:#fff;opacity:.6}
-.u-sky.cloudy i{position:absolute;width:160px;height:50px;border-radius:50px;background:rgba(255,255,255,.12);filter:blur(2px)}
-.u-sky.cloudy i:nth-child(1){top:8%;left:-20%}.u-sky.cloudy i:nth-child(2){top:46%;left:30%;width:200px;opacity:.7}.u-sky.cloudy i:nth-child(3){top:70%;left:-10%;width:120px}
-.u-sky.sunny i{position:absolute;right:-40px;top:-50px;width:170px;height:170px;border-radius:50%;background:radial-gradient(circle,rgba(255,230,150,.55),transparent 65%)}
+.u-sky.starry i{position:absolute;border-radius:50%;background:#fff;opacity:.6;box-shadow:0 0 6px rgba(255,255,255,.8)}
+.u-sky.cloudy i{position:absolute;width:180px;height:54px;border-radius:54px;background:rgba(255,255,255,.14);filter:blur(3px)}
+.u-sky.cloudy i:nth-child(1){top:6%;left:-20%}.u-sky.cloudy i:nth-child(2){top:48%;left:30%;width:220px;opacity:.7}.u-sky.cloudy i:nth-child(3){top:72%;left:-10%;width:130px}
+.u-sky.sunny i{position:absolute;right:8%;top:-60px;width:220px;height:220px;border-radius:50%;background:radial-gradient(circle,rgba(255,226,150,.55),transparent 62%)}
+/* steam rising from the hot food photo */
+.u-mood .steam{position:absolute;left:58%;top:22%;width:60px;height:80px}
+.u-mood .steam i{position:absolute;bottom:0;width:14px;height:44px;border-radius:50%;background:radial-gradient(ellipse at center,rgba(255,255,255,.55),transparent 70%);filter:blur(4px);opacity:0}
+.u-mood .steam i:nth-child(1){left:6px}.u-mood .steam i:nth-child(2){left:22px}.u-mood .steam i:nth-child(3){left:38px}
 /* phones/tablets: the orange header follows the mood too */
 @media(max-width:999px){
-  body.c-home[data-mood=morning] .u-head{background:linear-gradient(160deg,#f7a543 0%,#e2550f 70%,#c8440c 100%)}
+  body.c-home[data-mood=morning] .u-head{background:linear-gradient(160deg,#f29a3a 0%,#e2550f 70%,#c8440c 100%)}
   body.c-home[data-mood=evening] .u-head{background:linear-gradient(160deg,#e2550f 0%,#b83a3f 60%,#8e2f5c 100%)}
-  body.c-home[data-mood=night] .u-head{background:linear-gradient(160deg,#2a2350 0%,#4a2a4e 55%,#7a2f3f 100%)}
-  body.c-home[data-mood=late] .u-head{background:linear-gradient(160deg,#16152e 0%,#2a2045 60%,#3b2350 100%)}
-  body.c-home[data-wx=rain] .u-head,body.c-home[data-wx=drizzle] .u-head{background:linear-gradient(160deg,#3c4a66 0%,#4b4a6a 60%,#5c4a6b 100%)}
-  body.c-home[data-wx=storm] .u-head{background:linear-gradient(160deg,#1f2433 0%,#2f3046 60%,#43375a 100%)}
+  body.c-home[data-mood=night] .u-head{background:linear-gradient(160deg,#2a2350 0%,#3b2a5e 55%,#5a2a4e 100%)}
+  body.c-home[data-mood=late] .u-head{background:linear-gradient(160deg,#16152e 0%,#221d40 60%,#2e2048 100%)}
+  body.c-home[data-wx=rain] .u-head,body.c-home[data-wx=drizzle] .u-head{background:linear-gradient(160deg,#3c4a66 0%,#34405a 60%,#2a3349 100%)}
+  body.c-home[data-wx=storm] .u-head{background:linear-gradient(160deg,#1f2433 0%,#262b3d 60%,#2c2f45 100%)}
 }
 @media (prefers-reduced-motion:no-preference){
-  .u-mood{animation:mdin .5s cubic-bezier(.2,.8,.2,1) both}
-  .u-mood .pk{animation:mdin .45s cubic-bezier(.2,.8,.2,1) calc(.15s + var(--i) * 70ms) both}
+  .u-mood{animation:mdin .55s cubic-bezier(.2,.8,.2,1) both}
+  .u-mood .ph{animation:mdzoom 14s ease-in-out infinite alternate}
+  .u-mood .wx{animation:mdin .45s ease-out .1s both}.u-mood h2{animation:mdin .5s cubic-bezier(.2,.8,.2,1) .18s both}.u-mood p{animation:mdin .5s ease-out .28s both}
+  .u-mood .cta{animation:mdin .5s ease-out .38s both}.u-mood .mini{animation:mdpop .45s cubic-bezier(.3,1.5,.5,1) calc(.5s + var(--i) * 80ms) both}
+  .u-mood .steam i{animation:mdsteam 3.2s ease-out infinite}.u-mood .steam i:nth-child(2){animation-delay:1.1s}.u-mood .steam i:nth-child(3){animation-delay:2.1s}
   .u-sky.rainy i{animation:mdrain .7s linear infinite}
   .u-sky.rainy .flash{animation:mdflash 7s ease-out 2s infinite}
   .u-sky.starry i{animation:mdtwinkle 3.2s ease-in-out infinite}
@@ -1087,7 +1101,10 @@ body[data-wx=hot] .u-mood{--m1:#ffb02e;--m2:#e2550f}
   .wi.storm .bt{animation:mdbolt 3.5s ease-in-out infinite}
 }
 @keyframes mdin{from{opacity:0;transform:translateY(10px)}}
-@keyframes mdrain{to{transform:translate(-22px,260px) rotate(12deg)}}
+@keyframes mdpop{from{opacity:0;transform:scale(.5)}}
+@keyframes mdzoom{from{transform:scale(1.04)}to{transform:scale(1.14) translateX(-8px)}}
+@keyframes mdsteam{0%{opacity:0;transform:translateY(10px) scaleX(.8)}25%{opacity:.8}100%{opacity:0;transform:translateY(-46px) scaleX(1.6)}}
+@keyframes mdrain{to{transform:translate(-22px,280px) rotate(12deg)}}
 @keyframes mdflash{0%,94%,100%{opacity:0}95%{opacity:.55}96%{opacity:.1}97%{opacity:.4}}
 @keyframes mdtwinkle{0%,100%{opacity:.25;transform:scale(.8)}50%{opacity:1;transform:scale(1.15)}}
 @keyframes mdcloud{from{transform:translateX(-40%)}to{transform:translateX(160%)}}
