@@ -522,13 +522,16 @@
   PL.forms['vg-phone-code'] = async (f) => { const r = await PL.run(() => P('/me/verify/phone/confirm', { code: f.code.value.trim() }), 'Mobile verified'); if (r) verifyGate().then(() => { if (!document.getElementById('vg')) location.reload(); }); };
   PL.actions['vg-out'] = () => { PL.stopAll?.(); PL.clearSession(); location.reload(); };
   const ini = (n) => String(n || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+  // verified / not verified pill on the Admin team cards
+  const MAIL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/></svg>';
+  const vBadge = (ok) => ok ? `<span class="tm-vb ok">${PL.icon('check')}Verified</span>` : `<span class="tm-vb off">${PL.icon('alert')}Not verified</span>`;
   async function team() { const { admins, me, main_phone: mp, can_manage: can, email_ready: mailOk } = await A('/admins');
     const mine = admins.find((a) => a.id === me) || {}, list = [...admins].sort((a, b) => (b.phone === mp) - (a.phone === mp) || b.active - a.active || a.id - b.id);
     const card = (a) => { const isMain = a.phone === mp, you = a.id === me;
       return `<div class="tm-card ${a.active ? '' : 'off'}"><div class="tm-av ${isMain ? 'main' : ''}">${e(ini(a.name))}</div>
         <div class="tm-body"><div class="tm-name">${e(a.name)} ${isMain ? '<span class="tm-badge main">★ Main admin</span>' : ''}${you ? '<span class="tm-badge">You</span>' : ''}${a.active ? '' : '<span class="tm-badge off">Turned off</span>'}${a.mfa_enabled ? '<span class="tm-badge ok">2-step on</span>' : ''}</div>
-          <div class="tm-line">📱 ${e(ph10(a.phone))}${a.username ? ` · @${e(a.username)}` : ''} ${a.phone_verified ? '<span class="tm-badge ok">✓ verified</span>' : '<span class="tm-badge off">not verified</span>'}</div>
-          <div class="tm-line">✉️ ${a.email ? e(a.email) : '<span class="warn-t">No e-mail yet</span>'} ${a.email ? (a.email_verified ? '<span class="tm-badge ok">✓ verified</span>' : '<span class="tm-badge off">not verified</span>') : ''}</div>
+          <div class="tm-line"><span class="ic">${PL.icon('phone')}</span><span class="v">${e(ph10(a.phone))}${a.username ? ` · @${e(a.username)}` : ''}</span>${vBadge(a.phone_verified)}</div>
+          <div class="tm-line"><span class="ic">${MAIL}</span>${a.email ? `<span class="v">${e(a.email)}</span>${vBadge(a.email_verified)}` : '<span class="v warn-t">No e-mail yet</span>'}</div>
           <div class="tm-stats"><span><b>${a.actions}</b> action${a.actions === 1 ? '' : 's'}</span><span>${a.last_action ? 'Last ' + PL.dt(a.last_action) : 'No actions yet'}</span></div></div>
         <div class="tm-act"><button class="btn ghost sm" data-act="adm-log" data-id="${a.id}">Activity</button>
           ${can && !you ? `<button class="btn ghost sm" data-act="adm-edit" data-id="${a.id}" data-n="${e(a.name)}" data-m="${e(a.email || '')}">Edit</button>` : ''}
@@ -538,7 +541,7 @@
         ${can ? `<button class="btn" data-act="adm-new">${PL.icon('plus', 'width="18" height="18"')} Add admin</button>` : ''}</div>
       ${mp ? '' : '<div class="banner warn mt2">No main admin is set yet, so every admin can add or turn off admins. Tap “Make main” on the right person.</div>'}
       ${!can ? '<div class="banner info mt2">Only the main admin can add, edit or turn off admins.</div>' : ''}${mailOk ? '' : '<div class="banner warn mt2">E-mail sending is not set up on this server, so welcome and password-reset e-mails cannot be sent.</div>'}
-      <div class="tm-me mt2"><div><b>My account</b><div class="small mute">✉️ ${mine.email ? e(mine.email) : 'Add an e-mail so you can reset your password if you forget it.'}</div></div>
+      <div class="tm-me mt2"><div><b>My account</b><div class="tm-line"><span class="ic">${MAIL}</span>${mine.email ? `<span class="v">${e(mine.email)}</span>${vBadge(mine.email_verified)}` : '<span class="v">Add an e-mail so you can reset your password if you forget it.</span>'}</div></div>
         <div class="row" style="gap:6px;flex-wrap:wrap"><button class="btn ghost sm" data-act="me-email" data-m="${e(mine.email || '')}">${mine.email ? 'Change e-mail' : 'Add e-mail'}</button><button class="btn ghost sm" data-act="me-pw">Change my password</button></div></div>
       <div class="tm-grid mt2">${list.map(card).join('')}</div>`; }
   PL.actions['adm-log'] = (el) => { S.audActor = el.dataset.id; S.audKind = 'all'; PL.go('/audit'); };
