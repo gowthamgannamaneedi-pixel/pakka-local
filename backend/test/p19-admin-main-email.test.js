@@ -32,6 +32,9 @@ test('main admin: only they add or turn off admins, and nobody can turn the main
 });
 
 test('forgot password: code by e-mail, wrong code refused, right code sets the new password and unlocks', async () => {
+  const unverified = await W.call('POST', '/api/auth/admin/reset/request', { phone: '9876511112' }); assert.equal(unverified.status, 200);
+  W.db.prepare("UPDATE users SET email_verified_at=? WHERE name='Kavya'").run(new Date().toISOString());      // codes only go to a verified e-mail
+  W.db.prepare("DELETE FROM admin_reset_codes").run();
   const before = testMailOutbox.length;
   const r = await W.call('POST', '/api/auth/admin/reset/request', { phone: '9876511112' }); assert.equal(r.status, 200);
   const unknown = await W.call('POST', '/api/auth/admin/reset/request', { phone: '9000000000' }); assert.equal(unknown.body.message, r.body.message, 'same answer either way');

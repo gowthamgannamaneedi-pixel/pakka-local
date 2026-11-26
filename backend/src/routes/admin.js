@@ -11,6 +11,8 @@ import { perKmRate, allSettings, setSetting, SETTING_KEYS, adminCashout, balance
 import { send, parse, wrap, wrapA, money } from './util.js';
 import { importMenu } from '../services/menuImport.js';
 import { sendMail, mailReady } from '../emailProviders.js';
+import { getOtpProvider } from '../otpProviders.js';
+import crypto from 'node:crypto';
 import { newSecret, encrypt, decrypt, verifyTotp, otpauthUri } from '../totp.js';
 import { audienceUsers, campaignStats, processCampaigns } from '../services/push.js';
 import { saveUpload } from '../services/core.js';
@@ -39,6 +41,47 @@ export function adminRoutes(db) {
   const r = Router();
   r.use(authenticate(db), requireRole('admin'));
   const fresh = requireFreshAuth(db);
+  // ---- every admin must verify their e-mail and mobile number before using the portal ----
+  // On by default; the automated tests switch it on explicitly (setting admin_verify_required = 1) where they check it.
+  const verifyOn = () => { const v = db.prepare("SELECT value FROM app_settings WHERE key='admin_verify_required'").pluck().get(); return v != null ? v === '1' : !config.isTest; };
+  const verState = (id) => db.prepare('SELECT email, email_verified_at, phone, phone_verified_at FROM users WHERE id=?').get(id);
+  r.use((req, res, next) => { if (!verifyOn() || /^\/(me\/verif|ping$)/.test(req.path)) return next();
+    const v = verState(req.user.id); if (v?.email && v.email_verified_at && v.phone_verified_at) return next();
+    res.status(403).json({ error: 'Verify your e-mail and mobile number to use the admin portal.', code: 'VERIFY_REQUIRED' }); });
+  const vHash = (uid, kind, code) => crypto.createHmac('sha256', config.jwtSecret).update(`admin-verify:${uid}:${kind}:${code}`).digest('hex');
+  const newCode = (uid, kind, target) => { const last = db.prepare('SELECT created_at FROM admin_verify_codes WHERE user_id=? AND kind=? ORDER BY id DESC LIMIT 1').pluck().get(uid, kind);
+    if (last && Date.now() - Date.parse(last) < 45_000) return { error: 'Please wait a few seconds before asking for another code.', status: 429 };
+    const prov = kind === 'phone' ? getOtpProvider() : null; let code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
+    if (prov?.fixedFor) { code = prov.fixedFor(target); if (!code) return { error: 'This number cannot get a code on this server.', status: 400 }; }
+    db.prepare('UPDATE admin_verify_codes SET used=1 WHERE user_id=? AND kind=? AND used=0').run(uid, kind);
+    const id = db.prepare('INSERT INTO admin_verify_codes (user_id, kind, target, code_hash, expires_at) VALUES (?,?,?,?,?)').run(uid, kind, target, vHash(uid, kind, code), new Date(Date.now() + 10 * 60_000).toISOString()).lastInsertRowid;
+    return { code, id, prov }; };
+  const checkCode = (uid, kind, target, code) => { const c = db.prepare('SELECT * FROM admin_verify_codes WHERE user_id=? AND kind=? AND used=0 ORDER BY id DESC LIMIT 1').get(uid, kind);
+    if (!c || c.target !== target || c.expires_at < new Date().toISOString() || c.attempts >= 5) return false;
+    db.prepare('UPDATE admin_verify_codes SET attempts=attempts+1 WHERE id=?').run(c.id);
+    if (!/^\d{6}$/.test(String(code)) || !crypto.timingSafeEqual(Buffer.from(c.code_hash), Buffer.from(vHash(uid, kind, String(code))))) return false;
+    db.prepare('UPDATE admin_verify_codes SET used=1 WHERE id=?').run(c.id); return true; };
+  r.get('/me/verification', (req, res) => { const v = verState(req.user.id);
+    res.json({ required: verifyOn(), email: v.email, email_verified: !!(v.email && v.email_verified_at), phone: v.phone.replace(/^\+91/, ''), phone_verified: !!v.phone_verified_at }); });
+  r.post('/me/verify/email/send', wrapA(async (req, res) => {
+    const d = z.object({ email: z.string().trim().toLowerCase().max(120).regex(/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/, 'Enter a valid e-mail address.') }).safeParse(req.body); if (!d.success) return res.status(400).json({ error: d.error.issues[0].message });
+    const v = verState(req.user.id); if (v.email !== d.data.email) db.prepare('UPDATE users SET email=?, email_verified_at=NULL WHERE id=?').run(d.data.email, req.user.id);
+    const c = newCode(req.user.id, 'email', d.data.email); if (c.error) return res.status(c.status).json({ error: c.error });
+    try { await sendMail(d.data.email, { subject: `${c.code} is your Pakka Local admin verification code`, tag: 'pakka-admin-verify',
+      text: `Your code to verify this e-mail for your Pakka Local admin account is ${c.code}.\nIt works once, for 10 minutes. If you did not ask for it, ignore this e-mail.`,
+      html: `<p>Your code to verify this e-mail for your <b>Pakka Local admin</b> account is</p><p style="font-size:26px;font-weight:700;letter-spacing:5px">${c.code}</p><p>It works once, for 10 minutes. If you did not ask for it, ignore this e-mail.</p>` }); }
+    catch (e) { db.prepare('UPDATE admin_verify_codes SET used=1 WHERE id=?').run(c.id); console.error('Admin verify e-mail failed:', e.message); return res.status(502).json({ error: 'We could not send the e-mail right now. Please try again shortly.' }); }
+    res.json({ ok: true, sent_to: d.data.email }); }));
+  r.post('/me/verify/email/confirm', (req, res) => { const v = verState(req.user.id);
+    if (!v.email || !checkCode(req.user.id, 'email', v.email, req.body?.code)) return res.status(400).json({ error: 'That code is incorrect or has expired.' });
+    db.prepare('UPDATE users SET email_verified_at=? WHERE id=?').run(iso(), req.user.id); audit(db, req, 'admin.email_verified', 'user', req.user.id); res.json({ ok: true }); });
+  r.post('/me/verify/phone/send', wrapA(async (req, res) => { const v = verState(req.user.id);
+    const c = newCode(req.user.id, 'phone', v.phone); if (c.error) return res.status(c.status).json({ error: c.error });
+    try { await c.prov.send(v.phone, c.code); } catch (e) { db.prepare('UPDATE admin_verify_codes SET used=1 WHERE id=?').run(c.id); console.error('Admin verify SMS failed:', e.message); return res.status(502).json({ error: 'We could not send the SMS right now. Please try again shortly.' }); }
+    res.json({ ok: true, sent_to: v.phone.replace(/^\+91/, '') }); }));
+  r.post('/me/verify/phone/confirm', (req, res) => { const v = verState(req.user.id);
+    if (!checkCode(req.user.id, 'phone', v.phone, req.body?.code)) return res.status(400).json({ error: 'That code is incorrect or has expired.' });
+    db.prepare('UPDATE users SET phone_verified_at=? WHERE id=?').run(iso(), req.user.id); audit(db, req, 'admin.phone_verified', 'user', req.user.id); res.json({ ok: true }); });
   r.get('/ping', (req, res) => res.json({ ok: true }));
   const one = (sql, ...a) => db.prepare(sql).pluck().get(...a) || 0;
 
@@ -331,7 +374,7 @@ export function adminRoutes(db) {
     const u = db.prepare('SELECT id, role, name, phone FROM users WHERE id=?').get(req.params.id); if (!u) return res.status(404).json({ error: 'Account not found.' });
     if (u.role === 'admin' && u.id !== req.user.id) return res.status(403).json({ error: 'Other admin accounts can only be changed by that admin.' });
     if (d.phone !== u.phone && db.prepare('SELECT 1 FROM users WHERE phone=? AND role=? AND id<>?').get(d.phone, u.role, u.id)) return res.status(409).json({ error: 'That mobile number is already registered to another account.' });
-    db.prepare(`UPDATE users SET name=?, phone=?${d.phone !== u.phone ? ', token_version=token_version+1' : ''} WHERE id=?`).run(d.name, d.phone, u.id);
+    db.prepare(`UPDATE users SET name=?, phone=?${d.phone !== u.phone ? ', token_version=token_version+1, phone_verified_at=NULL' : ''} WHERE id=?`).run(d.name, d.phone, u.id);
     audit(db, req, 'user.update', 'user', u.id, { role: u.role, changed: { ...(d.name !== u.name && { name: { from: u.name, to: d.name } }), ...(d.phone !== u.phone && { phone: { from: u.phone, to: d.phone } }) } });
     res.json({ ok: true }); }));
   // ---------- customer support inbox ----------
@@ -457,7 +500,7 @@ export function adminRoutes(db) {
     res.json({ ok: true, changed }); }));
   // own account: e-mail (for password reset) and password change (needs the current password)
   r.put('/me/email', wrap((req, res) => { const d = parse(z.object({ email: EMAIL }), req, res); if (!d) return;
-    db.prepare('UPDATE users SET email=? WHERE id=?').run(d.email, req.user.id); audit(db, req, 'admin.email_update', 'user', req.user.id); res.json({ ok: true }); }));
+    const cur = db.prepare('SELECT email FROM users WHERE id=?').pluck().get(req.user.id); if (cur !== d.email) db.prepare('UPDATE users SET email=?, email_verified_at=NULL WHERE id=?').run(d.email, req.user.id); audit(db, req, 'admin.email_update', 'user', req.user.id); res.json({ ok: true, verify: cur !== d.email }); }));
   r.post('/me/password', fresh, wrap((req, res) => { const d = parse(z.object({ password: z.string().min(10, 'Use at least 10 characters.').max(128) }), req, res); if (!d) return;
     db.prepare('UPDATE users SET password_hash=?, token_version=token_version+1 WHERE id=?').run(bcrypt.hashSync(d.password, 12), req.user.id);
     audit(db, req, 'admin.password_change', 'user', req.user.id); res.json({ ok: true }); }));
@@ -465,7 +508,7 @@ export function adminRoutes(db) {
   r.put('/admins/:id(\\d+)', wrap((req, res) => { if (!isMain(req)) return res.status(403).json({ error: MAIN_ONLY });
     const d = parse(z.object({ name: z.string().trim().min(1).max(80).optional(), email: EMAIL.optional() }), req, res); if (!d) return;
     const u = db.prepare("SELECT id FROM users WHERE id=? AND role='admin'").get(req.params.id); if (!u) return res.status(404).json({ error: 'Admin not found.' });
-    if (d.name) db.prepare('UPDATE users SET name=? WHERE id=?').run(d.name, u.id); if (d.email) db.prepare('UPDATE users SET email=? WHERE id=?').run(d.email, u.id);
+    if (d.name) db.prepare('UPDATE users SET name=? WHERE id=?').run(d.name, u.id); if (d.email) db.prepare("UPDATE users SET email=?, email_verified_at=CASE WHEN email=? THEN email_verified_at ELSE NULL END WHERE id=?").run(d.email, d.email, u.id);
     audit(db, req, 'admin.update', 'user', u.id, { name: d.name, email: !!d.email }); res.json({ ok: true }); }));
   // choose the main admin (only the current main admin, or anyone while none is set); must be an active admin
   r.put('/admins/main', fresh, wrap((req, res) => { if (!isMain(req)) return res.status(403).json({ error: MAIN_ONLY });
@@ -473,7 +516,7 @@ export function adminRoutes(db) {
     if (!db.prepare("SELECT 1 FROM users WHERE phone=? AND role='admin' AND active=1").get(p)) return res.status(400).json({ error: 'That number is not an active admin. Add them as an admin first.' });
     setSetting(db, 'main_admin_phone', p); audit(db, req, 'admin.main_set', 'setting', 'main_admin_phone', { phone: p }); res.json({ ok: true }); }));
   // Admin team: every admin login with how much they have done and when they last acted (from the audit log)
-  r.get('/admins', (req, res) => res.json({ me: req.user.id, main_phone: mainPhone() || null, can_manage: isMain(req), email_ready: mailReady(), admins: db.prepare(`SELECT u.id,u.name,u.phone,u.email,u.username,u.active,u.mfa_enabled,u.created_at,
+  r.get('/admins', (req, res) => res.json({ me: req.user.id, main_phone: mainPhone() || null, can_manage: isMain(req), email_ready: mailReady(), admins: db.prepare(`SELECT u.id,u.name,u.phone,u.email,u.username,u.active,u.mfa_enabled,u.created_at,(u.email_verified_at IS NOT NULL) AS email_verified,(u.phone_verified_at IS NOT NULL) AS phone_verified,
       (SELECT COUNT(*) FROM audit_logs a WHERE a.actor_user_id=u.id) AS actions, (SELECT MAX(a.created_at) FROM audit_logs a WHERE a.actor_user_id=u.id) AS last_action
       FROM users u WHERE u.role='admin' ORDER BY u.id`).all() }));
   // Audit log: who did what, on whom. ?actor=<admin id> for one admin, ?kind=decisions for approvals / rejections / cancellations / refunds / payouts.

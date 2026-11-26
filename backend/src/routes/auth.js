@@ -30,7 +30,7 @@ export function authRoutes(db) {
   // Admin "Forgot password?": code to the admin's e-mail, then a new password. The reply never says whether the number exists.
   const resetHash = (uid, code) => crypto.createHmac('sha256', config.jwtSecret).update(`admin-reset:${uid}:${code}`).digest('hex');
   const adminByPhone = (raw) => { let p = String(raw || '').replace(/[\s-]/g, ''); if (/^\d{10}$/.test(p)) p = '+91' + p;
-    return db.prepare("SELECT id, name, email, active FROM users WHERE phone = ? AND role = 'admin'").get(p); };
+    return db.prepare("SELECT id, name, CASE WHEN email_verified_at IS NOT NULL THEN email END AS email, active FROM users WHERE phone = ? AND role = 'admin'").get(p); };      // codes go only to a verified e-mail
   const GENERIC = 'If this number has an admin account with an e-mail address, we have sent a 6-digit code to it. It works for 10 minutes.';
   r.post('/admin/reset/request', limiter(8), wrapA(async (req, res) => {
     const u = adminByPhone(req.body?.phone);

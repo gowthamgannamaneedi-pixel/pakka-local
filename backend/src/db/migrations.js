@@ -794,5 +794,24 @@ CREATE INDEX idx_admin_reset_user ON admin_reset_codes(user_id, id);`
     // Markup per dish (admin-only). NULL = the restaurant's markup applies. Customers and restaurants never see it.
     id: 'p16_001_item_markup',
     sql: `ALTER TABLE food_items ADD COLUMN markup_paise INTEGER CHECK (markup_paise IS NULL OR (markup_paise >= 0 AND markup_paise <= 100000));`
+  },
+  {
+    // Admins must verify their e-mail and mobile number (6-digit codes: e-mail and SMS) before using the admin portal
+    id: 'p17_001_admin_verify',
+    sql: `
+ALTER TABLE users ADD COLUMN email_verified_at TEXT;
+ALTER TABLE users ADD COLUMN phone_verified_at TEXT;
+CREATE TABLE admin_verify_codes (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  kind TEXT NOT NULL CHECK (kind IN ('email','phone')),
+  target TEXT NOT NULL,
+  code_hash TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  used INTEGER NOT NULL DEFAULT 0,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX idx_admin_verify ON admin_verify_codes(user_id, kind, id);`
   }
 ];
