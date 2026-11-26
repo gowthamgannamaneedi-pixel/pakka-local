@@ -983,3 +983,48 @@ body.has-ibar:has(#nav.hide):has(.u-cartbar,.u-paybar) .u-ibar{bottom:calc(88px 
   .u-intro .hero{flex:none;width:420px;height:230px;border-radius:26px 26px 0 0}.u-intro .sheet{width:420px;border-radius:0 0 26px 26px;margin-top:0}}
 @media (prefers-reduced-motion:reduce){.u-intro,.u-intro .sheet,.u-intro .fees li{animation:none}}
 @keyframes zin{from{opacity:0}}@keyframes zout{to{opacity:0}}@keyframes zup{from{opacity:0;transform:translateY(14px)}}
+
+/* opening screen: motion (kept light for low-end phones; off when the phone asks for reduced motion) */
+.u-intro .fees .z s{display:none}
+.u-intro .go{display:flex;align-items:center;justify-content:center;gap:6px;position:relative;overflow:hidden}.u-intro .go svg{width:18px;height:18px}
+.u-intro h1 mark{background:none;color:inherit;position:relative;white-space:nowrap;isolation:isolate}
+@media (prefers-reduced-motion:no-preference){
+  /* food photos: each tile pops in, then the whole grid drifts slowly */
+  .u-intro .hero .grid{animation:ihdrift 18s ease-in-out infinite alternate}
+  .u-intro .hero img{opacity:0;transform:scale(.86);animation:ihpop .6s cubic-bezier(.2,.8,.2,1) forwards}
+  .u-intro .brand .lg{animation:iblogo .7s cubic-bezier(.3,1.5,.5,1) .25s both}
+  .u-intro .brand b,.u-intro .brand>span:last-child{animation:zup .5s ease-out .45s both}
+  .u-intro .brand>span:last-child{animation-delay:.55s}
+  /* sheet content in sequence */
+  .u-intro .eyebrow{animation:zup .4s ease-out .35s both}
+  .u-intro h1 .w1,.u-intro h1 .w2{display:inline-block;animation:iword .55s cubic-bezier(.2,.8,.2,1) both}
+  .u-intro h1 .w1{animation-delay:.45s}.u-intro h1 .w2{animation-delay:.62s}
+  .u-intro h1 mark::after{content:'';position:absolute;left:-2px;right:-2px;bottom:.06em;height:.32em;background:#ffd8b8;border-radius:4px;z-index:-1;transform:scaleX(0);transform-origin:left;animation:imark .6s ease-out 1.05s forwards}
+  .u-intro .lead{animation:zup .45s ease-out .8s both}
+  .u-intro .fees{animation:zup .45s ease-out .9s both}
+  .u-intro .fees li{animation:irow .45s cubic-bezier(.2,.8,.2,1) calc(var(--d) + .95s) both}
+  .u-intro .fees .ic{animation:itick .45s cubic-bezier(.3,1.6,.5,1) calc(var(--d) + 1.15s) both}
+  /* each fee: a crossed-out "fee" flips to a green ₹0 */
+  .u-intro .fees .z{position:relative;display:inline-grid;min-width:34px;justify-items:end}
+  .u-intro .fees .z s{display:block;grid-area:1/1;color:#b8b2aa;font-weight:600;font-size:.82rem;animation:ifeeout .35s ease-in calc(var(--d) + 1.35s) forwards}
+  .u-intro .fees .z b{grid-area:1/1;opacity:0;animation:izero .4s cubic-bezier(.3,1.6,.5,1) calc(var(--d) + 1.6s) forwards}
+  .u-intro .note{animation:zup .45s ease-out 2s both}
+  .u-intro .go{animation:zup .45s ease-out 2.1s both,ipulse 2.6s ease-in-out 3s infinite}
+  .u-intro .go::after{content:'';position:absolute;inset:0;background:linear-gradient(100deg,transparent 30%,rgba(255,255,255,.35) 50%,transparent 70%);transform:translateX(-120%);animation:ishine 3.2s ease-in-out 2.6s infinite}
+  .u-intro .go svg{animation:inudge 1.6s ease-in-out 2.8s infinite}
+  /* leaving: sheet slides down, photos fade */
+  .u-intro.out{animation:zout .45s ease-in forwards}.u-intro.out .sheet{animation:idown .4s ease-in forwards}
+}
+@keyframes ihpop{to{opacity:1;transform:none}}
+@keyframes ihdrift{from{transform:rotate(-8deg) translate(0,0)}to{transform:rotate(-8deg) translate(-26px,-34px)}}
+@keyframes iblogo{from{opacity:0;transform:scale(.4) rotate(-12deg)}}
+@keyframes iword{from{opacity:0;transform:translateY(18px);filter:blur(4px)}}
+@keyframes imark{to{transform:scaleX(1)}}
+@keyframes irow{from{opacity:0;transform:translateX(-16px)}}
+@keyframes itick{from{transform:scale(0)}}
+@keyframes ifeeout{to{opacity:0;transform:translateY(-8px)}}
+@keyframes izero{from{opacity:0;transform:scale(.4)}to{opacity:1;transform:none}}
+@keyframes ipulse{0%,100%{box-shadow:0 6px 16px rgba(212,80,15,.25)}50%{box-shadow:0 10px 26px rgba(212,80,15,.45)}}
+@keyframes ishine{0%,60%{transform:translateX(-120%)}100%{transform:translateX(120%)}}
+@keyframes inudge{0%,100%{transform:none}50%{transform:translateX(4px)}}
+@keyframes idown{to{transform:translateY(40px);opacity:0}}

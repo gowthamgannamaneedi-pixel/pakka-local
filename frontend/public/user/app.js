@@ -256,13 +256,13 @@
     const pics = ['biryani', 'dosa', 'curry', 'thali', 'noodles', 'momos', 'pizza', 'burger', 'idli'];
     el.innerHTML = `<div class="hero" aria-hidden="true"><div class="grid">${pics.map((k, i) => `<img src="${catPic(k)}" alt="" style="animation-delay:${i * 40}ms">`).join('')}</div>
         <div class="brand"><span class="lg"><img src="/assets/logo.png" alt="" width="60" height="60"></span><b>Pakka Local</b><span>Food from kitchens near your PG, hostel or college</span></div></div>
-      <div class="sheet"><span class="eyebrow">The Pakka promise</span><h1>Pay for the food.<br>Not the fees.</h1>
+      <div class="sheet"><span class="eyebrow">The Pakka promise</span><h1><span class="w1">Pay for the food.</span><br><span class="w2"><mark>Not the fees.</mark></span></h1>
         <p class="lead">Your bill is the menu price plus delivery by distance. No hidden charges.</p>
-        <ul class="fees">${ZERO.map(([t], k) => `<li style="--d:${k * 90 + 150}ms"><span class="ic">${I('check')}</span><span class="t">No ${t.toLowerCase()}</span><span class="z">₹0</span></li>`).join('')}</ul>
+        <ul class="fees">${ZERO.map(([t], k) => `<li style="--d:${k * 90 + 150}ms"><span class="ic">${I('check')}</span><span class="t">No ${t.toLowerCase()}</span><span class="z"><s>fee</s><b>₹0</b></span></li>`).join('')}</ul>
         <p class="note">${I('info')} Every rupee is shown in your bill before you pay.</p>
-        <button class="btn block lg go" data-act="intro-go">Start ordering</button></div>`;
+        <button class="btn block lg go" data-act="intro-go"><span>Start ordering</span>${I('chev')}</button></div>`;
     document.body.append(el); setTimeout(() => el.querySelector('.go')?.focus(), 300); };
-  PL.actions['intro-go'] = () => { try { localStorage.setItem(INTRO_KEY, String(Date.now())); } catch {} const el = document.getElementById('u-intro'); if (!el) return; el.classList.add('out'); setTimeout(() => el.remove(), 350); };
+  PL.actions['intro-go'] = () => { try { localStorage.setItem(INTRO_KEY, String(Date.now())); } catch {} const el = document.getElementById('u-intro'); if (!el) return; el.classList.add('out'); setTimeout(() => el.remove(), 480); };
   showIntro();
   async function home() {
     const [c, r, my, me, adr, ob] = await Promise.all([PL.api('/api/public/config'), PL.api('/api/public/restaurants'), PL.api('/api/customer/orders').catch(() => ({ orders: [] })), PL.api('/api/customer/me').catch(() => ({ user: {} })), PL.api('/api/customer/addresses').catch(() => ({ addresses: [] })), PL.api('/api/push/banner').catch(() => ({ banner: null }))]);
