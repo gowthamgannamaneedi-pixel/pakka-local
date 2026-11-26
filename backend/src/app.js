@@ -28,7 +28,9 @@ export function createApp(db) {
   const app = express();
   app.set('trust proxy', config.trustProxy);
   app.disable('x-powered-by');
-  app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' }, contentSecurityPolicy: { directives: {
+  // referrer: other sites see only our origin (https://pakkalocal.online), never the page path. OpenStreetMap's tile servers
+  // refuse map tiles without it ("Access blocked"), so 'no-referrer' must not be used.
+  app.use(helmet({ referrerPolicy: { policy: 'strict-origin-when-cross-origin' }, crossOriginResourcePolicy: { policy: 'cross-origin' }, contentSecurityPolicy: { directives: {
     defaultSrc: ["'self'"], scriptSrc: ["'self'"], styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'], fontSrc: ["'self'", 'https://fonts.gstatic.com'],
     imgSrc: ["'self'", 'data:', 'blob:', ...tileSrc], mediaSrc: ["'self'"], connectSrc: ["'self'"], objectSrc: ["'none'"], frameAncestors: ["'none'"], baseUri: ["'self'"], formAction: ["'self'"] } } }));
   app.use(cors({ origin: (o, cb) => cb(null, !o || config.allowedOrigins.includes(o)), allowedHeaders: ['Authorization', 'Content-Type'], maxAge: 600 }));
