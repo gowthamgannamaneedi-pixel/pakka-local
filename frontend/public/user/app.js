@@ -248,6 +248,16 @@
         <span class="zf">${I('info')} Every rupee shows before you pay</span></div>
       <div class="zchips">${['No platform fee', 'No packaging charge', 'No convenience fee', 'No hidden charges'].map((t, k) => `<span style="--d:${k * 90}ms">${t}</span>`).join('')}</div>
     </section>`;
+  // opening screen: the first thing people see when they open Pakka Local (first visit, then again after a week)
+  const INTRO_KEY = 'pl.intro.seen', WEEK = 7 * 864e5;
+  const introDue = () => { try { return Date.now() - Number(localStorage.getItem(INTRO_KEY) || 0) > WEEK; } catch { return true; } };
+  const showIntro = () => { if (!introDue() || document.getElementById('u-intro')) return;
+    const el = document.createElement('div'); el.id = 'u-intro'; el.className = 'u-intro'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true'); el.setAttribute('aria-label', 'Welcome to Pakka Local');
+    el.innerHTML = `<div class="in"><img class="lg" src="/assets/logo.png" alt="Pakka Local" width="84" height="84">${zeroCard()}
+      <button class="btn block lg go" data-act="intro-go">Let’s eat ${I('chev')}</button><p class="fine">Online payment · Live order tracking · Local kitchens</p></div>`;
+    document.body.append(el); setTimeout(() => el.querySelector('.go')?.focus(), 300); };
+  PL.actions['intro-go'] = () => { try { localStorage.setItem(INTRO_KEY, String(Date.now())); } catch {} const el = document.getElementById('u-intro'); if (!el) return; el.classList.add('out'); setTimeout(() => el.remove(), 350); };
+  showIntro();
   async function home() {
     const [c, r, my, me, adr, ob] = await Promise.all([PL.api('/api/public/config'), PL.api('/api/public/restaurants'), PL.api('/api/customer/orders').catch(() => ({ orders: [] })), PL.api('/api/customer/me').catch(() => ({ user: {} })), PL.api('/api/customer/addresses').catch(() => ({ addresses: [] })), PL.api('/api/push/banner').catch(() => ({ banner: null }))]);
     const offer = ob.banner && !S.banDone?.has(ob.banner.id) ? ob.banner : null; S.offerNow = offer;
@@ -290,7 +300,6 @@
     return `<div class="u-head" id="u-head"><div class="row1"><button class="u-loc" data-act="go" data-path="/addresses"><span class="pin">${I('pin')}</span><span class="txt"><b>${cur ? e(cur.kind === 'listed' ? cur.place_name || 'Selected place' : LBL[cur.label] || 'Home') : 'Set delivery location'}${I('chev')}</b><small>${c.testPayments ? '<i class="u-test">TEST</i>' : ''}${cur ? e(addrLine(cur, cur.kind === 'listed')) : 'Choose your PG, hostel or college'}</small></span></button>${PL.isGuest() ? '<button class="u-glog" data-act="to-login">Log in</button>' : `${PL.inbox.btn()}<button class="u-av" data-act="go" data-path="/me" aria-label="Account">${e((name || 'P').charAt(0).toUpperCase())}</button>`}</div>
         <a class="u-search" href="#/search" aria-label="Search for restaurants and dishes">${I('search')}<span class="ph">Search for ‘<i id="u-word">${e(S.words[0] || 'your favourite food')}</i>’</span></a></div>
       ${notes}
-      ${zeroCard()}
       ${offer ? offerCard(offer) : ''}
       ${bans.length ? `<div class="u-bans" id="u-bans">${bans.join('')}</div><div class="u-bdots" id="u-bdots">${bans.map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</div>` : ''}
       ${cats.length ? `<div class="u-sec"><h2>${name ? `${e(name)}, what’s on your mind?` : 'What’s on your mind?'}</h2>${arrows('u-cats')}</div><div class="u-cats ${cats.length < 7 ? 'one' : ''}" id="u-cats">${cats.map(([k, l]) => `<button class="u-cat ${S.cat === k ? 'on' : ''}" data-act="cat" data-k="${k}" aria-pressed="${S.cat === k}"><span class="im"><img src="${catPic(k)}" alt="" loading="lazy"></span>${e(l)}</button>`).join('')}</div>` : ''}

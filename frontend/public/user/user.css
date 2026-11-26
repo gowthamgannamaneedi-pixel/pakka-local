@@ -957,3 +957,16 @@ body.has-ibar:has(#nav.hide):has(.u-cartbar,.u-paybar) .u-ibar{bottom:calc(88px 
 @keyframes zstrike{to{background-size:100% 2px}}
 @keyframes zpop{to{opacity:1;transform:none}}
 @keyframes zwob{0%,100%{transform:rotate(0)}50%{transform:rotate(-3deg)}}
+
+/* opening screen (first visit / weekly) */
+.u-intro{position:fixed;inset:0;z-index:200;overflow-y:auto;background:radial-gradient(120% 70% at 100% 0%,#ffb066 0%,transparent 55%),radial-gradient(100% 70% at 0% 100%,#7c3aed 0%,transparent 60%),linear-gradient(160deg,#d4500f,#b8326a);
+  display:grid;place-items:center;padding:24px 16px calc(24px + env(safe-area-inset-bottom));animation:zin .35s ease-out}
+.u-intro.out{animation:zout .3s ease-in forwards}
+.u-intro .in{width:100%;max-width:440px;display:grid;gap:14px;justify-items:center;text-align:left}
+.u-intro .lg{background:#fff;border-radius:24px;padding:8px;box-shadow:0 10px 24px rgba(0,0,0,.18)}
+.u-intro .u-zero{margin:0;width:100%;background:rgba(255,255,255,.08);box-shadow:none;border:1px solid rgba(255,255,255,.22);backdrop-filter:blur(6px)}
+.u-intro .u-zero h2{font-size:2.2rem}
+.u-intro .go{background:#fff;color:#b8326a;font-weight:800;box-shadow:0 10px 24px rgba(0,0,0,.18)}.u-intro .go svg{width:18px;height:18px}
+.u-intro .fine{margin:0;color:rgba(255,255,255,.85);font-size:.8rem;text-align:center}
+@media (min-width:640px){.u-intro .u-zero{grid-template-columns:1fr}}
+@keyframes zin{from{opacity:0}}@keyframes zout{to{opacity:0;transform:scale(1.03)}}
