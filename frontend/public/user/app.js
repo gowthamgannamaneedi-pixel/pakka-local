@@ -237,6 +237,17 @@
     const path = linkPath(o.deep_link);
     PL.modal(`<div class="u-offerpop">${o.image ? `<img src="${e(o.image)}" alt="">` : `<span class="ic">${I('percent')}</span>`}<h3>${e(o.title)}</h3><p>${e(o.body)}</p></div>
       <div class="row mt"><button class="btn ghost grow" data-act="close-modal">Close</button>${path ? `<button class="btn grow" data-act="ban-open" data-id="${o.id}" data-path="${e(path)}">Order now</button>` : `<button class="btn grow" data-act="ban-open" data-id="${o.id}" data-path="">Got it</button>`}</div>`, { cls: 'u-offer-ov' }); };
+  // the "zero extra fees" promise at the top of Home (everyone sees it, logged in or not). Honest: the bill is the menu price
+  // + a delivery charge by distance; anything else (e.g. a bad-weather surge, if admin turns one on) is shown in the bill before paying.
+  const ZERO = [['Platform fee', 'platform'], ['Packaging charge', 'packing'], ['Convenience fee', 'convenience']];
+  const zeroCard = () => `<section class="u-zero" aria-label="No extra fees">
+      <div class="zt"><span class="ztag">no cap 🧢</span><h2>Zero extra fees.<br><em>Fr fr.</em></h2><p>Menu price + delivery by distance. That’s the whole bill. No surprises at checkout.</p></div>
+      <div class="zrec" aria-hidden="true"><b class="zh">Your bill, decoded</b>
+        <span class="zl ok"><i>${I('check')}</i>Food at menu price</span><span class="zl ok"><i>${I('check')}</i>Delivery by distance</span>
+        ${ZERO.map(([t], k) => `<span class="zl no" style="--d:${k * 120 + 200}ms"><i>₹0</i><s>${t}</s></span>`).join('')}
+        <span class="zf">${I('info')} Every rupee shows before you pay</span></div>
+      <div class="zchips">${['No platform fee', 'No packaging charge', 'No convenience fee', 'No hidden charges'].map((t, k) => `<span style="--d:${k * 90}ms">${t}</span>`).join('')}</div>
+    </section>`;
   async function home() {
     const [c, r, my, me, adr, ob] = await Promise.all([PL.api('/api/public/config'), PL.api('/api/public/restaurants'), PL.api('/api/customer/orders').catch(() => ({ orders: [] })), PL.api('/api/customer/me').catch(() => ({ user: {} })), PL.api('/api/customer/addresses').catch(() => ({ addresses: [] })), PL.api('/api/push/banner').catch(() => ({ banner: null }))]);
     const offer = ob.banner && !S.banDone?.has(ob.banner.id) ? ob.banner : null; S.offerNow = offer;
@@ -279,6 +290,7 @@
     return `<div class="u-head" id="u-head"><div class="row1"><button class="u-loc" data-act="go" data-path="/addresses"><span class="pin">${I('pin')}</span><span class="txt"><b>${cur ? e(cur.kind === 'listed' ? cur.place_name || 'Selected place' : LBL[cur.label] || 'Home') : 'Set delivery location'}${I('chev')}</b><small>${c.testPayments ? '<i class="u-test">TEST</i>' : ''}${cur ? e(addrLine(cur, cur.kind === 'listed')) : 'Choose your PG, hostel or college'}</small></span></button>${PL.isGuest() ? '<button class="u-glog" data-act="to-login">Log in</button>' : `${PL.inbox.btn()}<button class="u-av" data-act="go" data-path="/me" aria-label="Account">${e((name || 'P').charAt(0).toUpperCase())}</button>`}</div>
         <a class="u-search" href="#/search" aria-label="Search for restaurants and dishes">${I('search')}<span class="ph">Search for ‘<i id="u-word">${e(S.words[0] || 'your favourite food')}</i>’</span></a></div>
       ${notes}
+      ${zeroCard()}
       ${offer ? offerCard(offer) : ''}
       ${bans.length ? `<div class="u-bans" id="u-bans">${bans.join('')}</div><div class="u-bdots" id="u-bdots">${bans.map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</div>` : ''}
       ${cats.length ? `<div class="u-sec"><h2>${name ? `${e(name)}, what’s on your mind?` : 'What’s on your mind?'}</h2>${arrows('u-cats')}</div><div class="u-cats ${cats.length < 7 ? 'one' : ''}" id="u-cats">${cats.map(([k, l]) => `<button class="u-cat ${S.cat === k ? 'on' : ''}" data-act="cat" data-k="${k}" aria-pressed="${S.cat === k}"><span class="im"><img src="${catPic(k)}" alt="" loading="lazy"></span>${e(l)}</button>`).join('')}</div>` : ''}
