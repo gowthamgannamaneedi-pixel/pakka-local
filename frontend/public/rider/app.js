@@ -19,15 +19,22 @@
     <p class="small mute mt2" style="text-align:center">Android will ask you to confirm <b>Update</b>. You stay signed in.</p>`;
   const checkUpdate = async () => {
     const rn = RN(); if (!rn || upd.shown) return;
-    let cur; try { cur = await rn.appInfo(); } catch { return; }      // older app without the updater
+    // v1.8 and older have no updater inside: they still get the box, and the download opens in the phone's browser
+    let cur; try { cur = typeof rn.appInfo === 'function' ? await rn.appInfo() : null; } catch { cur = null; }
+    if (!cur) cur = { versionCode: 9, versionName: '', old: true };
     let L; try { L = await (await fetch('/rider-app/latest.json', { cache: 'no-store' })).json(); } catch { return; }
     if (!L?.versionCode || !L.url || !(L.versionCode > (cur.versionCode || 0))) return;
-    upd.shown = true; upd.L = L;
+    upd.shown = true; upd.L = L; upd.cur = cur;
     const open = () => PL.modal(updBox(L, cur), { cls: 'upd-ov', onClose: () => { if (L.required) setTimeout(open, 300); else upd.shown = false; } });
     open();
   };
-  PL.actions['upd-go'] = async () => { const rn = RN(); if (!rn || upd.busy) return; upd.busy = true;
+  PL.actions['upd-go'] = async () => { const rn = RN(); if (!rn || upd.busy) return;
     const go = PL.$('#upd-go'), bar = PL.$('#upd-bar'), fill = PL.$('#upd-fill'), msg = PL.$('#upd-msg');
+    if (upd.cur.old) {      // older app: a www. link leaves the app, so the phone's browser downloads the APK
+      location.href = 'https://www.pakkalocal.online' + new URL(upd.L.url, location.origin).pathname;
+      if (msg) { msg.innerHTML = 'Your browser is downloading the update. When it finishes, tap <b>Open</b>, then <b>Update</b>. If Android asks, allow installs from your browser.'; msg.classList.remove('hide'); }
+      if (go) go.innerHTML = `${PL.icon('refresh')} Download again`; return; }
+    upd.busy = true;
     if (go) { go.disabled = true; go.textContent = 'Downloading…'; } bar?.classList.remove('hide'); msg?.classList.add('hide');
     const h = await rn.addListener('updateProgress', (d) => { if (fill && d.pct >= 0) fill.style.width = d.pct + '%'; if (go && d.pct >= 0) go.textContent = `Downloading… ${d.pct}%`; });
     try { await rn.installUpdate({ url: new URL(upd.L.url, location.origin).href }); if (go) go.innerHTML = `${PL.icon('check')} Tap “Update” on the Android screen`; }
