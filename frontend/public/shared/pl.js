@@ -127,6 +127,9 @@
   PL.go = (path, replace) => { const st = { idx: replace ? idx : idx + 1 }; if (replace) history.replaceState(st, '', '#' + path); else history.pushState(st, '', '#' + path); idx = st.idx; render(); };
   PL.back = () => { if (modals.length) return PL.closeModal(); if (idx > 0) history.back(); else PL.go(cfg.home, true); };
   PL.rerender = () => render(true);
+  // guest browsing (customer app): without a session, only the routes in cfg.guest.routes open; others show a log-in prompt
+  PL.isGuest = () => !PL.session() && !!cfg?.guest;
+  const guestOk = (p) => (cfg.guest.routes || []).some((g) => compile(g).re.test(p));
   PL.modal = (html, { onClose, cls = '' } = {}) => {
     const ov = document.createElement('div'); ov.className = 'ov ' + cls;
     ov.innerHTML = `<div class="sheet" role="dialog" aria-modal="true"><div class="grab" aria-hidden="true"><i></i></div>${html}</div>`; ov.addEventListener('mousedown', (ev) => { if (ev.target === ov) PL.closeModal(); });
@@ -156,6 +159,7 @@
   });
 
   async function render(soft) {
+    if (!view || !document.body.contains(view)) return PL.boot();      // came back from the full-screen login
     const path = here(); let match = null;
     for (const r of routes) { const m = r.re.exec(path); if (m) { match = { r, params: Object.fromEntries(r.names.map((n, i) => [n, decodeURIComponent(m[i + 1])])) }; break; } }
     if (!match) return PL.go(cfg.home, true);
@@ -165,10 +169,11 @@
     document.querySelectorAll('#nav button').forEach((b) => b.classList.toggle('on', path === b.dataset.path || path.startsWith(b.dataset.path + '/')));
     document.querySelector('.shell').classList.toggle('nonav', !!r.def.noNav);
     PL.$('#nav').classList.toggle('hide', !!r.def.noNav);
+    const guestBlock = PL.isGuest() && !guestOk(path);
     const paint = async (first) => {
       const sig = ++PL.state.sig;
       try {
-        const html = await r.def.render(params);
+        const html = guestBlock ? cfg.guest.prompt(path) : await r.def.render(params);
         if (sig !== PL.state.sig) return;
         if (html !== lastHtml || first) { const keepY = window.scrollY; view.innerHTML = html; lastHtml = html; PL.hydrate(view); r.def.after && r.def.after(view, params); if (!first) window.scrollTo(0, keepY);
           if (first && !soft) { view.classList.remove('pg-in'); void view.offsetWidth; view.classList.add('pg-in'); } }
@@ -181,7 +186,7 @@
     // timed refresh; skipped while hidden, while a dialog is open, or while the user is typing / has typed into a form
     const tick = () => { const a = document.activeElement; if (document.hidden || modals.length || (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName) && view.contains(a)) || [...view.querySelectorAll('form[data-form] input[type=text],form[data-form] input:not([type])')].some((i) => i.value)) return; paint(false); };
     PL.state.tick = r.def.poll ? tick : null;
-    if (r.def.poll) pollT = setInterval(tick, r.def.poll);
+    if (r.def.poll && !guestBlock) pollT = setInterval(tick, r.def.poll);
   }
   PL.state.sig = 0; PL.state.rtoken = 0;
   PL.stopAll = () => { clearInterval(pollT); (PL.hooks.stop || []).forEach((f) => f()); PL.sound.sync(false); PL.inbox?.stop(); };
@@ -312,16 +317,18 @@
   PL.boot = () => {
     document.title = `${cfg.name} · Pakka Local`;
     const root = PL.$('#root'); modals.splice(0).forEach((m) => m.ov.remove());
-    if (!PL.session()) { clearInterval(pollT); root.innerHTML = ''; return cfg.loginView(root); }
+    const guest = PL.isGuest();
+    if (!PL.session() && !guest) { clearInterval(pollT); root.innerHTML = ''; return cfg.loginView(root); }
     routes = Object.entries({ ...cfg.routes, ...(PL.extraRoutes || {}) }).map(([p, def]) => ({ ...compile(p), p, def }));
-    PL.installAskSoon();
+    if (!guest) PL.installAskSoon();
     const s = PL.session(), who = s?.user?.name || '';
-    root.innerHTML = `<header class="top" id="top"><button class="back" data-act="back" aria-label="Back">${PL.icon('chev', 'class="flip"')}<span>Back</span></button><div class="title"></div><div class="side"><div class="row" id="side" style="gap:4px">${cfg.right ? cfg.right() : ''}</div>${PL.inbox.btn()}</div></header>
+    root.innerHTML = `<header class="top" id="top"><button class="back" data-act="back" aria-label="Back">${PL.icon('chev', 'class="flip"')}<span>Back</span></button><div class="title"></div><div class="side"><div class="row" id="side" style="gap:4px">${cfg.right ? cfg.right() : ''}</div>${guest ? '' : PL.inbox.btn()}</div></header>
       <div class="shell"><main id="view"></main></div>
       <nav class="bottom" id="nav" aria-label="Main">${cfg.tabs.map((t) => `${t.group ? `<span class="nav-h">${e(t.group)}</span>` : ''}<button data-act="nav" data-path="${t.path}" class="${t.desk ? 'desk' : t.mobile ? 'mob' : ''}">${PL.icon(t.icon)}<span>${e(t.label)}</span><i class="badge hide" id="bd-${t.path.slice(1)}"></i></button>`).join('')}
-        <div class="nav-foot"><span class="nav-av">${e((who || cfg.name).trim().charAt(0).toUpperCase())}</span><span class="grow"><b>${e(who || cfg.name)}</b><small>${e(cfg.name)} portal</small></span><button class="iconbtn" data-act="logout" aria-label="Sign out" title="Sign out">${PL.icon('logout')}</button></div></nav>`;
+        <div class="nav-foot"><span class="nav-av">${e((who || cfg.name).trim().charAt(0).toUpperCase())}</span><span class="grow"><b>${e(who || cfg.name)}</b><small>${e(cfg.name)} portal</small></span>${guest ? '<button class="btn sm" data-act="to-login">Log in</button>' : `<button class="iconbtn" data-act="logout" aria-label="Sign out" title="Sign out">${PL.icon('logout')}</button>`}</div></nav>`;
     view = PL.$('#view'); idx = (history.state && history.state.idx) || 0;
     history.replaceState({ idx }, '', location.hash || '#' + cfg.home);
+    if (guest) { PL.inbox.stop?.(); render(); return; }
     cfg.onReady && cfg.onReady(); render(); PL.push && PL.push.boot(); PL.inbox.start();
   };
   PL.badge = (path, n) => { const b = PL.$('#bd-' + path.slice(1)); if (b) { if (b.textContent !== String(n)) { b.textContent = n; b.style.animation = 'none'; void b.offsetWidth; b.style.animation = ''; } b.classList.toggle('hide', !n); } };

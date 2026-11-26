@@ -64,22 +64,37 @@
   const via = () => (isSms() ? 'by SMS' : 'on WhatsApp');
   const startLabel = () => (isSms() ? `${I('phone')} Continue with mobile number` : `${WA} Continue with WhatsApp`);
   const loadChannel = () => PL.api('/api/public/config').then((c) => { S.loginChannel = c?.loginChannel || 'whatsapp'; const b = PL.$('[data-act="to-login"].btn'); if (b) b.innerHTML = startLabel(); return c; }).catch(() => null);
+  // business details and policies at the bottom of Home (visible to everyone, logged in or not)
+  const bizFoot = (b) => !b ? '' : `<footer class="u-biz"><div class="bz"><img src="/assets/logo.png" alt="" width="34" height="34"><span><b>${e(b.name)}</b><small>Food delivery from local kitchens to your PG, hostel or college</small></span></div>
+      <div class="ct">${b.address ? `<span>${I('pin')} ${e(b.address)}</span>` : ''}<a href="tel:${e(b.phone.replace(/\s/g, ''))}">${I('phone')} ${e(b.phone)}</a><a href="mailto:${e(b.email)}">${I('chat')} ${e(b.email)}</a></div>
+      <nav class="lg"><a href="/contact">Contact us</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/refund-policy">Refunds &amp; cancellation</a><a href="/delivery-policy">Delivery policy</a></nav>
+      <small class="cp">© ${new Date().getFullYear()} ${e(b.name)}</small></footer>`;
+  // guests (not logged in) browse Home, Search and menus; anything personal asks them to log in first
+  const GUEST_ASK = { '/cart': ['Log in to place your order', 'Your cart is saved. Log in with your mobile number to check out.'], '/orders': ['Log in to see your orders', 'Track live orders and order again in one tap.'],
+    '/me': ['Log in to your account', 'Manage addresses, notifications and help.'], '/addresses': ['Log in to set your delivery location', 'Save your PG, hostel or college once and order in a tap.'],
+    '/places': ['Log in to set your delivery location', 'Save your PG, hostel or college once and order in a tap.'] };
+  const guestPrompt = (path) => { const k = Object.keys(GUEST_ASK).find((p) => path === p || path.startsWith(p + '/')); const [t, s] = GUEST_ASK[k] || ['Log in to continue', 'Use your mobile number. It takes less than a minute.'];
+    return `<div class="u-pg"><div class="u-guest">${I(k === '/cart' ? 'cart' : k === '/orders' ? 'orders' : k === '/addresses' || k === '/places' ? 'pin' : 'user')}<h2>${t}</h2><p>${s}</p>${k === '/cart' && cartCount() ? `<p class="small"><b>${cartCount()} item${cartCount() > 1 ? 's' : ''} · ${rs(cartTotal())}</b> from ${e(S.cart.rname || '')}</p>` : ''}
+      <button class="btn block lg" data-act="to-login">Log in or sign up</button><button class="btn ghost block mt2" data-act="go" data-path="/home">Browse restaurants</button></div></div>`; };
+  PL.actions['guest-back'] = () => PL.boot();
   function loginView(root) {
     const pics = ['biryani', 'dosa', 'pizza', 'momos', 'curry', 'burger', 'thali', 'noodles', 'rolls', 'cakes', 'idli', 'chai'];
     root.innerHTML = `<div class="splash" id="splash"><img src="/assets/logo.png" alt="Pakka Local"><div class="bar"></div></div>
       <div class="u-login"><div class="u-collage" aria-hidden="true"><div class="grid">${pics.map((k, i) => `<img src="${catPic(k)}" alt="" style="animation-delay:${i * 50}ms">`).join('')}</div>
         <div class="brand"><span class="lg"><img src="/assets/logo.png" alt=""></span><p>Your neighbourhood, delivered.</p><span>Hot food from kitchens near your PG, hostel or college</span></div></div>
       <div class="u-lsheet" id="u-lsheet"><h2>Hungry? Let’s get started</h2><p class="s">Log in or sign up with your mobile number.</p><button class="btn block lg" data-act="to-login">${startLabel()}</button>
-        <p class="fine">Online payment only · Live order tracking</p><a class="btn ghost block mt2" href="/#menu">See menu &amp; prices first</a>
+        <p class="fine">Online payment only · Live order tracking</p><button class="btn ghost block mt2" data-act="guest-back">Browse restaurants first</button>
         <p class="u-legal"><a href="/contact">Contact</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/refund-policy">Refunds</a> · <a href="/delivery-policy">Delivery</a></p></div></div>`;
     loadChannel(); setTimeout(() => PL.$('#splash')?.classList.add('out'), 1100); setTimeout(() => PL.$('#splash')?.remove(), 1600);
   }
   const sheet = (html) => { const s = PL.$('#u-lsheet'); if (s) { s.innerHTML = html; s.style.animation = 'none'; void s.offsetWidth; s.style.animation = ''; return; } loginView(PL.$('#root')); PL.$('#splash')?.remove(); PL.$('#u-lsheet').innerHTML = html; };
-  PL.actions['to-login'] = async () => { if (!S.loginChannel) await loadChannel();
+  PL.actions['to-login'] = async () => { if (PL.$('#view')) history.pushState({ idx: (history.state?.idx || 0) + 1 }, '', location.hash);      // from browsing: the back button returns to it
+    if (!S.loginChannel) await loadChannel();
     sheet(`<h2>Log in or sign up</h2><p class="s">${isSms() ? 'Enter your mobile number. We’ll send a 6-digit code by SMS.' : 'Enter your WhatsApp number. We’ll send a 6-digit code on WhatsApp.'}</p>
       <form data-form="otp-request"><label for="c-ph" class="small mute">${isSms() ? 'Mobile number' : 'WhatsApp mobile number'}</label><div class="field pre"><span>+91</span><input id="c-ph" name="phone" inputmode="numeric" autocomplete="tel-national" maxlength="14" placeholder="98765 43210" value="${e(S.lastPhone ? S.lastPhone.slice(3) : '')}" required autofocus></div>
         <div class="u-lerr" id="lg-err" role="alert"></div>${isSms() ? '<button class="btn block lg mt" type="submit">Send OTP by SMS</button>' : `<button class="btn block lg mt wa" type="submit">${WA} Send WhatsApp OTP</button>`}</form><div id="email-login"></div>
-      <p class="fine">${isSms() ? 'By continuing you agree to receive your login code by SMS.' : 'By continuing you agree to receive your login code and order updates on WhatsApp.'}</p>`);
+      <p class="fine">${isSms() ? 'By continuing you agree to receive your login code by SMS.' : 'By continuing you agree to receive your login code and order updates on WhatsApp.'}</p>
+      <button class="btn ghost block mt2" data-act="guest-back">Continue browsing</button>`);
     // STAGING ONLY: the server says whether allow-listed testers may sign in by e-mail (never on production)
     PL.api('/api/public/config').then((c) => { const el = PL.$('#email-login'); if (el && c?.emailLogin) el.innerHTML = `<div class="u-note info small">${I('info')}<span>Staging test login: approved testers can get the code by email instead.</span></div><button class="btn ghost block" data-act="to-email-login">Use a test email</button>`; }).catch(() => {});
   };
@@ -261,7 +276,7 @@
       fxSlide(3, `data-act="go" data-path="/search"`, 'Easy checkout', 'Pay online. No cash needed.', 'Every charge shown before you pay', 'Order now', plates.slice(2, 3), 'card')].filter(Boolean);
     const notes = [c.paymentsAvailable === false ? `<div class="u-pill-note">${I('info')}<span>Ordering opens soon. You can browse menus now.</span></div>` : '', !c.ridersAvailable ? `<div class="u-pill-note warn">${I('bike')}<span>${e(c.noRiderMessage)}</span></div>` : ''].join('');
     const live = active[0];
-    return `<div class="u-head" id="u-head"><div class="row1"><button class="u-loc" data-act="go" data-path="/addresses"><span class="pin">${I('pin')}</span><span class="txt"><b>${cur ? e(cur.kind === 'listed' ? cur.place_name || 'Selected place' : LBL[cur.label] || 'Home') : 'Set delivery location'}${I('chev')}</b><small>${c.testPayments ? '<i class="u-test">TEST</i>' : ''}${cur ? e(addrLine(cur, cur.kind === 'listed')) : 'Choose your PG, hostel or college'}</small></span></button>${PL.inbox.btn()}<button class="u-av" data-act="go" data-path="/me" aria-label="Account">${e((name || 'P').charAt(0).toUpperCase())}</button></div>
+    return `<div class="u-head" id="u-head"><div class="row1"><button class="u-loc" data-act="go" data-path="/addresses"><span class="pin">${I('pin')}</span><span class="txt"><b>${cur ? e(cur.kind === 'listed' ? cur.place_name || 'Selected place' : LBL[cur.label] || 'Home') : 'Set delivery location'}${I('chev')}</b><small>${c.testPayments ? '<i class="u-test">TEST</i>' : ''}${cur ? e(addrLine(cur, cur.kind === 'listed')) : 'Choose your PG, hostel or college'}</small></span></button>${PL.isGuest() ? '<button class="u-glog" data-act="to-login">Log in</button>' : `${PL.inbox.btn()}<button class="u-av" data-act="go" data-path="/me" aria-label="Account">${e((name || 'P').charAt(0).toUpperCase())}</button>`}</div>
         <a class="u-search" href="#/search" aria-label="Search for restaurants and dishes">${I('search')}<span class="ph">Search for ‘<i id="u-word">${e(S.words[0] || 'your favourite food')}</i>’</span></a></div>
       ${notes}
       ${offer ? offerCard(offer) : ''}
@@ -277,7 +292,8 @@
       ${all.length > 1 ? `<div class="u-chips" id="u-chips"><button class="u-chip" data-act="sort">${I('filter')} Sort${S.sort && S.sort !== 'rel' ? ': ' + { rating: 'Rating', eta: 'Fastest' }[S.sort] : ''} ${I('chev', 'style="transform:rotate(90deg);width:14px;height:14px"')}</button>${[['open', 'Open now'], ['fast', 'Under 35 mins'], ['r4', 'Rating 4.0+'], ['veg', 'Pure veg']].filter(([k]) => k !== 'veg' || all.some((x) => x.veg_only)).map(([k, l]) => `<button class="u-chip ${S.fl?.[k] ? 'on' : ''}" data-act="fl" data-k="${k}" aria-pressed="${!!S.fl?.[k]}">${l}<span class="x">${I('x')}</span></button>`).join('')}</div>` : ''}
       ${all.length ? `<div class="u-list u-in" id="u-list">${all.map(card).join('')}</div><div id="u-none" class="hide">${empty('search', 'No restaurants match', 'Try removing a filter.', '<button class="btn ghost mt" data-act="fl-clear">Clear filters</button>')}</div>` : empty('bowl', 'No restaurants yet', 'Kitchens near you will appear here soon.')}
       ${cartCount() ? `<button class="u-cartbar u-homecart" data-act="go" data-path="/cart"><span class="l"><b>${cartCount()} item${cartCount() > 1 ? 's' : ''} · ${rs(cartTotal())}</b><small>from ${e(S.cart.rname || '')}</small></span><span class="r">View cart ${I('chev')}</span></button>` : ''}
-      ${live && !cartCount() ? `<button class="u-live" data-act="go" data-path="/orders/${e(live.order_code)}"><span class="ic">${I(live.status === 'PICKED_UP' ? 'bike' : live.status === 'READY' ? 'box' : 'chef')}</span><span class="txt"><b>${e(SAY[live.status]?.[0] || live.status)}</b><small>${e(live.restaurant)}${live.eta_at ? ` · ${etaText(live)}` : ''}${active.length > 1 ? ` · +${active.length - 1} more` : ''}</small></span><span class="go">Track ${I('chev')}</span></button>` : ''}`;
+      ${live && !cartCount() ? `<button class="u-live" data-act="go" data-path="/orders/${e(live.order_code)}"><span class="ic">${I(live.status === 'PICKED_UP' ? 'bike' : live.status === 'READY' ? 'box' : 'chef')}</span><span class="txt"><b>${e(SAY[live.status]?.[0] || live.status)}</b><small>${e(live.restaurant)}${live.eta_at ? ` · ${etaText(live)}` : ''}${active.length > 1 ? ` · +${active.length - 1} more` : ''}</small></span><span class="go">Track ${I('chev')}</span></button>` : ''}
+      ${bizFoot(c.business)}`;
   }
   // filters and sort work on the cards already on screen (no re-render, no lost scroll)
   const filterHome = () => { const f = S.fl || {}, k = S.cat || ''; let n = 0, all = 0; const list = PL.$('#u-list'); if (!list) return;
@@ -801,7 +817,7 @@
   PL.actions.rate = async (el) => { const r = await PL.run(() => PL.post(`/api/customer/orders/${el.dataset.code}/rating`, { stars: Number(el.dataset.s) }), 'Thanks for rating'); if (r) PL.rerender(); };
   PL.actions.goorder = (el) => { const m = /orders\/([A-Z0-9]+)/.exec(el.dataset.link); if (m) PL.go('/orders/' + m[1]); };
 
-  PL.start({ portal: 'user', name: 'Pakka Local', home: '/home', loginView,
+  PL.start({ portal: 'user', name: 'Pakka Local', home: '/home', loginView, guest: { routes: ['/home', '/search', '/r/:id'], prompt: guestPrompt },
     tabs: [{ path: '/home', label: 'Home', icon: 'home' }, { path: '/search', label: 'Search', icon: 'search' }, { path: '/orders', label: 'Orders', icon: 'orders' }, { path: '/me', label: 'Account', icon: 'user' }],
     onReady: () => { checkName(); const tick = async () => { try { const { orders } = await PL.api('/api/customer/orders'); PL.badge('/orders', orders.filter((o) => ACTIVE.includes(o.status)).length); } catch {} }; tick(); const iv = setInterval(tick, 10000); PL.hooks.stop = [() => clearInterval(iv)]; },
     routes: { '/home': { title: 'Home', render: home, poll: 6000, after: homeAfter, skel: 'cards' }, '/search': { title: 'Search', render: search, after: () => { runSearch(); const i = PL.$('#s-q'); if (i && !S.sq) i.focus(); }, skel: 'list' },

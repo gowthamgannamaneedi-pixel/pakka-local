@@ -924,3 +924,9 @@ body.has-ibar:has(#nav.hide):has(.u-cartbar,.u-paybar) .u-ibar{bottom:calc(88px 
 .u-mail .ig{background:linear-gradient(135deg,#f27a1a,#d4500f)}.u-mail .fb{background:linear-gradient(90deg,#d4500f,#f27a1a)}
 .u-mail+.u-ig{margin-top:10px}
 .u-legal{text-align:center;font-size:.78rem;margin:12px 0 0;color:var(--u-sub)}.u-legal a{color:var(--u-sub)}
+.u-biz{margin:28px 0 8px;padding:18px 16px;border-radius:20px;background:#fff;border:1px solid var(--line,#ece6dd)}
+.u-biz .bz{display:flex;gap:10px;align-items:center}.u-biz .bz img{border-radius:10px}.u-biz .bz b{display:block}.u-biz .bz small{color:var(--u-sub);font-size:.78rem}
+.u-biz .ct{display:grid;gap:6px;margin:12px 0}.u-biz .ct a,.u-biz .ct span{display:flex;gap:8px;align-items:center;color:var(--u-ink);text-decoration:none;font-size:.88rem}.u-biz .ct svg{width:16px;height:16px;flex:none;color:var(--o,#d4500f)}
+.u-biz .lg{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:.82rem}.u-biz .lg a{color:var(--u-sub)}.u-biz .cp{display:block;margin-top:10px;color:var(--u-sub);font-size:.75rem}
+.u-guest{max-width:420px;margin:40px auto;text-align:center;padding:0 8px}.u-guest>svg{width:56px;height:56px;color:#d4500f;background:#fff1e4;border-radius:50%;padding:14px}.u-guest h2{margin:14px 0 6px}.u-guest p{color:var(--u-sub);margin:0 0 16px}
+.u-glog{flex:none;padding:8px 16px;border-radius:999px;border:0;background:#fff;color:#d4500f;font:700 .88rem var(--font);box-shadow:0 2px 8px rgba(0,0,0,.12)}
