@@ -958,15 +958,28 @@ body.has-ibar:has(#nav.hide):has(.u-cartbar,.u-paybar) .u-ibar{bottom:calc(88px 
 @keyframes zpop{to{opacity:1;transform:none}}
 @keyframes zwob{0%,100%{transform:rotate(0)}50%{transform:rotate(-3deg)}}
 
-/* opening screen (first visit / weekly) */
-.u-intro{position:fixed;inset:0;z-index:200;overflow-y:auto;background:radial-gradient(120% 70% at 100% 0%,#ffb066 0%,transparent 55%),radial-gradient(100% 70% at 0% 100%,#7c3aed 0%,transparent 60%),linear-gradient(160deg,#d4500f,#b8326a);
-  display:grid;place-items:center;padding:24px 16px calc(24px + env(safe-area-inset-bottom));animation:zin .35s ease-out}
-.u-intro.out{animation:zout .3s ease-in forwards}
-.u-intro .in{width:100%;max-width:440px;display:grid;gap:14px;justify-items:center;text-align:left}
-.u-intro .lg{background:#fff;border-radius:24px;padding:8px;box-shadow:0 10px 24px rgba(0,0,0,.18)}
-.u-intro .u-zero{margin:0;width:100%;background:rgba(255,255,255,.08);box-shadow:none;border:1px solid rgba(255,255,255,.22);backdrop-filter:blur(6px)}
-.u-intro .u-zero h2{font-size:2.2rem}
-.u-intro .go{background:#fff;color:#b8326a;font-weight:800;box-shadow:0 10px 24px rgba(0,0,0,.18)}.u-intro .go svg{width:18px;height:18px}
-.u-intro .fine{margin:0;color:rgba(255,255,255,.85);font-size:.8rem;text-align:center}
-@media (min-width:640px){.u-intro .u-zero{grid-template-columns:1fr}}
-@keyframes zin{from{opacity:0}}@keyframes zout{to{opacity:0;transform:scale(1.03)}}
+/* opening screen (first visit / weekly): food photos on top, white sheet with the no-fees promise */
+.u-intro{position:fixed;inset:0;z-index:200;display:flex;flex-direction:column;background:#1d1310;overflow-y:auto;animation:zin .3s ease-out}
+.u-intro.out{animation:zout .28s ease-in forwards}
+.u-intro .hero{position:relative;flex:1 0 220px;min-height:220px;overflow:hidden}
+.u-intro .hero .grid{position:absolute;inset:-30px -50px;display:grid;grid-template-columns:repeat(3,1fr);gap:10px;transform:rotate(-8deg)}
+.u-intro .hero img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:20px;filter:saturate(.9) brightness(.85)}
+.u-intro .hero::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,rgba(29,19,16,.35),rgba(29,19,16,.75) 70%,rgba(29,19,16,.9))}
+.u-intro .brand{position:absolute;z-index:1;left:0;right:0;bottom:34px;display:grid;justify-items:center;gap:6px;color:#fff;text-align:center;padding:0 16px}
+.u-intro .brand .lg{background:#fff;border-radius:18px;padding:6px;box-shadow:0 8px 20px rgba(0,0,0,.25)}.u-intro .brand .lg img{display:block}
+.u-intro .brand b{font:800 1.4rem Manrope,var(--font)}.u-intro .brand>span:last-child{font-size:.85rem;opacity:.85}
+.u-intro .sheet{position:relative;margin-top:-22px;background:#fff;border-radius:26px 26px 0 0;padding:24px 20px calc(20px + env(safe-area-inset-bottom));display:grid;gap:12px;animation:zup .45s cubic-bezier(.2,.8,.2,1) both}
+.u-intro .eyebrow{font:800 .72rem var(--font);letter-spacing:.12em;text-transform:uppercase;color:#d4500f}
+.u-intro h1{margin:0;font:800 1.75rem/1.15 Manrope,var(--font);letter-spacing:-.02em;color:var(--u-ink)}
+.u-intro .lead{margin:0;color:var(--u-sub);font-size:.95rem;line-height:1.45}
+.u-intro .fees{list-style:none;margin:4px 0 0;padding:0;border:1px solid var(--u-line);border-radius:16px;overflow:hidden}
+.u-intro .fees li{display:flex;align-items:center;gap:12px;padding:12px 14px;border-top:1px solid var(--u-line);animation:zup .4s ease-out var(--d) both}.u-intro .fees li:first-child{border-top:0}
+.u-intro .fees .ic{width:26px;height:26px;flex:none;border-radius:50%;display:grid;place-items:center;background:var(--u-green-l);color:var(--u-green)}.u-intro .fees .ic svg{width:15px;height:15px;stroke-width:3}
+.u-intro .fees .t{flex:1;font-weight:600;color:var(--u-ink)}
+.u-intro .fees .z{font:800 .95rem Manrope,var(--font);color:var(--u-green)}
+.u-intro .note{display:flex;align-items:center;gap:8px;margin:0;font-size:.82rem;color:var(--u-mute)}.u-intro .note svg{width:16px;height:16px;flex:none}
+.u-intro .go{margin-top:4px}
+@media (min-width:700px){.u-intro{align-items:center;justify-content:center;background:rgba(17,19,24,.55)}
+  .u-intro .hero{flex:none;width:420px;height:230px;border-radius:26px 26px 0 0}.u-intro .sheet{width:420px;border-radius:0 0 26px 26px;margin-top:0}}
+@media (prefers-reduced-motion:reduce){.u-intro,.u-intro .sheet,.u-intro .fees li{animation:none}}
+@keyframes zin{from{opacity:0}}@keyframes zout{to{opacity:0}}@keyframes zup{from{opacity:0;transform:translateY(14px)}}

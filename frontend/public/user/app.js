@@ -253,8 +253,14 @@
   const introDue = () => { try { return Date.now() - Number(localStorage.getItem(INTRO_KEY) || 0) > WEEK; } catch { return true; } };
   const showIntro = () => { if (!introDue() || document.getElementById('u-intro')) return;
     const el = document.createElement('div'); el.id = 'u-intro'; el.className = 'u-intro'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true'); el.setAttribute('aria-label', 'Welcome to Pakka Local');
-    el.innerHTML = `<div class="in"><img class="lg" src="/assets/logo.png" alt="Pakka Local" width="84" height="84">${zeroCard()}
-      <button class="btn block lg go" data-act="intro-go">Let’s eat ${I('chev')}</button><p class="fine">Online payment · Live order tracking · Local kitchens</p></div>`;
+    const pics = ['biryani', 'dosa', 'curry', 'thali', 'noodles', 'momos', 'pizza', 'burger', 'idli'];
+    el.innerHTML = `<div class="hero" aria-hidden="true"><div class="grid">${pics.map((k, i) => `<img src="${catPic(k)}" alt="" style="animation-delay:${i * 40}ms">`).join('')}</div>
+        <div class="brand"><span class="lg"><img src="/assets/logo.png" alt="" width="60" height="60"></span><b>Pakka Local</b><span>Food from kitchens near your PG, hostel or college</span></div></div>
+      <div class="sheet"><span class="eyebrow">The Pakka promise</span><h1>Pay for the food.<br>Not the fees.</h1>
+        <p class="lead">Your bill is the menu price plus delivery by distance. No hidden charges.</p>
+        <ul class="fees">${ZERO.map(([t], k) => `<li style="--d:${k * 90 + 150}ms"><span class="ic">${I('check')}</span><span class="t">No ${t.toLowerCase()}</span><span class="z">₹0</span></li>`).join('')}</ul>
+        <p class="note">${I('info')} Every rupee is shown in your bill before you pay.</p>
+        <button class="btn block lg go" data-act="intro-go">Start ordering</button></div>`;
     document.body.append(el); setTimeout(() => el.querySelector('.go')?.focus(), 300); };
   PL.actions['intro-go'] = () => { try { localStorage.setItem(INTRO_KEY, String(Date.now())); } catch {} const el = document.getElementById('u-intro'); if (!el) return; el.classList.add('out'); setTimeout(() => el.remove(), 350); };
   showIntro();
