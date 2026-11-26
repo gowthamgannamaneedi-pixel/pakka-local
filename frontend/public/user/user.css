@@ -920,3 +920,6 @@ body.has-ibar:has(#nav.hide):has(.u-cartbar,.u-paybar) .u-ibar{bottom:calc(88px 
 .u-ig .tx{flex:1;min-width:0}.u-ig b{display:block;font-size:.95rem}.u-ig small{display:block;color:var(--u-sub);font-size:.76rem;margin-top:2px}
 .u-ig .fb{flex:none;padding:7px 14px;border-radius:999px;background:linear-gradient(90deg,#d6249f,#fd5949);color:#fff;font:700 .8rem var(--font)}
 .u-ig:active{transform:scale(.99)}
+.u-mail{background:linear-gradient(120deg,#fff7ef,#fff3e6 60%,#fdf6ee);border-color:#f6dcc2;box-shadow:0 6px 18px rgba(212,80,15,.08)}
+.u-mail .ig{background:linear-gradient(135deg,#f27a1a,#d4500f)}.u-mail .fb{background:linear-gradient(90deg,#d4500f,#f27a1a)}
+.u-mail+.u-ig{margin-top:10px}

@@ -730,6 +730,10 @@
   const IG_URL = 'https://www.instagram.com/pakkalocalfooddelivery/';
   const igIcon = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="#fff" stroke="none"/></svg>';
   const igCard = () => `<a class="u-ig" href="${IG_URL}" target="_blank" rel="noopener noreferrer"><span class="ig">${igIcon}</span><span class="tx"><b>Follow us on Instagram</b><small>@pakkalocalfooddelivery · offers, new kitchens and food drops first</small></span><span class="fb">Follow</span></a>`;
+  // customer support e-mail (Hostinger business mailbox)
+  const CARE = 'care@pakkalocal.online';
+  const mailIcon = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="m4 7 8 6 8-6"/></svg>';
+  const mailCard = () => `<a class="u-ig u-mail" href="mailto:${CARE}?subject=${encodeURIComponent('Pakka Local support')}"><span class="ig">${mailIcon}</span><span class="tx"><b>Email customer support</b><small>${CARE} · we reply as soon as we can</small></span><span class="fb">Email</span></a>`;
   async function support() {
     const qs = new URLSearchParams(location.hash.split('?')[1] || ''); if (qs.get('order')) S.hbOrder = qs.get('order');
     const { tickets } = await PL.api('/api/customer/support/tickets');
@@ -744,7 +748,7 @@
       ${tickets.length ? `<div class="u-tickets">${tickets.map((t) => `<button class="u-tk" data-act="go" data-path="/support/${e(t.code)}"><span class="tkt"><b>${e(t.code)}</b><span class="u-tag ${ST[t.status][1]}">${ST[t.status][0]}</span></span>
           <span class="tp">${e(t.topic)}${t.order_code ? ` · ${e(t.order_code)}` : ''}</span><span class="ls">${e(t.last || '')}</span>${t.unread ? `<span class="nb">${t.unread} new</span>` : ''}</button>`).join('')}</div>`
         : `<div class="u-empty slim">${I('chat')}<span>No tickets yet. Ask the assistant first; if it can’t solve it, it will connect you to our team.</span></div>`}
-      ${igCard()}</div>`; }
+      ${mailCard()}${igCard()}</div>`; }
   PL.forms['hb-ask'] = async (f) => { const q = PL.form(f).q.trim(); if (!q) return; f.reset(); await hbAsk(q); };
   PL.actions['hb-ask'] = (el) => hbAsk(el.dataset.q);
   async function hbAsk(q) { S.hb.push({ from: 'me', body: q }); S.hbBusy = true; PL.rerender();
@@ -787,7 +791,7 @@
       ${installCard()}
       <div class="u-menu"><button data-act="go" data-path="/support"><span class="ic">${I('chat')}</span><span><b>Help &amp; support</b><small>Ask the assistant or chat with the Pakka Local team</small></span><span class="chev">${I('chev')}</span></button>
         <button data-act="inbox"><span class="ic">${I('bell')}</span><span><b>Notifications</b><small>Order updates, offers and messages</small></span><span class="chev">${I('chev')}</span></button></div>
-      ${igCard()}
+      ${mailCard()}${igCard()}
       ${PL.push.card('user')}
       <button class="btn ghost block mt" data-act="logout">${I('logout')} Sign out</button></div>`; }
   PL.actions['name-edit'] = () => PL.modal(`<h3>Your name</h3><form data-form="name-change"><input name="name" maxlength="60" required autocomplete="name"><button class="btn block mt" type="submit">Save</button></form>`);
