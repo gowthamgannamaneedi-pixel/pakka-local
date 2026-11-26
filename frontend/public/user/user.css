@@ -905,3 +905,9 @@ body.has-ibar:has(#nav.hide):has(.u-cartbar,.u-paybar) .u-ibar{bottom:calc(88px 
 
 .u-dsheet .rep{position:relative;display:block}
 .u-dsheet .rep i{position:absolute;left:10px;bottom:10px;font:600 .62rem var(--font);font-style:normal;color:#fff;background:rgba(17,19,24,.55);padding:2px 7px;border-radius:6px}
+
+.u-bill .why{display:inline;border:0;background:none;padding:0 0 0 8px;font:600 .76rem var(--font);color:#d6247a;cursor:pointer}
+.u-bill .nofee span:first-child{color:var(--u-mute)}
+.u-bill .nofee s{text-decoration-thickness:1.5px}
+.u-bill .nofee .quip{color:var(--u-sub)!important;font-weight:500!important;font-style:italic}
+.u-bill .free{color:#1a8f4a;font-weight:800;letter-spacing:.02em}
