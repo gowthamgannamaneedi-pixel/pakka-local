@@ -51,7 +51,7 @@ export function publicRoutes(db) {
   r.get('/restaurants', (req, res) => { reopenDue(db);
     res.json({ restaurants: db.prepare(`SELECT r.id,r.name,r.description,r.cuisine,r.logo_path,r.image_path,r.rating,r.packing_buffer_min, COALESCE(s.is_open,0) AS is_open, s.reopen_at, s.reopen_mode,
       (SELECT MIN(prep_time_min) FROM food_items f WHERE f.restaurant_id=r.id AND f.deleted=0) AS min_prep, (SELECT CAST(AVG(prep_time_min) AS INTEGER) FROM food_items f WHERE f.restaurant_id=r.id AND f.deleted=0 AND f.available=1) AS avg_prep, r.rating_count, r.operating_info, r.opens_at, r.closes_at, r.min_order_paise, ROUND(r.pickup_lat, 4) AS lat, ROUND(r.pickup_lng, 4) AS lng, r.free_delivery_above_paise,
-      (SELECT substr(group_concat(f.name, ' | '), 1, 600) FROM food_items f WHERE f.restaurant_id=r.id AND f.deleted=0 AND f.available=1) AS dish_names,
+      (SELECT substr(group_concat(f.name, ' | '), 1, 4000) FROM food_items f WHERE f.restaurant_id=r.id AND f.deleted=0 AND f.available=1) AS dish_names,
       (SELECT COUNT(*) > 0 AND SUM(f.diet = 'veg') = COUNT(*) FROM food_items f WHERE f.restaurant_id=r.id AND f.deleted=0 AND f.available=1) AS veg_only FROM restaurants r LEFT JOIN restaurant_operating_status s ON s.restaurant_id=r.id
       WHERE r.approved=1 AND r.admin_visible=1 ORDER BY r.name`).all().map((x) => ({ ...x, ...openInfo(x.id), eta_min: x.avg_prep ? x.avg_prep + x.packing_buffer_min + Number(getSetting(db, 'rider_to_restaurant_min')) + Number(getSetting(db, 'default_delivery_min')) : null })).sort((a, b) => b.is_open - a.is_open) }); });
   r.get('/restaurants/:id/menu', (req, res) => {

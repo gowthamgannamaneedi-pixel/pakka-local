@@ -290,7 +290,7 @@
     return '<div class="u-sky sunny" aria-hidden="true"><i></i></div>'; };
   // only suggest dishes that are on today's menus; the search word is the word the menus actually use
   const reOf = (k) => (CATS.find(([c]) => c === k) || DISH.find(([c]) => c === k) || [])[CATS.some(([c]) => c === k) ? 2 : 1];
-  const livePicks = (m, all) => { const txt = all.map((x) => textOf(x)).join(' | '), seen = new Set(), out = [];
+  const livePicks = (m, all) => { const txt = all.filter((x) => x.is_open).map((x) => x.dish_names || '').join(' | ')      // dish names of open kitchens only (not restaurant names or cuisines), seen = new Set(), out = [];
     for (const [k, l] of [...m.picks, ['biryani', 'Biryani'], ['fried_rice', 'Fried rice'], ['noodles', 'Noodles'], ['curry', 'Curry'], ['chai', 'Chai'], ['shakes', 'Shakes']]) {
       if (out.length >= 4 || seen.has(k)) continue; seen.add(k); const re = reOf(k), hit = re && txt.match(re); if (!hit) continue;
       const w = hit[0].trim(); out.push([k, l, w.charAt(0).toUpperCase() + w.slice(1)]); }
