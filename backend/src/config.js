@@ -76,6 +76,8 @@ export const config = {
   sandboxPhones: (env.SANDBOX_PAYMENT_PHONES || '').split(',').map((x) => x.trim()).filter(Boolean),
   // Map tiles (Leaflet). Production must name a provider whose terms allow this use; public OSM tiles are for development only.
   // MAP_TILE_URL=none turns the map off on any environment (status text only), e.g. to check the no-provider fallback locally.
+  // weather for the customer app's look (optional). WEATHER_API_KEY = OpenWeatherMap key; empty = Open-Meteo (no key). WEATHER=off disables it.
+  weather: { key: env.WEATHER_API_KEY || '', off: env.WEATHER === 'off' },
   map: { tileUrl: env.MAP_TILE_URL === 'none' ? '' : env.MAP_TILE_URL || (isProd ? '' : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'), attribution: env.MAP_TILE_ATTRIBUTION || '&copy; OpenStreetMap contributors' },
   // Road distance for distance-based delivery charges: a self-hosted OSRM engine (see docs/DISTANCE-PRICING.md). Empty = not set up.
   // OSRM_API_KEY: sent as X-Routing-Key when the engine sits behind a reverse proxy on another server (OSRM itself has no login).

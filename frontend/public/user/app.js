@@ -248,6 +248,63 @@
         <span class="zf">${I('info')} Every rupee shows before you pay</span></div>
       <div class="zchips">${['No platform fee', 'No packaging charge', 'No convenience fee', 'No hidden charges'].map((t, k) => `<span style="--d:${k * 90}ms">${t}</span>`).join('')}</div>
     </section>`;
+  // ---------- moods: the Home look follows the time of day and the live weather at the service area ----------
+  // Weather comes from our own server (/api/public/weather, cached 15 min). Preview any look with ?mood=night&wx=rain&temp=36
+  const PV = new URLSearchParams(location.search);
+  const dayPart = (h = new Date().getHours()) => (h >= 5 && h < 11 ? 'morning' : h < 16 ? 'noon' : h < 19 ? 'evening' : h < 23 ? 'night' : 'late');
+  const WXI = {      // small animated weather icons (inline SVG, no images)
+    sun: '<svg viewBox="0 0 48 48" class="wi sun"><circle cx="24" cy="24" r="9"/><g class="rays">' + [0, 45, 90, 135, 180, 225, 270, 315].map((d) => `<line x1="24" y1="5" x2="24" y2="10" transform="rotate(${d} 24 24)"/>`).join('') + '</g></svg>',
+    moon: '<svg viewBox="0 0 48 48" class="wi moon"><path d="M31 8a16 16 0 1 0 9 26A13 13 0 0 1 31 8z"/><circle class="st" cx="12" cy="12" r="1.4"/><circle class="st s2" cx="20" cy="6" r="1"/></svg>',
+    cloud: '<svg viewBox="0 0 48 48" class="wi cloud"><path d="M14 36h20a8 8 0 0 0 0-16 11 11 0 0 0-21-2A9 9 0 0 0 14 36z"/></svg>',
+    rain: '<svg viewBox="0 0 48 48" class="wi rain"><path d="M14 30h20a8 8 0 0 0 0-16 11 11 0 0 0-21-2A9 9 0 0 0 14 30z"/><g class="dr"><line x1="17" y1="35" x2="15" y2="41"/><line x1="25" y1="35" x2="23" y2="41"/><line x1="33" y1="35" x2="31" y2="41"/></g></svg>',
+    storm: '<svg viewBox="0 0 48 48" class="wi storm"><path d="M14 28h20a8 8 0 0 0 0-16 11 11 0 0 0-21-2A9 9 0 0 0 14 28z"/><path class="bt" d="M25 29l-5 9h5l-3 7 8-10h-5l3-6z"/></svg>',
+  };
+  const MOOD = {
+    morning: { icon: 'sun', title: 'Good morning', line: 'Start easy. Idli, dosa and a hot chai.', picks: [['idli', 'Idli'], ['dosa', 'Dosa'], ['chai', 'Chai'], ['paratha', 'Paratha']] },
+    noon: { icon: 'sun', title: 'Lunch time', line: 'Biryani, meals and curries from kitchens near you.', picks: [['biryani', 'Biryani'], ['thali', 'Meals'], ['curry', 'Curry'], ['fried_rice', 'Fried rice']] },
+    evening: { icon: 'sun', title: 'Evening snacks?', line: 'Something crispy with your chai.', picks: [['pakoda', 'Pakoda'], ['chai', 'Chai'], ['momos', 'Momos'], ['rolls', 'Rolls']] },
+    night: { icon: 'moon', title: 'Dinner’s sorted', line: 'Hot food, live tracking, no extra fees.', picks: [['biryani', 'Biryani'], ['naan', 'Naan'], ['chicken_curry', 'Chicken'], ['noodles', 'Noodles']] },
+    late: { icon: 'moon', title: 'Up late?', line: 'Kitchens that are still open are listed below.', picks: [['biryani', 'Biryani'], ['fried_rice', 'Fried rice'], ['noodles', 'Noodles'], ['shakes', 'Shakes']] },
+  };
+  const WXMOOD = {
+    rain: { icon: 'rain', title: 'It’s raining outside', line: 'Stay in. We’ll bring it hot. Deliveries may take a little longer in the rain.', picks: [['chai', 'Chai'], ['pakoda', 'Pakoda'], ['noodles', 'Noodles'], ['biryani', 'Biryani']] },
+    storm: { icon: 'storm', title: 'Stormy out there', line: 'Stay safe indoors. Our riders take the safe road, so allow a few extra minutes.', picks: [['chai', 'Chai'], ['pakoda', 'Pakoda'], ['curry', 'Curry'], ['biryani', 'Biryani']] },
+    fog: { icon: 'cloud', title: 'Foggy morning', line: 'A hot chai fixes most things.', picks: [['chai', 'Chai'], ['idli', 'Idli'], ['dosa', 'Dosa'], ['omelette', 'Omelette']] },
+    hot: { icon: 'sun', title: 'Too hot to step out', line: 'Stay cool. Shakes, juices and curd rice, delivered.', picks: [['shakes', 'Shakes'], ['curd_rice', 'Curd rice'], ['sweets', 'Sweets'], ['cakes', 'Cakes']] },
+  };
+  const moodNow = (wx) => {
+    const part = PV.get('mood') || dayPart(), cond = PV.get('wx') || wx?.condition || '', temp = PV.has('temp') ? Number(PV.get('temp')) : wx?.temp_c;
+    const k = cond === 'storm' ? 'storm' : cond === 'rain' || cond === 'drizzle' ? 'rain' : cond === 'fog' && part === 'morning' ? 'fog' : temp >= 35 && (part === 'noon' || part === 'evening') ? 'hot' : '';
+    const m = { ...(k ? WXMOOD[k] : MOOD[part]), part, wx: k || cond, temp };
+    if (!k && (part === 'night' || part === 'late')) m.icon = cond === 'clouds' ? 'cloud' : 'moon'; else if (!k && cond === 'clouds') m.icon = 'cloud';
+    return m;
+  };
+  const applyMood = (m) => { const b = document.body.dataset; b.mood = m.part; b.wx = m.wx || 'clear'; };
+  // the sky layer: rain drops, lightning, stars, a slow sun glow or drifting clouds (CSS only, paused when motion is reduced)
+  let seed = 0; const R = (a, z) => { seed = (seed * 9301 + 49297) % 233280; return (a + (seed / 233280) * (z - a)).toFixed(2); };      // fixed sequence: same layout on every refresh (no flicker)
+  const sky = (m) => { seed = 7;
+    if (m.wx === 'rain' || m.wx === 'storm') return `<div class="u-sky rainy" aria-hidden="true">${Array.from({ length: m.wx === 'storm' ? 34 : 26 }, () => `<i style="left:${R(0, 100)}%;animation-delay:-${R(0, 1.2)}s;animation-duration:${R(.55, .9)}s;opacity:${R(.25, .6)}"></i>`).join('')}${m.wx === 'storm' ? '<b class="flash"></b>' : ''}</div>`;
+    if (m.part === 'night' || m.part === 'late') return `<div class="u-sky starry" aria-hidden="true">${Array.from({ length: 22 }, () => `<i style="left:${R(0, 100)}%;top:${R(0, 70)}%;animation-delay:-${R(0, 4)}s;width:${R(1, 2.6)}px;height:${R(1, 2.6)}px"></i>`).join('')}</div>`;
+    if (m.wx === 'clouds' || m.wx === 'fog') return '<div class="u-sky cloudy" aria-hidden="true"><i></i><i></i><i></i></div>';
+    return '<div class="u-sky sunny" aria-hidden="true"><i></i></div>'; };
+  // only suggest dishes that are on today's menus; the search word is the word the menus actually use
+  const reOf = (k) => (CATS.find(([c]) => c === k) || DISH.find(([c]) => c === k) || [])[CATS.some(([c]) => c === k) ? 2 : 1];
+  const livePicks = (m, all) => { const txt = all.map((x) => textOf(x)).join(' | '), seen = new Set(), out = [];
+    for (const [k, l] of [...m.picks, ['biryani', 'Biryani'], ['fried_rice', 'Fried rice'], ['noodles', 'Noodles'], ['curry', 'Curry'], ['chai', 'Chai'], ['shakes', 'Shakes']]) {
+      if (out.length >= 4 || seen.has(k)) continue; seen.add(k); const re = reOf(k), hit = re && txt.match(re); if (!hit) continue;
+      const w = hit[0].trim(); out.push([k, l, w.charAt(0).toUpperCase() + w.slice(1)]); }
+    return out; };
+  const moodCard = (m, all = []) => { const picks = livePicks(m, all); return `<section class="u-mood" aria-label="${e(m.title)}">${sky(m)}
+      <div class="mh"><span class="ico">${WXI[m.icon] || WXI.sun}</span><span class="tx"><b>${e(m.title)}</b><small>${e(m.line)}</small></span>${Number.isFinite(m.temp) ? `<span class="tp">${Math.round(m.temp)}°</span>` : ''}</div>
+      ${picks.length ? `<div class="mp">${picks.map(([k, l, q], i) => `<button class="pk" data-act="mood-q" data-q="${e(q)}" style="--i:${i}"><img src="${catPic(k)}" alt="" loading="lazy"><span>${e(l)}</span></button>`).join('')}</div>` : ''}</section>`; };
+  // 3D depth: cards and banners tilt slightly toward the pointer (mouse / trackpad only; phones get a soft press instead)
+  if (matchMedia('(hover:hover) and (pointer:fine)').matches && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    let tEl = null;
+    document.addEventListener('pointermove', (ev) => { const el = ev.target.closest?.('.u-rrow .im, .u-ban, .u-pick, .u-dcard, .u-mood'); if (tEl && tEl !== el) { tEl.style.transform = ''; tEl = null; } if (!el) return; tEl = el;
+      const r = el.getBoundingClientRect(), x = (ev.clientX - r.left) / r.width - 0.5, y = (ev.clientY - r.top) / r.height - 0.5;
+      el.style.transform = `perspective(900px) rotateX(${(-y * 6).toFixed(2)}deg) rotateY(${(x * 8).toFixed(2)}deg) translateZ(0)`; }, { passive: true });
+    document.addEventListener('pointerleave', () => { if (tEl) tEl.style.transform = ''; tEl = null; }, true);
+  }
   // opening screen: the first thing people see when they open Pakka Local (first visit, then again after a week)
   const INTRO_KEY = 'pl.intro.seen', WEEK = 7 * 864e5;
   const introDue = () => { try { return Date.now() - Number(localStorage.getItem(INTRO_KEY) || 0) > WEEK; } catch { return true; } };
@@ -265,7 +322,8 @@
   PL.actions['intro-go'] = () => { try { localStorage.setItem(INTRO_KEY, String(Date.now())); } catch {} const el = document.getElementById('u-intro'); if (!el) return; el.classList.add('out'); setTimeout(() => el.remove(), 480); };
   showIntro();
   async function home() {
-    const [c, r, my, me, adr, ob] = await Promise.all([PL.api('/api/public/config'), PL.api('/api/public/restaurants'), PL.api('/api/customer/orders').catch(() => ({ orders: [] })), PL.api('/api/customer/me').catch(() => ({ user: {} })), PL.api('/api/customer/addresses').catch(() => ({ addresses: [] })), PL.api('/api/push/banner').catch(() => ({ banner: null }))]);
+    const [c, r, my, me, adr, ob, wxr] = await Promise.all([PL.api('/api/public/config'), PL.api('/api/public/restaurants'), PL.api('/api/customer/orders').catch(() => ({ orders: [] })), PL.api('/api/customer/me').catch(() => ({ user: {} })), PL.api('/api/customer/addresses').catch(() => ({ addresses: [] })), PL.api('/api/push/banner').catch(() => ({ banner: null })), PL.api('/api/public/weather').catch(() => ({ weather: null }))]);
+    const mood = moodNow(wxr.weather); applyMood(mood);
     const offer = ob.banner && !S.banDone?.has(ob.banner.id) ? ob.banner : null; S.offerNow = offer;
     const all = r.restaurants, open = all.filter((x) => x.is_open), active = my.orders.filter((o) => ACTIVE.includes(o.status)), recent = my.orders.filter((o) => o.status === 'DELIVERED').slice(0, 8);
     if (c.maintenance) return maintPage(c, active);
@@ -305,6 +363,7 @@
     const live = active[0];
     return `<div class="u-head" id="u-head"><div class="row1"><button class="u-loc" data-act="go" data-path="/addresses"><span class="pin">${I('pin')}</span><span class="txt"><b>${cur ? e(cur.kind === 'listed' ? cur.place_name || 'Selected place' : LBL[cur.label] || 'Home') : 'Set delivery location'}${I('chev')}</b><small>${c.testPayments ? '<i class="u-test">TEST</i>' : ''}${cur ? e(addrLine(cur, cur.kind === 'listed')) : 'Choose your PG, hostel or college'}</small></span></button>${PL.isGuest() ? '<button class="u-glog" data-act="to-login">Log in</button>' : `${PL.inbox.btn()}<button class="u-av" data-act="go" data-path="/me" aria-label="Account">${e((name || 'P').charAt(0).toUpperCase())}</button>`}</div>
         <a class="u-search" href="#/search" aria-label="Search for restaurants and dishes">${I('search')}<span class="ph">Search for ‘<i id="u-word">${e(S.words[0] || 'your favourite food')}</i>’</span></a></div>
+      ${moodCard(mood, all)}
       ${notes}
       ${offer ? offerCard(offer) : ''}
       ${bans.length ? `<div class="u-bans" id="u-bans">${bans.join('')}</div><div class="u-bdots" id="u-bdots">${bans.map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</div>` : ''}
@@ -375,6 +434,7 @@
       : `${rest.length ? `<div class="u-sec" style="margin-top:14px"><h2 style="font-size:1rem">Restaurants</h2></div>${rest.map((x) => `<button class="u-sres" data-act="sgo" data-path="/r/${x.id}">${img(coverOf(x))}<span class="txt"><b>${e(x.name)}</b><small>${x.rating ? `★ ${Number(x.rating).toFixed(1)} · ` : ''}${e(x.cuisine || '')}${x.is_open ? '' : ' · Closed'}</small></span><span class="ty">Restaurant</span></button>`).join('')}` : ''}
          ${dishes.length ? `<div class="u-sec"><h2 style="font-size:1rem">Dishes</h2></div>${dishes.map(({ d, x, i }) => `<button class="u-sres" data-act="sgo" data-path="/r/${x.id}" data-mq="${e(d)}">${i?.image_path ? img(pubImg(i.image_path)) : dishPic(d) ? img(dishPic(d)) : '<span class="ph"></span>'}<span class="txt"><b>${i ? dietMark(i.diet) + ' ' : ''}${e(d)}</b><small>${i ? `${rs(i.price_paise)} · ` : ''}in ${e(x.name)}${x.is_open ? '' : ' · Closed'}</small></span><span class="ty">Dish</span></button>`).join('')}` : ''}`; };
   document.addEventListener('input', (ev) => { if (ev.target.id === 's-q') { S.sq = ev.target.value; runSearch(); } });
+  PL.actions['mood-q'] = (el) => { S.sq = el.dataset.q; PL.go('/search'); };      // mood card pick: open Search with that dish
   PL.actions.sq = (el) => { S.sq = el.dataset.q; const i = PL.$('#s-q'); if (i) i.value = S.sq; runSearch(); };
   PL.actions['sq-clear'] = () => { S.sq = ''; const i = PL.$('#s-q'); if (i) { i.value = ''; i.focus(); } runSearch(); };
   PL.actions['sq-forget'] = () => { save('pl.recentq', []); PL.rerender(); };

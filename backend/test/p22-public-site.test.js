@@ -26,3 +26,8 @@ test('public config gives the app the business details; menus and prices are pub
   const m = await W.call('GET', `/api/public/restaurants/${W.rest}/menu`); assert.equal(m.status, 200);
   assert.equal(m.body.items[0].price_paise, 16000); assert.equal(m.body.items[0].markup_paise, undefined);
 });
+
+test('weather endpoint is public and harmless (no network in tests: null, app keeps its normal look)', async () => {
+  const r = await W.call('GET', '/api/public/weather');
+  assert.equal(r.status, 200); assert.deepEqual(r.body, { weather: null });
+});

@@ -1029,3 +1029,73 @@ body.has-ibar:has(#nav.hide):has(.u-cartbar,.u-paybar) .u-ibar{bottom:calc(88px 
 @keyframes ishine{0%,60%{transform:translateX(-120%)}100%{transform:translateX(120%)}}
 @keyframes inudge{0%,100%{transform:none}50%{transform:translateX(4px)}}
 @keyframes idown{to{transform:translateY(40px);opacity:0}}
+
+/* =================== Moods: time of day + live weather =================== */
+.u-mood{--m1:#e2550f;--m2:#b8326a;position:relative;overflow:hidden;isolation:isolate;margin:14px 0 4px;padding:16px;border-radius:22px;color:#fff;
+  background:linear-gradient(135deg,var(--m1),var(--m2));box-shadow:0 12px 28px color-mix(in srgb,var(--m2) 28%,transparent);transition:transform .25s ease,box-shadow .25s ease;transform-style:preserve-3d}
+body[data-mood=morning] .u-mood{--m1:#f7a543;--m2:#e2550f}
+body[data-mood=noon] .u-mood{--m1:#f08a24;--m2:#d0450b}
+body[data-mood=evening] .u-mood{--m1:#e2550f;--m2:#9b2f5c}
+body[data-mood=night] .u-mood{--m1:#2a2350;--m2:#7a2f3f}
+body[data-mood=late] .u-mood{--m1:#16152e;--m2:#3b2350}
+body[data-wx=rain] .u-mood,body[data-wx=drizzle] .u-mood{--m1:#3c4a66;--m2:#5c4a6b}
+body[data-wx=storm] .u-mood{--m1:#252b3d;--m2:#43375a}
+body[data-wx=hot] .u-mood{--m1:#ffb02e;--m2:#e2550f}
+.u-mood .mh{position:relative;z-index:1;display:flex;align-items:center;gap:12px}
+.u-mood .ico{width:52px;height:52px;flex:none;display:grid;place-items:center;border-radius:16px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.22);backdrop-filter:blur(6px)}
+.u-mood .tx{flex:1;min-width:0}.u-mood .tx b{display:block;font:800 1.15rem/1.2 Manrope,var(--font);letter-spacing:-.01em}.u-mood .tx small{display:block;margin-top:3px;font-size:.84rem;line-height:1.35;opacity:.88}
+.u-mood .tp{flex:none;font:800 1.6rem/1 Manrope,var(--font);letter-spacing:-.03em;opacity:.95}
+.u-mood .mp{position:relative;z-index:1;display:flex;gap:8px;margin-top:14px;overflow-x:auto;scrollbar-width:none}.u-mood .mp::-webkit-scrollbar{display:none}
+.u-mood .pk{flex:none;display:flex;align-items:center;gap:8px;padding:5px 12px 5px 5px;border-radius:999px;border:1px solid rgba(255,255,255,.26);background:rgba(255,255,255,.14);color:#fff;font:700 .82rem var(--font);cursor:pointer;backdrop-filter:blur(6px);transition:background .2s,transform .2s}
+.u-mood .pk img{width:30px;height:30px;border-radius:50%;object-fit:cover;box-shadow:0 2px 6px rgba(0,0,0,.25)}
+.u-mood .pk:hover{background:rgba(255,255,255,.24)}.u-mood .pk:active{transform:scale(.96)}
+/* weather icons */
+.wi{width:32px;height:32px;fill:none;stroke:#fff;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.wi.sun circle{fill:#ffd166;stroke:#ffd166}.wi.sun line{stroke:#ffd166}
+.wi.moon path{fill:#f3e9c6;stroke:#f3e9c6}.wi.moon .st{fill:#fff;stroke:none}
+.wi.cloud path,.wi.rain path,.wi.storm path{fill:rgba(255,255,255,.92);stroke:none}
+.wi.rain line{stroke:#bfe3ff}.wi.storm .bt{fill:#ffd166;stroke:none}
+/* sky layers */
+.u-sky{position:absolute;inset:0;z-index:0;pointer-events:none;overflow:hidden;border-radius:inherit}
+.u-sky.rainy i{position:absolute;top:-20%;width:1.5px;height:18px;border-radius:2px;background:linear-gradient(transparent,rgba(210,230,255,.9));transform:rotate(12deg)}
+.u-sky.rainy .flash{position:absolute;inset:0;background:#fff;opacity:0}
+.u-sky.starry i{position:absolute;border-radius:50%;background:#fff;opacity:.6}
+.u-sky.cloudy i{position:absolute;width:160px;height:50px;border-radius:50px;background:rgba(255,255,255,.12);filter:blur(2px)}
+.u-sky.cloudy i:nth-child(1){top:8%;left:-20%}.u-sky.cloudy i:nth-child(2){top:46%;left:30%;width:200px;opacity:.7}.u-sky.cloudy i:nth-child(3){top:70%;left:-10%;width:120px}
+.u-sky.sunny i{position:absolute;right:-40px;top:-50px;width:170px;height:170px;border-radius:50%;background:radial-gradient(circle,rgba(255,230,150,.55),transparent 65%)}
+/* phones/tablets: the orange header follows the mood too */
+@media(max-width:999px){
+  body.c-home[data-mood=morning] .u-head{background:linear-gradient(160deg,#f7a543 0%,#e2550f 70%,#c8440c 100%)}
+  body.c-home[data-mood=evening] .u-head{background:linear-gradient(160deg,#e2550f 0%,#b83a3f 60%,#8e2f5c 100%)}
+  body.c-home[data-mood=night] .u-head{background:linear-gradient(160deg,#2a2350 0%,#4a2a4e 55%,#7a2f3f 100%)}
+  body.c-home[data-mood=late] .u-head{background:linear-gradient(160deg,#16152e 0%,#2a2045 60%,#3b2350 100%)}
+  body.c-home[data-wx=rain] .u-head,body.c-home[data-wx=drizzle] .u-head{background:linear-gradient(160deg,#3c4a66 0%,#4b4a6a 60%,#5c4a6b 100%)}
+  body.c-home[data-wx=storm] .u-head{background:linear-gradient(160deg,#1f2433 0%,#2f3046 60%,#43375a 100%)}
+}
+@media (prefers-reduced-motion:no-preference){
+  .u-mood{animation:mdin .5s cubic-bezier(.2,.8,.2,1) both}
+  .u-mood .pk{animation:mdin .45s cubic-bezier(.2,.8,.2,1) calc(.15s + var(--i) * 70ms) both}
+  .u-sky.rainy i{animation:mdrain .7s linear infinite}
+  .u-sky.rainy .flash{animation:mdflash 7s ease-out 2s infinite}
+  .u-sky.starry i{animation:mdtwinkle 3.2s ease-in-out infinite}
+  .u-sky.cloudy i{animation:mdcloud 26s linear infinite}.u-sky.cloudy i:nth-child(2){animation-duration:34s;animation-delay:-12s}.u-sky.cloudy i:nth-child(3){animation-duration:22s;animation-delay:-6s}
+  .u-sky.sunny i{animation:mdglow 5s ease-in-out infinite}
+  .wi.sun .rays{transform-origin:24px 24px;animation:mdspin 18s linear infinite}
+  .wi.moon .st{animation:mdtwinkle 2.4s ease-in-out infinite}.wi.moon .s2{animation-delay:-1.2s}
+  .wi.cloud{animation:mdfloat 4s ease-in-out infinite}
+  .wi.rain .dr line{animation:mddrop 1s linear infinite}.wi.rain .dr line:nth-child(2){animation-delay:-.33s}.wi.rain .dr line:nth-child(3){animation-delay:-.66s}
+  .wi.storm .bt{animation:mdbolt 3.5s ease-in-out infinite}
+}
+@keyframes mdin{from{opacity:0;transform:translateY(10px)}}
+@keyframes mdrain{to{transform:translate(-22px,260px) rotate(12deg)}}
+@keyframes mdflash{0%,94%,100%{opacity:0}95%{opacity:.55}96%{opacity:.1}97%{opacity:.4}}
+@keyframes mdtwinkle{0%,100%{opacity:.25;transform:scale(.8)}50%{opacity:1;transform:scale(1.15)}}
+@keyframes mdcloud{from{transform:translateX(-40%)}to{transform:translateX(160%)}}
+@keyframes mdglow{0%,100%{transform:scale(1);opacity:.8}50%{transform:scale(1.15);opacity:1}}
+@keyframes mdspin{to{transform:rotate(360deg)}}
+@keyframes mdfloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+@keyframes mddrop{0%{transform:translateY(-3px);opacity:0}30%{opacity:1}100%{transform:translateY(5px);opacity:0}}
+@keyframes mdbolt{0%,80%,100%{opacity:1}84%{opacity:.2}88%{opacity:1}91%{opacity:.3}}
+/* 3D depth: smooth return when the pointer leaves; soft press on touch */
+.u-rrow .im,.u-ban,.u-pick,.u-dcard{transition:transform .25s ease}
+@media (hover:none){.u-rrow:active .im,.u-ban:active,.u-pick:active,.u-dcard:active{transform:scale(.98)}}

@@ -17,6 +17,7 @@ import { availability } from '../services/hours.js';
 import * as Support from '../services/support.js';
 import { freshness } from '../services/tracking.js';
 import { BUSINESS } from './site.js';
+import { currentWeather } from '../services/weather.js';
 
 // An order always goes to one of the customer's own saved GPS addresses, and the customer confirms that delivery point.
 const cartSchema = z.object({ restaurant_id: z.number().int(), items: z.array(z.object({ id: z.number().int(), qty: z.number().int() })).max(30),
@@ -33,6 +34,8 @@ export const maintenance = (db) => (getSetting(db, 'maintenance_mode') === '1' ?
 export function publicRoutes(db) {
   const r = Router();
   r.get('/config', (req, res) => res.json({ maintenance: maintenance(db), loginChannel: loginChannel(), emailLogin: !!config.emailOtp.enabled, testPayments: config.sandboxPayments, paymentsAvailable: config.sandboxPayments, ridersAvailable: eligibleRiderCount(db) > 0, noRiderMessage: NO_RIDER_MSG, business: { name: BUSINESS.name, phone: BUSINESS.phone, email: BUSINESS.email, address: BUSINESS.address || null } }));
+  // weather at the service area (cached on the server), only to set the app's look; null when unknown
+  r.get('/weather', async (req, res) => { res.set('Cache-Control', 'public, max-age=300'); res.json({ weather: await currentWeather(db).catch(() => null) }); });
   // places on the list (no map points are sent). With ?restaurant_id= each place gets the estimated distance and charge from that
   // restaurant (straight line x the per-km rate, rounded to the rupee); the bill always shows the exact charge.
   r.get('/locations', (req, res) => { const rate = perKmRate(db), rid = Number(req.query.restaurant_id) || 0;
