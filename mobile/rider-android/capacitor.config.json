@@ -1,6 +1,6 @@
 {
   "appId": "com.pakkalocal.rider.staging",
-  "appName": "Pakka Rider (Staging)",
+  "appName": "Pakka Rider",
   "webDir": "www",
   "server": {
     "url": "https://pakkalocal.online/rider/",

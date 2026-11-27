@@ -12,7 +12,7 @@ import android.webkit.WebSettings;
 import androidx.annotation.NonNull;
 import com.getcapacitor.BridgeActivity;
 
-// TESTING BUILD: opens the Pakka Local rider portal on the staging server (see capacitor.config.json).
+// Pakka Rider: opens the Pakka Local rider portal (see capacitor.config.json).
 // Before the portal can be used the phone's Location must be on (Gates). While the rider is online,
 // RiderService keeps offers, alerts and delivery location working in the background, and shows the
 // floating side icon whenever this screen is not in front.

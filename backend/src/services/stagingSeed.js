@@ -46,7 +46,7 @@ export function seedStagingTestAccounts(db, { secretsDir, appEnv, testOtp, publi
     if (!rid) {
       const r = TEST.restaurant;
       rid = db.prepare('INSERT INTO restaurants (name,cuisine,address,phone,description,commission_bps,markup_paise,admin_visible,approved) VALUES (?,?,?,?,?,1000,0,1,1)')
-        .run(r.name, r.cuisine, r.address, r.phone, 'Staging test data. Safe to delete.').lastInsertRowid;
+        .run(r.name, r.cuisine, r.address, r.phone, null).lastInsertRowid;
       for (const [n, price, prep] of TEST.menu) db.prepare('INSERT INTO food_items (restaurant_id,name,base_price_paise,prep_time_min) VALUES (?,?,?,?)').run(rid, n, price, prep);
       db.prepare('INSERT INTO restaurant_operating_status (restaurant_id,is_open) VALUES (?,1)').run(rid);
       made.push(`restaurant "${r.name}"`);

@@ -35,6 +35,7 @@ function range(q) {
   if (p === 'today') return [dayStart(), dayStart(1)];
   if (p === 'yesterday') return [dayStart(-1), dayStart()];
   if (p === '7d') return [dayStart(-6), dayStart(1)];
+  if (p === '10d') return [dayStart(-9), dayStart(1)];
   if (p === '30d') return [dayStart(-29), dayStart(1)];
   const ok = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s || '');
   if (p === 'custom' && ok(q.from) && ok(q.to)) return [new Date(Date.parse(q.from) - IST).toISOString(), new Date(Date.parse(q.to) + 864e5 - IST).toISOString()];
@@ -113,6 +114,43 @@ export function adminRoutes(db) {
     if (d.role === 'admin') welcome({ name: d.name, phone: d.phone, email: d.email }).catch((e) => console.error('Admin welcome e-mail failed:', e.message));
     res.status(201).json({ id, email_ready: d.role === 'admin' ? mailReady() : undefined });
   }));
+
+  // Business analysis for the selected period (same presets as the overview): each restaurant's orders and what Pakka Local
+  // earned from it, how orders ended, why restaurants rejected orders, why delivery partners turned offers down,
+  // refunds, and money paid out / still owed to restaurants and partners.
+  r.get('/analytics', (req, res) => {
+    const [from, to] = range(req.query), all = (sql, ...a) => db.prepare(sql).all(...a);
+    const REAL = "o.status NOT IN ('PAYMENT_PENDING','PAYMENT_FAILED','EXPIRED')";
+    const earned = "(SELECT COALESCE(SUM(t.amount_paise),0) FROM platform_transactions t WHERE t.order_id=o.id AND t.account_type='platform' AND t.kind IN ('markup','commission','delivery_margin','surge','coupon'))";
+    const by_restaurant = all(`SELECT r.id, r.name, COUNT(o.id) AS orders,
+        SUM(o.status='DELIVERED') AS delivered, SUM(o.status IN ('PLACED','ACCEPTED','PREPARING','READY','PICKED_UP')) AS in_progress,
+        SUM(o.status='REJECTED') AS rejected, SUM(o.status='CANCELLED') AS cancelled,
+        COALESCE(SUM(CASE WHEN o.status='DELIVERED' THEN o.items_base_paise + o.markup_paise END),0) AS food_sales_paise,
+        COALESCE(SUM(CASE WHEN o.status='DELIVERED' THEN o.total_paise END),0) AS collected_paise,
+        COALESCE(SUM(CASE WHEN o.status='DELIVERED' THEN o.restaurant_payout_paise END),0) AS restaurant_share_paise,
+        COALESCE(SUM(CASE WHEN o.status='DELIVERED' THEN ${earned} END),0) AS platform_earned_paise
+      FROM orders o JOIN restaurants r ON r.id=o.restaurant_id WHERE ${REAL} AND o.created_at>=? AND o.created_at<? GROUP BY r.id ORDER BY platform_earned_paise DESC, orders DESC`, from, to);
+    const status_mix = all(`SELECT CASE WHEN o.status IN ('PLACED','ACCEPTED','PREPARING','READY','PICKED_UP') THEN 'IN_PROGRESS' ELSE o.status END AS status, COUNT(*) AS n
+      FROM orders o WHERE (${REAL} OR o.status='PAYMENT_FAILED') AND o.created_at>=? AND o.created_at<? GROUP BY 1 ORDER BY n DESC`, from, to);
+    const rr = all(`SELECT o.order_code, r.name AS restaurant, o.rejection_reason AS reason, o.status, o.updated_at AS at FROM orders o JOIN restaurants r ON r.id=o.restaurant_id
+      WHERE o.status IN ('REJECTED','CANCELLED') AND o.updated_at>=? AND o.updated_at<? ORDER BY o.id DESC`, from, to);
+    const group = (rows, k) => Object.entries(rows.reduce((m, x) => { const key = String(x[k] || 'No reason given').replace(/\s*\(.*\)$/, '').replace(/^Other:.*/, 'Other'); m[key] = (m[key] || 0) + 1; return m; }, {})).map(([reason, n]) => ({ reason, n })).sort((a, b) => b.n - a.n);
+    const td = all(`SELECT u.name, a.reason, a.rider_id FROM rider_assignments a JOIN users u ON u.id=a.rider_id WHERE a.reason IS NOT NULL AND a.responded_at>=? AND a.responded_at<?`, from, to);
+    const acc = Object.fromEntries(all("SELECT rider_id, COUNT(*) AS n FROM rider_assignments WHERE status='ACCEPTED' AND responded_at>=? AND responded_at<? GROUP BY rider_id", from, to).map((x) => [x.rider_id, x.n]));
+    const byRider = Object.values(td.reduce((m, x) => { (m[x.rider_id] ||= { id: x.rider_id, name: x.name, turned_down: 0, accepted: acc[x.rider_id] || 0 }).turned_down++; return m; }, {})).sort((a, b) => b.turned_down - a.turned_down);
+    const rf = all(`SELECT f.amount_paise, f.status, f.reason, f.created_at, o.order_code, r.name AS restaurant FROM refunds f JOIN orders o ON o.id=f.order_id JOIN restaurants r ON r.id=o.restaurant_id
+      WHERE f.created_at>=? AND f.created_at<? ORDER BY f.id DESC`, from, to);
+    const paid = (t) => one(`SELECT SUM(amount_paise) FROM cashout_requests WHERE account_type=? AND status='PAID' AND decided_at>=? AND decided_at<?`, t, from, to);
+    const open = (t) => one(`SELECT SUM(amount_paise) FROM cashout_requests WHERE account_type=? AND status IN ('PENDING','APPROVED')`, t);
+    const hours = all(`SELECT CAST(strftime('%H', datetime(o.created_at, '+330 minutes')) AS INTEGER) AS h, COUNT(*) AS n FROM orders o WHERE ${REAL} AND o.created_at>=? AND o.created_at<? GROUP BY h`, from, to);
+    res.json({ range: { from, to }, by_restaurant, status_mix,
+      restaurant_rejections: { total: rr.length, reasons: group(rr, 'reason'), recent: rr.slice(0, 15) },
+      rider_turndowns: { total: td.length, reasons: group(td, 'reason'), riders: byRider.slice(0, 15) },
+      refunds: { count: rf.length, amount_paise: rf.reduce((s, x) => s + x.amount_paise, 0), by_status: group(rf.map((x) => ({ s: { REFUND_INITIATED: 'In progress', REFUND_COMPLETED: 'Completed', REFUND_FAILED: 'Failed' }[x.status] || x.status })), 's'), recent: rf.slice(0, 15) },
+      payouts: { rider_earned_paise: one("SELECT SUM(amount_paise) FROM rider_earnings WHERE created_at>=? AND created_at<?", from, to), rider_paid_paise: paid('rider'), rider_requested_paise: open('rider'), rider_owed_paise: one("SELECT SUM(amount_paise) FROM platform_transactions WHERE account_type='rider'"),
+        restaurant_paid_paise: paid('restaurant'), restaurant_requested_paise: open('restaurant'), restaurant_owed_paise: one("SELECT SUM(amount_paise) FROM platform_transactions WHERE account_type='restaurant'") },
+      by_hour: Array.from({ length: 24 }, (_, h) => hours.find((x) => x.h === h)?.n || 0) });
+  });
 
   // overview
   r.get('/overview', (req, res) => {

@@ -39,3 +39,13 @@ test('only partners inside the service area: going online, offers and accepting 
   await W.call('POST', '/api/rider/position', { lat: 17.39, lng: 78.49 }, W.rider);
   assert.equal((await W.call('POST', `/api/rider/orders/${o.id}/accept`, {}, W.rider)).status, 200, 'back inside: can accept');
 });
+
+test('admin analysis: per-restaurant orders and earnings, how orders ended, rejection and turn-down reasons, refunds, payouts, hours', async () => {
+  for (const p of ['today', '7d', '10d', '30d']) {
+    const a = (await W.call('GET', `/api/admin/analytics?preset=${p}`, null, W.admin)); assert.equal(a.status, 200, p);
+    const r = a.body.by_restaurant.find((x) => x.id === W.rest); assert.ok(r && r.orders >= 3, JSON.stringify(a.body.by_restaurant));
+    assert.ok(a.body.status_mix.length); assert.equal(a.body.by_hour.length, 24); assert.ok('rider_paid_paise' in a.body.payouts && 'count' in a.body.refunds);
+    assert.ok(Array.isArray(a.body.restaurant_rejections.reasons) && Array.isArray(a.body.rider_turndowns.riders));
+  }
+  assert.equal((await W.call('GET', '/api/admin/analytics?preset=today', null, W.rider)).status, 403);
+});

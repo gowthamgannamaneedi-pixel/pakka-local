@@ -830,5 +830,13 @@ ALTER TABLE riders ADD COLUMN suspended_until TEXT;`
 ALTER TABLE riders ADD COLUMN area_lat REAL;
 ALTER TABLE riders ADD COLUMN area_lng REAL;
 ALTER TABLE riders ADD COLUMN area_at TEXT;`
+  },
+  {
+    // Going live: the restaurant that started as test data (now Anupama Family Restaurant) loses the "Staging test data"
+    // description, and dishes named "TEST ..." are removed from menus (soft delete: the rows and past orders stay).
+    id: 'p29_001_production_menu',
+    sql: `
+UPDATE restaurants SET description=NULL WHERE description='Staging test data. Safe to delete.';
+UPDATE food_items SET deleted=1, available=0 WHERE name GLOB 'TEST *' AND deleted=0;`
   }
 ];
