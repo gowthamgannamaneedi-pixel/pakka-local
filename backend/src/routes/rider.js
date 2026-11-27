@@ -42,7 +42,7 @@ export function riderRoutes(db) {
 
   r.get('/me', (req, res) => { touch(req); const x = me(req); const m = missing(x);
     res.json({ rider: { verification_status: x.verification_status, is_online: x.is_online, vehicle_reg_no: x.vehicle_reg_no, vehicle_category: x.vehicle_category, can_take_orders: x.verification_status === 'approved',
-      missing_count: m.length, profile_complete: !m.length, decision_note: x.decision_note, correction_fields: x.correction_fields ? JSON.parse(x.correction_fields) : [] } }); });
+      missing_count: m.length, profile_complete: !m.length, decision_note: x.decision_note, suspended_until: x.verification_status === 'suspended' ? x.suspended_until : null, correction_fields: x.correction_fields ? JSON.parse(x.correction_fields) : [] } }); });
   r.post('/online', wrap((req, res) => {
     const d = parse(z.object({ online: z.boolean() }), req, res); if (!d) return;
     if (d.online && me(req).verification_status !== 'approved') return res.status(403).json({ error: 'Your account must be approved by Pakka Local before you can go online.' });
@@ -74,7 +74,7 @@ export function riderRoutes(db) {
   r.post('/orders/:id(\\d+)/messages', wrap((req, res) => send(res, Chat.send(db, req.user, req.params.id, req.body?.body), 201)));
   r.get('/active', (req, res) => res.json({ active: db.prepare("SELECT * FROM orders WHERE rider_id=? AND status IN ('ACCEPTED','PREPARING','READY','PICKED_UP') ORDER BY id").all(req.user.id).map((o) => ({ ...card(o, true), unread_messages: Chat.unreadFor(db, 'rider', o.id) })).map(restaurantMaps) }));
   r.post('/orders/:id/accept', wrap((req, res) => { try { send(res, claimOrder(db, req.user.id, Number(req.params.id))); } catch (e) { if (e.rollback) return res.status(409).json({ error: 'This order is no longer available.' }); throw e; } }));
-  r.post('/orders/:id/dismiss', (req, res) => res.json(dismissOffer(db, req.user.id, Number(req.params.id))));
+  r.post('/orders/:id/dismiss', wrap((req, res) => send(res, dismissOffer(db, req.user.id, Number(req.params.id), req.body || {}))));
   r.post('/orders/:id/pickup', wrap((req, res) => send(res, verifyPickup(db, req.user.id, Number(req.params.id), req.body?.otp))));
   r.post('/orders/:id/deliver', wrap((req, res) => send(res, verifyDelivery(db, req.user.id, Number(req.params.id), req.body?.otp))));
   r.get('/earnings', (req, res) => {

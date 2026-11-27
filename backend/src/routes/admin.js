@@ -11,7 +11,7 @@ import { autoStatus } from '../services/daily.js';
 import { cleanupPreview, runCleanup } from '../services/cleanup.js';
 import { backupDb } from '../db/index.js';
 import { config as appConfig } from '../config.js';
-import { perKmRate, allSettings, setSetting, SETTING_KEYS, adminCashout, balances, settleRefund, eligibleRiderCount, getSetting, iso, adminCancel, adminUnassign } from '../services/core.js';
+import { perKmRate, allSettings, setSetting, SETTING_KEYS, adminCashout, balances, settleRefund, eligibleRiderCount, getSetting, iso, adminCancel, adminUnassign, adminReoffer } from '../services/core.js';
 import { send, parse, wrap, wrapA, money } from './util.js';
 import { importMenu } from '../services/menuImport.js';
 import { sendMail, mailReady } from '../emailProviders.js';
@@ -243,6 +243,7 @@ export function adminRoutes(db) {
 
   // admin intervention on orders
   r.post('/orders/:id/cancel', fresh, wrap((req, res) => { const out = adminCancel(db, req.user, Number(req.params.id), req.body?.reason); if (!out.error) audit(db, req, 'order.cancel', 'order', req.params.id, { reason: req.body?.reason }); send(res, out); }));
+  r.post('/orders/:id/reoffer', wrap((req, res) => { const out = adminReoffer(db, req.user, Number(req.params.id)); if (!out.error) audit(db, req, 'order.reoffer', 'order', req.params.id, { riders: out.riders }); send(res, out); }));
   r.post('/orders/:id/unassign-rider', fresh, wrap((req, res) => { const out = adminUnassign(db, req.user, Number(req.params.id), req.body?.note); if (!out.error) audit(db, req, 'order.unassign_rider', 'order', req.params.id); send(res, out); }));
   r.get('/restaurants/:id/orders', (req, res) => res.json({ orders: db.prepare('SELECT order_code,status,total_paise,items_base_paise,commission_paise,restaurant_payout_paise,created_at FROM orders WHERE restaurant_id=? AND status NOT IN (\'PAYMENT_PENDING\') ORDER BY id DESC LIMIT 100').all(req.params.id) }));
   r.get('/restaurants/:id/users', (req, res) => res.json({ users: db.prepare('SELECT u.id,u.name,u.phone,u.active FROM restaurant_users ru JOIN users u ON u.id=ru.user_id WHERE ru.restaurant_id=?').all(req.params.id) }));
@@ -354,7 +355,7 @@ export function adminRoutes(db) {
   const needsFresh = (req, res, next) => (['approve', 'suspend'].includes(req.body?.action) ? fresh(req, res, next) : next());
   r.post('/riders/:id/verify', needsFresh, wrap((req, res) => {
     const out = decide(db, req.user.id, Number(req.params.id), req.body || {});
-    if (!out.error) audit(db, req, `rider.${req.body.action}`, 'rider', req.params.id, { note: req.body.note, fields: req.body.fields });
+    if (!out.error) audit(db, req, `rider.${req.body.action}`, 'rider', req.params.id, { note: req.body.note, fields: req.body.fields, days: req.body.days, until: out.suspended_until });
     send(res, out);
   }));
   // full bank account / UPI ID: fresh authentication and an audit entry every time
@@ -496,6 +497,7 @@ export function adminRoutes(db) {
       if (k === 'gps_accuracy_warn_m' && v !== '' && !(/^\d{1,4}$/.test(String(v)) && +v >= 5 && +v <= 5000)) return res.status(400).json({ error: 'GPS accuracy limit must be 5 to 5000 metres, or empty for no limit.' });
       if (k === 'gps_capture_timeout_sec' && !(/^\d{1,3}$/.test(String(v)) && +v >= 5 && +v <= 120)) return res.status(400).json({ error: 'GPS timeout must be 5 to 120 seconds.' });
       if (['rider_base_km_paise', 'rider_route_km_paise'].includes(k) && !(/^\d{1,5}$/.test(String(v)) && +v <= 5000)) return res.status(400).json({ error: 'Per-km rider pay must be ₹0 to ₹50.' });
+      if (k === 'rider_reject_alert' && !(/^\d{1,2}$/.test(String(v)) && +v >= 1 && +v <= 50)) return res.status(400).json({ error: 'Turn-down alert must be every 1 to 50 offers.' });
       if (k === 'rider_min_cover_km' && !(/^\d+(\.\d+)?$/.test(String(v)) && +v >= 0 && +v <= 10)) return res.status(400).json({ error: 'Distance covered by the minimum must be 0 to 10 km.' });
       if (k === 'rider_short_km_paise' && !(/^\d{1,4}$/.test(String(v)) && +v <= 2000)) return res.status(400).json({ error: 'Short-trip extra must be ₹0 to ₹20 per km.' });
       if (k === 'rider_route_switch_km' && !(/^\d+(\.\d+)?$/.test(String(v)) && +v > 0 && +v <= 50)) return res.status(400).json({ error: 'The SRSA/ERA switch must be between 0 and 50 km.' });
@@ -516,7 +518,7 @@ export function adminRoutes(db) {
       if (['gps_per_km_paise', 'gps_min_fee_paise'].includes(k) && v !== '' && !(/^\d{1,6}$/.test(String(v)) && +v >= 0 && +v <= 100000)) return res.status(400).json({ error: 'Charges must be ₹0 to ₹1,000, or empty.' });
       if (k === 'gps_max_km' && v !== '' && !(/^\d{1,3}(\.\d{1,2})?$/.test(String(v)) && +v > 0 && +v <= 100)) return res.status(400).json({ error: 'Maximum distance must be more than 0 and at most 100 km, or empty.' });
       if (k === 'gps_fix_max_age_min' && !(/^\d{1,3}$/.test(String(v)) && +v >= 1 && +v <= 120)) return res.status(400).json({ error: 'GPS reading age must be 1 to 120 minutes.' });
-      if (!['delivery_otp_mode', 'fixed_delivery_otp', 'payout_methods', 'restaurant_accept_timeout_min', 'gps_accuracy_warn_m', 'gps_per_km_paise', 'gps_min_fee_paise', 'gps_max_km', 'rider_per_km_paise', 'rider_min_payout_paise', 'rider_base_km_paise', 'rider_route_km_paise', 'rider_route_switch_km', 'rider_min_cover_km', 'rider_short_km_paise', 'batch_radius_km', 'maintenance_message', 'service_radius_km', 'service_center_lat', 'service_center_lng', 'service_center_name'].includes(k) && !/^\d{1,9}$/.test(String(v))) return res.status(400).json({ error: `${k} must be a whole number.` }); }
+      if (!['delivery_otp_mode', 'fixed_delivery_otp', 'payout_methods', 'restaurant_accept_timeout_min', 'gps_accuracy_warn_m', 'gps_per_km_paise', 'gps_min_fee_paise', 'gps_max_km', 'rider_per_km_paise', 'rider_min_payout_paise', 'rider_base_km_paise', 'rider_route_km_paise', 'rider_route_switch_km', 'rider_min_cover_km', 'rider_short_km_paise', 'rider_reject_alert', 'batch_radius_km', 'maintenance_message', 'service_radius_km', 'service_center_lat', 'service_center_lng', 'service_center_name'].includes(k) && !/^\d{1,9}$/.test(String(v))) return res.status(400).json({ error: `${k} must be a whole number.` }); }
     const changed = Object.fromEntries(Object.entries(s).filter(([k, v]) => String(getSetting(db, k)) !== String(v)).map(([k, v]) => [k, { from: getSetting(db, k), to: String(v) }]));
     for (const [k, v] of Object.entries(s)) setSetting(db, k, v);
     if (Object.keys(changed).length) audit(db, req, changed.gps_delivery_fee_paise || changed.gps_per_km_paise || changed.gps_min_fee_paise || changed.gps_max_km ? 'settings.gps_fee_change' : 'settings.update', 'settings', null, { changed });      // exact old -> new values

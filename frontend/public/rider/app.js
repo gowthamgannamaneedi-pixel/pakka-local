@@ -144,7 +144,16 @@
     try { const r = await PL.run(() => PL.post(`/api/rider/orders/${id}/accept`), 'Order accepted'); await tick(); if (r) PL.go('/jobs'); else PL.rerender(); }
     finally { claiming.delete(id); }
   };
-  PL.actions.dismiss = async (el) => { S.dismissed.add(Number(el.dataset.id)); await PL.run(() => PL.post(`/api/rider/orders/${el.dataset.id}/dismiss`)); tick(); };
+  // "Not now" needs a reason (Pakka Local sees it; turning down many offers is reviewed). The offer keeps ringing until it is sent.
+  const WHY = [['too_far', 'Too far'], ['low_pay', 'Payout too low'], ['busy', 'Busy with another order'], ['break', 'Taking a break'], ['vehicle', 'Vehicle or fuel problem'], ['weather', 'Bad weather / unsafe'], ['other', 'Other']];
+  PL.actions.dismiss = (el) => PL.modal(`<h3>Why not this one?</h3><p class="small mute">Pick a reason. Pakka Local uses it to send better offers.</p>
+    <form data-form="dismiss" data-id="${el.dataset.id}"><div class="why-list">${WHY.map(([k, l]) => `<label class="why"><input type="radio" name="reason" value="${k}" required><span>${l}</span></label>`).join('')}</div>
+    <label class="mt2">Details <span class="mute">(needed for “Other”)</span></label><input name="note" maxlength="200" placeholder="e.g. tyre puncture">
+    <div class="row mt"><button type="button" class="btn ghost grow" data-act="close-modal">Back to offer</button><button class="btn danger grow" type="submit">Turn down</button></div></form>`);
+  PL.forms.dismiss = async (f) => { const v = PL.form(f), id = Number(f.dataset.id);
+    if (!v.reason) return PL.toast('Pick a reason.', true); if (v.reason === 'other' && String(v.note || '').trim().length < 3) return PL.toast('Write the reason in a few words.', true);
+    const r = await PL.run(() => PL.post(`/api/rider/orders/${id}/dismiss`, { reason: v.reason, note: v.note || undefined })); if (!r) return;
+    S.dismissed.add(id); await PL.closeModalAsync(); tick(); };
 
   // ---------- online switch ----------
   const sw = () => (S.me && !S.me.can_take_orders ? '' : `<button class="sw ${S.me?.is_online ? 'on' : ''}" id="onl" data-act="online" aria-label="Online or offline"><span>${S.me?.is_online ? 'Online' : 'Offline'}</span><i></i></button>`);
@@ -215,7 +224,7 @@
   async function jobs() {
     await refreshMe(); const d = S.last || (await PL.api('/api/rider/offers')); const act = (await PL.api('/api/rider/active')).active, me = S.me;
     const vs = me.verification_status, gate = vs !== 'approved' ? `<div class="card status-card st-${vs}"><b>${e(PL.LABEL[vs] || vs)}</b>
-      <p class="small mt2">${{ draft: `Finish your application to start delivering.${me.missing_count ? ` ${me.missing_count} item${me.missing_count > 1 ? 's' : ''} still needed.` : ''}`, pending: 'Pakka Local is checking your application. You cannot receive deliveries until it is approved.', corrections_requested: 'Pakka Local asked you to correct some details.', reverification_required: 'Please update your application. You can finish deliveries you already have, but you will not get new ones until it is approved.', rejected: 'Your application was not approved.', suspended: 'Your account is suspended. Contact Pakka Local.' }[vs] || ''}</p>
+      <p class="small mt2">${{ draft: `Finish your application to start delivering.${me.missing_count ? ` ${me.missing_count} item${me.missing_count > 1 ? 's' : ''} still needed.` : ''}`, pending: 'Pakka Local is checking your application. You cannot receive deliveries until it is approved.', corrections_requested: 'Pakka Local asked you to correct some details.', reverification_required: 'Please update your application. You can finish deliveries you already have, but you will not get new ones until it is approved.', rejected: 'Your application was not approved.', suspended: me.suspended_until ? `Your account is suspended until ${PL.dt(me.suspended_until)}. You can go online again after that.` : 'Your account is suspended. Contact Pakka Local.' }[vs] || ''}</p>
       ${['draft', 'corrections_requested', 'reverification_required'].includes(vs) ? '<button class="btn sm mt2" data-act="go" data-path="/profile">Continue my application</button>' : vs === 'pending' ? '<button class="btn ghost sm mt2" data-act="go" data-path="/profile">View my application</button>' : ''}</div>` : !me.is_online ? '<div class="banner info">You are offline. Switch Online (top right) to receive delivery offers.</div>' : '';
     const offers = d.offers.filter((o) => !S.dismissed.has(o.id) && !act.find((a) => a.id === o.id));
     act.forEach((o) => { S.fee[o.id] = o.fee_paise; }); S.lastAct = act;

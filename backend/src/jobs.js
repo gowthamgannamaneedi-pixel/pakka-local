@@ -4,7 +4,7 @@ import { backupDb } from './db/index.js';
 import { purgeLocations } from './services/tracking.js';
 import { pruneRoutes } from './services/liveRoute.js';
 import { purgeRouteCache } from './services/routing.js';
-import { expireStalePayments } from './services/core.js';
+import { expireStalePayments, endSuspensions } from './services/core.js';
 import { dispatchPush, processCampaigns } from './services/push.js';
 import { sendDaily, sendRiderTips } from './services/daily.js';
 // Runs on the server regardless of any browser session.
@@ -31,6 +31,7 @@ export async function backupIfDue(db, dir, { everyHours = 24, keep = 14, now = D
 export async function runJobsOnce(db, backupDir, { backupEveryHours = 24, backupKeep = 14 } = {}) {
   const out = {}, run = async (name, fn) => { try { out[name] = await fn(); } catch (e) { out[name] = 'error'; console.error(`${name}:`, e.message); } };
   await run('reopened', () => reopenDueRestaurants(db));
+  await run('suspensions_ended', () => endSuspensions(db));
   await run('payments_expired', () => expireStalePayments(db));
   await run('campaigns', () => processCampaigns(db));
   await run('daily', () => sendDaily(db));
@@ -45,6 +46,7 @@ export async function runJobsOnce(db, backupDir, { backupEveryHours = 24, backup
 export function startJobs(db, backupDir, { backupKeep = 14 } = {}) {
   const timers = [
     setInterval(() => { try { reopenDueRestaurants(db); } catch (e) { console.error('reopen job:', e.message); } }, 15_000),
+    setInterval(() => { try { endSuspensions(db); } catch (e) { console.error('suspension job:', e.message); } }, 60_000),
     setInterval(() => { try { expireStalePayments(db); } catch (e) { console.error('payment expiry:', e.message); } }, 60_000),
     (() => { let busy = false; return setInterval(async () => { if (busy) return; busy = true; try { processCampaigns(db); await dispatchPush(db); } catch (e) { console.error('push job:', e.message); } finally { busy = false; } }, 2000); })(),
     setInterval(() => { try { purgeLocations(db); pruneRoutes(new Set(db.prepare("SELECT id FROM orders WHERE status='PICKED_UP'").pluck().all())); } catch (e) { console.error('location cleanup:', e.message); } }, 60_000),      // backstop; the database trigger does the immediate cleanup

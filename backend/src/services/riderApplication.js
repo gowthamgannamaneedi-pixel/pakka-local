@@ -148,7 +148,7 @@ export function submit(db, riderId) {
 
 // ---------- admin ----------
 export const DECISIONS = { approve: 'approved', reject: 'rejected', corrections: 'corrections_requested', suspend: 'suspended' };
-export function decide(db, adminId, riderId, { action, note, fields }) {
+export function decide(db, adminId, riderId, { action, note, fields, days }) {
   const r = row(db, riderId); if (!r) return fail('Delivery agent not found.', 404);
   const st = DECISIONS[action]; if (!st) return fail('Unknown action.');
   note = String(note || '').trim().slice(0, 500);
@@ -165,20 +165,35 @@ export function decide(db, adminId, riderId, { action, note, fields }) {
   if (action === 'reject' && !['pending', 'corrections_requested', 'reverification_required', 'draft'].includes(r.verification_status)) return fail('Use Suspend for an approved agent.', 409);
   if (action === 'suspend' && !['approved', 'reverification_required'].includes(r.verification_status)) return fail('Only an approved agent can be suspended.', 409);
   const f = action === 'corrections' ? fields.filter((x) => typeof x === 'string').slice(0, 30) : null;
+  const d = action === 'suspend' ? Number(days || 0) : 0;
+  if (action === 'suspend' && !(Number.isInteger(d) && d >= 0 && d <= 30)) return fail('Suspension length must be 0 (until you restore) to 30 days.');
+  const until = d ? new Date(Date.now() + d * 86400_000).toISOString() : null;
+  if (until) note = `${note} (suspended for ${d} day${d > 1 ? 's' : ''})`;
   db.transaction(() => {
-    db.prepare('UPDATE riders SET verification_status=?, is_online=CASE WHEN ?=\'approved\' THEN is_online ELSE 0 END, decided_at=?, decided_by=?, decision_note=?, correction_fields=? WHERE user_id=?')
-      .run(st, st, iso(), adminId, note || null, f ? JSON.stringify(f) : null, riderId);
+    db.prepare('UPDATE riders SET verification_status=?, is_online=CASE WHEN ?=\'approved\' THEN is_online ELSE 0 END, decided_at=?, decided_by=?, decision_note=?, correction_fields=?, suspended_until=? WHERE user_id=?')
+      .run(st, st, iso(), adminId, note || null, f ? JSON.stringify(f) : null, until, riderId);
     db.prepare('INSERT INTO rider_verification_history (rider_id,status,action,note,admin_id,fields) VALUES (?,?,?,?,?,?)').run(riderId, st, action, note || null, adminId, f ? JSON.stringify(f) : null);
   })();
-  return { ok: true, status: st };
+  return { ok: true, status: st, suspended_until: until };
 }
 
+// Offers accepted vs turned down (today in India time, last 7 days) with the reasons, for the admin review screen
+function offerStats(db, riderId) {
+  const IST = 330 * 60_000, d = new Date(Date.now() + IST); d.setUTCHours(0, 0, 0, 0);
+  const today = new Date(d.getTime() - IST).toISOString(), week = new Date(Date.now() - 7 * 86400_000).toISOString();
+  const c = (since) => ({ accepted: db.prepare("SELECT COUNT(*) FROM rider_assignments WHERE rider_id=? AND responded_at>=? AND status='ACCEPTED'").pluck().get(riderId, since),
+    rejected: db.prepare('SELECT COUNT(*) FROM rider_assignments WHERE rider_id=? AND responded_at>=? AND reason IS NOT NULL').pluck().get(riderId, since) });
+  return { today: c(today), week: c(week),
+    reasons: db.prepare("SELECT CASE WHEN reason LIKE 'Other:%' THEN 'Other' WHEN instr(reason,' (')>0 THEN substr(reason,1,instr(reason,' (')-1) ELSE reason END AS reason, COUNT(*) AS n FROM rider_assignments WHERE rider_id=? AND responded_at>=? AND reason IS NOT NULL GROUP BY 1 ORDER BY n DESC").all(riderId, week),
+    recent: db.prepare('SELECT o.order_code, a.reason, a.responded_at AS at FROM rider_assignments a JOIN orders o ON o.id=a.order_id WHERE a.rider_id=? AND a.reason IS NOT NULL ORDER BY a.id DESC LIMIT 10').all(riderId) };
+}
 // Full record for the admin review screen. Payout numbers stay masked unless revealed through the audited endpoint.
 export function adminView(db, riderId) {
   const r = row(db, riderId); if (!r) return null;
   const u = db.prepare('SELECT id, name, phone, email, active, created_at FROM users WHERE id=?').get(riderId);
   return { ...view(db, r), user: u, is_online: !!r.is_online,
     active_deliveries: db.prepare("SELECT order_code, status FROM orders WHERE rider_id=? AND status IN ('ACCEPTED','PREPARING','READY','PICKED_UP')").all(riderId),
+    suspended_until: r.verification_status === 'suspended' ? r.suspended_until : null, offers: offerStats(db, riderId),
     history: db.prepare('SELECT h.status, h.action, h.note, h.fields, h.created_at, a.name AS admin_name FROM rider_verification_history h LEFT JOIN users a ON a.id=h.admin_id WHERE h.rider_id=? ORDER BY h.id DESC').all(riderId)
       .map((h) => ({ ...h, fields: h.fields ? JSON.parse(h.fields) : null })) };
 }

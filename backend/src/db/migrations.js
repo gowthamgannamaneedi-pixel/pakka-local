@@ -813,5 +813,13 @@ CREATE TABLE admin_verify_codes (
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 CREATE INDEX idx_admin_verify ON admin_verify_codes(user_id, kind, id);`
+  },
+  {
+    // Why a rider tapped "Not now" on an offer (shown to admin with accept / turn-down counts), and timed suspensions
+    // (e.g. 1 or 2 days) that end on their own.
+    id: 'p27_001_offer_reasons',
+    sql: `
+ALTER TABLE rider_assignments ADD COLUMN reason TEXT;
+ALTER TABLE riders ADD COLUMN suspended_until TEXT;`
   }
 ];

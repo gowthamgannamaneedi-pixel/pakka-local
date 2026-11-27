@@ -46,6 +46,8 @@ const DEFAULTS = { tax_bps: '0', gps_delivery_fee_paise: '4000', rider_payout_pa
   // rider_short_km_paise (Rs 4/km, i.e. Rs 1 every 250 m) until the per-km formula above pays more (about 2.9 km). So 1.25 km pays Rs 21,
   // 1.5 km Rs 22, 2 km Rs 24 instead of a flat Rs 20. Set rider_short_km_paise to 0 for the plan's flat Rs 20 minimum.
   rider_min_cover_km: '1', rider_short_km_paise: '400',
+  // tell admin each time a partner's turn-downs for the day reach a multiple of this (3, 6, 9...)
+  rider_reject_alert: '3',
   // A rider already carrying a delivery is offered (and may accept) another one only when its restaurant AND its drop-off are
   // within this many km of one of their current deliveries. max_active_per_rider still caps how many at once.
   batch_radius_km: '2' };
@@ -411,9 +413,60 @@ export function claimOrder(db, riderId, orderId) {
     return { ok: true };
   })();
 }
-export function dismissOffer(db, riderId, orderId) {
-  db.prepare("INSERT INTO rider_assignments (order_id,rider_id,status,responded_at) VALUES (?,?,'DISMISSED',?) ON CONFLICT(order_id,rider_id) DO NOTHING").run(orderId, riderId, iso());
+// "Not now" on an offer: the rider picks a reason (kept with the offer and shown to admin). The Reject button on the phone's
+// ringing alert sends no reason; it is recorded as such. Admin is told when a rider keeps turning offers down, and when
+// every online rider has turned an order down (so someone can call a partner or offer it again).
+export const DISMISS_REASONS = { too_far: 'Too far', low_pay: 'Payout too low', busy: 'Busy with another order', break: 'Taking a break', vehicle: 'Vehicle or fuel problem', weather: 'Bad weather / unsafe', other: 'Other' };
+const istDayStart = () => { const IST = 330 * 60_000, d = new Date(Date.now() + IST); d.setUTCHours(0, 0, 0, 0); return new Date(d.getTime() - IST).toISOString(); };
+export function offerCounts(db, riderId, since) {
+  const q = (st) => db.prepare(`SELECT COUNT(*) FROM rider_assignments WHERE rider_id=? AND responded_at>=? AND ${st}`).pluck().get(riderId, since);
+  return { accepted: q("status='ACCEPTED'"), rejected: q('reason IS NOT NULL') };
+}
+export function dismissOffer(db, riderId, orderId, body = {}) {
+  const code = body.reason == null ? null : String(body.reason), note = String(body.note || '').trim().slice(0, 200);
+  if (code !== null && !DISMISS_REASONS[code]) return { error: 'Choose a reason.', status: 400 };
+  if (code === 'other' && note.length < 3) return { error: 'Tell us the reason (a few words).', status: 400 };
+  const text = code === null ? 'Rejected from the ringing alert (no reason given)' : code === 'other' ? `Other: ${note}` : DISMISS_REASONS[code] + (note ? ` (${note})` : '');
+  const o = db.prepare('SELECT id, order_code, status, rider_id FROM orders WHERE id=?').get(orderId);
+  if (!o) return { error: 'Order not found.', status: 404 };
+  db.prepare(`INSERT INTO rider_assignments (order_id,rider_id,status,responded_at,reason) VALUES (?,?,'DISMISSED',?,?)
+    ON CONFLICT(order_id,rider_id) DO UPDATE SET status='DISMISSED', responded_at=excluded.responded_at, reason=excluded.reason WHERE rider_assignments.status<>'ACCEPTED'`).run(orderId, riderId, iso(), text);
+  try { offerAlerts(db, riderId, o, text); } catch (e) { console.error('offer alerts:', e.message); }
   return { ok: true };
+}
+function offerAlerts(db, riderId, o, text) {
+  const name = db.prepare('SELECT name FROM users WHERE id=?').pluck().get(riderId) || 'A delivery partner', since = istDayStart(), c = offerCounts(db, riderId, since);
+  const every = Number(getSetting(db, 'rider_reject_alert')) || 3;
+  if (c.rejected >= every && c.rejected % every === 0)
+    notifyAdmins(db, `${name} turned down ${c.rejected} offers today`, `Accepted ${c.accepted}, turned down ${c.rejected} today. Latest: ${o.order_code} – ${text}. Open Delivery agents to see the reasons.`, o.id, `rejn:${riderId}:${since.slice(0, 10)}:${c.rejected}`);
+  // nobody left: every approved, online partner has turned this order down
+  if (o.rider_id || !['ACCEPTED', 'PREPARING', 'READY'].includes(o.status)) return;
+  const left = db.prepare(`SELECT COUNT(*) FROM riders r JOIN users u ON u.id=r.user_id WHERE r.verification_status='approved' AND r.is_online=1 AND u.active=1 AND r.last_seen_at>?
+    AND NOT EXISTS (SELECT 1 FROM rider_assignments a WHERE a.order_id=? AND a.rider_id=r.user_id AND a.status='DISMISSED')`).pluck().get(new Date(Date.now() - Number(getSetting(db, 'rider_online_ttl_sec')) * 1000).toISOString(), o.id);
+  if (left > 0) return;
+  const why = db.prepare("SELECT u.name, a.reason FROM rider_assignments a JOIN users u ON u.id=a.rider_id WHERE a.order_id=? AND a.status='DISMISSED' AND a.reason IS NOT NULL ORDER BY a.id").all(o.id)
+    .map((x) => `${x.name}: ${x.reason}`).join('; ');
+  notifyAdmins(db, `No delivery partner for ${o.order_code}`, `Every online partner turned it down${why ? ` (${why.slice(0, 300)})` : ''}. Call a partner, then use “Offer again” on the order.`, o.id, `norider:${o.id}:${Date.now()}`);
+}
+// admin: show the order again to the partners who turned it down (their reasons stay on record)
+export function adminReoffer(db, admin, orderId) {
+  const o = db.prepare('SELECT id, order_code, status, rider_id FROM orders WHERE id=?').get(orderId);
+  if (!o) return { error: 'Order not found.', status: 404 };
+  if (o.rider_id || !['ACCEPTED', 'PREPARING', 'READY'].includes(o.status)) return { error: 'This order already has a delivery partner or is finished.', status: 409 };
+  const n = db.prepare("UPDATE rider_assignments SET status='EXPIRED' WHERE order_id=? AND status='DISMISSED'").run(orderId).changes;
+  logEvent(db, orderId, 'ADMIN_INTERVENTION', admin, { action: 'reoffer', riders: n });
+  offerHook(db, orderId, 0);
+  return { ok: true, riders: n };
+}
+// timed suspensions end on their own; the partner can go online again
+export function endSuspensions(db) {
+  const due = db.prepare("SELECT user_id FROM riders WHERE verification_status='suspended' AND suspended_until IS NOT NULL AND suspended_until<=?").pluck().all(iso());
+  for (const id of due) db.transaction(() => {
+    db.prepare("UPDATE riders SET verification_status='approved', suspended_until=NULL WHERE user_id=? AND verification_status='suspended'").run(id);
+    db.prepare("INSERT INTO rider_verification_history (rider_id,status,action,note,admin_id,fields) VALUES (?, 'approved', 'suspension_ended', 'Suspension period ended', NULL, NULL)").run(id);
+    notify(db, id, 'transactional', 'You can deliver again', 'Your suspension has ended. Go online to receive delivery offers.', '/rider/#/jobs', null, `susp-end:${id}:${Date.now()}`);
+  })();
+  return due.length;
 }
 export function verifyPickup(db, riderId, orderId, otp) {
   return db.transaction(() => {
