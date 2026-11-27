@@ -65,7 +65,7 @@ test('settings are validated and audited; an empty rate means the default ₹10 
   assert.equal((await W.call('PUT', '/api/admin/settings', { settings: { gps_per_km_paise: '1000' } }, W.owner)).status, 403);
 });
 
-test('the first km is always charged in full: 100 m, 300 m and 1 km all cost ₹10; beyond 1 km it grows; the rider gets the same', async () => {
+test('the first km is always charged in full: 100 m, 300 m and 1 km all cost ₹10; beyond 1 km it grows; the rider gets the ₹20 minimum', async () => {
   await set({ gps_per_km_paise: '', gps_min_fee_paise: '', gps_max_km: '', rider_per_km_paise: '', rider_min_payout_paise: '' });
   for (const [dm, want] of [[100, 1000], [300, 1000], [999, 1000], [1500, 1500], [2340, 2300]]) {
     const p = { lat: R.lat + dm / 111195, lng: R.lng }, q = (await quote(await gpsAddr(p.lat, p.lng))).body;
@@ -73,5 +73,5 @@ test('the first km is always charged in full: 100 m, 300 m and 1 km all cost ₹
   }
   const near = await W.call('POST', '/api/customer/orders', { restaurant_id: W.rest, items: [{ id: W.item, qty: 1 }], address_id: await gpsAddr(R.lat + 100 / 111195, R.lng), confirm_destination: true }, W.cust);
   const row = W.db.prepare('SELECT delivery_paise, rider_payout_paise, delivery_band FROM orders WHERE order_code=?').get(near.body.order_code);
-  assert.deepEqual([row.delivery_paise, row.rider_payout_paise], [1000, 1000]); assert.match(row.delivery_band, /minimum ₹10 \(first km\)/);
+  assert.deepEqual([row.delivery_paise, row.rider_payout_paise], [1000, 2000], 'customer ₹10 first km; rider ₹20 Model A minimum'); assert.match(row.delivery_band, /minimum ₹10 \(first km\)/);
 });

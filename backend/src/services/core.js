@@ -38,6 +38,10 @@ const DEFAULTS = { tax_bps: '0', gps_delivery_fee_paise: '4000', rider_payout_pa
   // Rider pay per delivery by distance (restaurant -> customer, every metre, rounded off to the rupee). Empty = same rate as the
   // GPS per-km charge; if that is empty too, the fixed rider_payout_paise applies. Optional minimum per delivery.
   rider_per_km_paise: '', rider_min_payout_paise: '',
+  // Delivery partner payout plan (Model A, Nov 2026): the higher of the minimum (default ₹20) or (₹7/km Base Delivery Payout +
+  // ₹2.50/km Route Support Allowance) x one-way distance, rounded UP to the rupee. The allowance is called SRSA up to and including
+  // rider_route_switch_km (5) and ERA above it: same rate, never both. rider_per_km_paise, when set, overrides with the older flat rate.
+  rider_base_km_paise: '700', rider_route_km_paise: '250', rider_route_switch_km: '5',
   // A rider already carrying a delivery is offered (and may accept) another one only when its restaurant AND its drop-off are
   // within this many km of one of their current deliveries. max_active_per_rider still caps how many at once.
   batch_radius_km: '2' };
@@ -187,10 +191,19 @@ export function quote(db, input) {
 // distance) x the rider rate per km, rounded off to the nearest rupee; never below the optional minimum. Without a rate: fixed pay.
 export const perKmRate = (db) => Number(getSetting(db, 'gps_per_km_paise')) || 1000;      // delivery charge per km (default ₹10)
 export function riderPay(db, r, point, roadM) {
-  const rate = Number(getSetting(db, 'rider_per_km_paise')) || (getSetting(db, 'fixed_place_fees') === '1' ? Number(getSetting(db, 'gps_per_km_paise')) || 0 : perKmRate(db));
-  if (!rate || r.pickup_lat == null || !point) return Number(getSetting(db, 'rider_payout_paise'));
+  const flat = Number(getSetting(db, 'rider_per_km_paise'));
+  if (r.pickup_lat == null || !point || (!flat && getSetting(db, 'fixed_place_fees') === '1')) return Number(getSetting(db, 'rider_payout_paise'));      // older fixed place prices keep the fixed rider pay
   const m = Number.isFinite(roadM) ? roadM : straightM({ lat: r.pickup_lat, lng: r.pickup_lng }, point);
-  return Math.max(Math.round(m * rate / 1000 / 100) * 100, Number(getSetting(db, 'rider_min_payout_paise')) || rate);      // at least one km's pay
+  if (flat) return Math.max(Math.round(m * flat / 1000 / 100) * 100, Number(getSetting(db, 'rider_min_payout_paise')) || flat);      // older flat rate (admin override)
+  return riderPayParts(db, m).total_paise;
+}
+// The payout and how it is made up, for the rider's offer card and statements (amounts in paise).
+export function riderPayParts(db, distanceM) {
+  const km = Math.max(0, Number(distanceM) || 0) / 1000, base = Number(getSetting(db, 'rider_base_km_paise')) || 700, route = Number(getSetting(db, 'rider_route_km_paise')) || 250;
+  const min = Number(getSetting(db, 'rider_min_payout_paise')) || 2000, sw = Number(getSetting(db, 'rider_route_switch_km')) || 5;
+  const byKm = Math.ceil(((base + route) * km) / 100) * 100, total = Math.max(min, byKm);
+  return { km: Math.round(km * 100) / 100, base_paise: Math.round(base * km), route_paise: Math.round(route * km), base_rate_paise: base, route_rate_paise: route,
+    route_label: km <= sw ? 'SRSA' : 'ERA', route_name: km <= sw ? 'Short Route Support Allowance' : 'Extended Route Allowance', minimum_paise: min, minimum_applied: min > byKm, total_paise: total };
 }
 // Is this order on the way for a rider who already has deliveries? Restaurant and drop-off both within batch_radius_km of one of them.
 export function nearActive(db, riderId, o) {

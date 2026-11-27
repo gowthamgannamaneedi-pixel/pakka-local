@@ -370,7 +370,7 @@
           ${picks.slice(1, 4).map(([k, l, q], i) => `<button class="mini" data-act="mood-q" data-q="${e(q)}" style="--i:${i}" title="${e(l)}" aria-label="${e(l)}"><img src="${catPic(k)}" alt=""></button>`).join('')}</div>`}
       </div></section>`; };
   // 3D depth: cards and banners tilt slightly toward the pointer (mouse / trackpad only; phones get a soft press instead)
-  if (matchMedia('(hover:hover) and (pointer:fine)').matches && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  if (false) {      // 3D tilt switched off: cards and the weather card stay still
     let tEl = null;
     document.addEventListener('pointermove', (ev) => { const el = ev.target.closest?.('.u-rrow .im, .u-ban, .u-pick, .u-dcard, .u-mood'); if (tEl && tEl !== el) { tEl.style.transform = ''; tEl = null; } if (!el) return; tEl = el;
       const r = el.getBoundingClientRect(), x = (ev.clientX - r.left) / r.width - 0.5, y = (ev.clientY - r.top) / r.height - 0.5;
@@ -407,8 +407,10 @@
     // search hints = real dishes on Pakka Local right now (open kitchens first), shuffled; restaurant names fill in if menus are short
     const seen = new Set(), dn = [];
     for (const x of [...all].sort((p, q) => q.is_open - p.is_open)) for (const d of String(x.dish_names || '').split(' | ')) { const t = d.trim(), k2 = t.toLowerCase(); if (t && t.length <= 28 && !seen.has(k2)) { seen.add(k2); dn.push(t); } }
-    for (let i = dn.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [dn[i], dn[j]] = [dn[j], dn[i]]; }
-    S.words = dn.length ? dn.slice(0, 14) : all.map((x) => x.name).slice(0, 8);
+    // shuffled once per visit (not on every refresh: a changing word would redraw the whole page every few seconds)
+    const wkey = dn.join('|');
+    if (S.wordsKey !== wkey) { S.wordsKey = wkey; for (let i = dn.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [dn[i], dn[j]] = [dn[j], dn[i]]; }
+      S.words = dn.length ? dn.slice(0, 14) : all.map((x) => x.name).slice(0, 8); }
     const ranked = [...open].sort((p, q) => (q.rating || 0) - (p.rating || 0)), menus = await menusFor(ranked.slice(0, 6).map((x) => x.id));
     const dishes = []; for (let k = 0; k < 3; k++) for (const x of ranked.slice(0, 6)) { const i = (menus[x.id] || []).filter((d) => d.available)[k]; if (i) dishes.push({ i, x, src: i.image_path ? pubImg(i.image_path) : (dishPic(i.name) || catPic(catsOf(textOf(x))[0] || 'thali')) }); }
     const picks = [...open].sort((p, q) => (q.rating || 0) - (p.rating || 0) || (q.rating_count || 0) - (p.rating_count || 0)).slice(0, 10);
@@ -534,7 +536,7 @@
   PL.actions.sq = (el) => { S.sq = el.dataset.q; const i = PL.$('#s-q'); if (i) i.value = S.sq; runSearch(); };
   PL.actions['sq-clear'] = () => { S.sq = ''; const i = PL.$('#s-q'); if (i) { i.value = ''; i.focus(); } runSearch(); };
   PL.actions['sq-forget'] = () => { save('pl.recentq', []); PL.rerender(); };
-  PL.actions.sgo = (el) => { const q = (S.sq || '').trim(); if (q) save('pl.recentq', [q, ...recentQ().filter((x) => x.toLowerCase() !== q.toLowerCase())].slice(0, 6)); S.mq = el.dataset.mq || ''; PL.go(el.dataset.path); };
+  PL.actions.sgo = (el) => { const q = (S.sq || '').trim(); if (q) save('pl.recentq', [q, ...recentQ().filter((x) => x.toLowerCase() !== q.toLowerCase())].slice(0, 6)); S.mq = ''; S.focusDish = el.dataset.mq || ''; PL.go(el.dataset.path); };      // full menu, scrolled to the tapped dish
 
   // ---------- restaurant menu ----------
   async function menu({ id }) {
@@ -583,6 +585,11 @@
   const maintPage = (c, active) => `<div class="u-pg" style="text-align:center;padding-top:48px"><img src="/assets/icon-192.png" alt="" width="88" height="88" style="border-radius:22px"><h2 class="mt">We’ll be right back</h2><p class="mute mt2" style="max-width:420px;margin-left:auto;margin-right:auto">${e(c.maintenance.message)}</p>
     ${active.length ? `<button class="btn block mt" data-act="go" data-path="/orders">Track my order${active.length > 1 ? 's' : ''}</button>` : `<button class="btn ghost block mt" data-act="go" data-path="/orders">My orders</button>`}<button class="btn ghost block mt2" data-act="go" data-path="/support">Help</button></div>`;
   const noRiders = (c) => (c.ridersAvailable ? '' : `<div class="u-pill-note warn">${I('bike')}<span>${e(c.noRiderMessage)}</span></div>`);
+  // open the full menu at the dish the customer tapped (its section opened, the dish briefly highlighted)
+  const focusDish = () => { const want = (S.focusDish || '').trim().toLowerCase(); if (!want) return; S.focusDish = '';
+    const d = [...document.querySelectorAll('.u-dish')].find((x) => (x.dataset.s || '').startsWith(want)) || [...document.querySelectorAll('.u-dish')].find((x) => (x.dataset.s || '').includes(want)); if (!d) return;
+    d.closest('.u-msec')?.classList.remove('shut');
+    setTimeout(() => { d.scrollIntoView({ block: 'center', behavior: 'smooth' }); d.classList.add('u-flash'); setTimeout(() => d.classList.remove('u-flash'), 2200); }, 120); };
   const filterMenu = () => { const q = (S.mq || '').trim().toLowerCase(); let n = 0; S.popId = null;
     document.querySelectorAll('.u-dishes').forEach((g) => { let k = 0; g.querySelectorAll('.u-dish').forEach((d) => { const ok = (!q || d.dataset.s.includes(q)) && (!S.veg || d.dataset.dt === 'veg'); d.classList.toggle('hide', !ok); k += ok; });
       const sec = g.closest('.u-msec'); sec?.classList.toggle('hide', !k); if (q && k) sec?.classList.remove('shut'); n += k; });
@@ -1005,7 +1012,7 @@
     tabs: [{ path: '/home', label: 'Home', icon: 'home' }, { path: '/search', label: 'Search', icon: 'search' }, { path: '/orders', label: 'Orders', icon: 'orders' }, { path: '/me', label: 'Account', icon: 'user' }],
     onReady: () => { checkName(); const tick = async () => { try { const { orders } = await PL.api('/api/customer/orders'); PL.badge('/orders', orders.filter((o) => ACTIVE.includes(o.status)).length); } catch {} }; tick(); const iv = setInterval(tick, 10000); PL.hooks.stop = [() => clearInterval(iv)]; },
     routes: { '/home': { title: 'Home', render: home, poll: 6000, after: homeAfter, skel: 'cards' }, '/search': { title: 'Search', render: search, after: () => { runSearch(); const i = PL.$('#s-q'); if (i && !S.sq) i.focus(); }, skel: 'list' },
-      '/r/:id': { title: 'Menu', render: menu, poll: 8000, noNav: true, after: () => { filterMenu(); S.popId = null; }, skel: 'menu' }, '/cart': { title: 'Cart', render: cart, poll: 8000, noNav: true, after: () => { S.popId = null; }, skel: 'detail' }, '/pay/:code': { title: 'Payment', render: pay, noNav: true, skel: 'detail' },
+      '/r/:id': { title: 'Menu', render: menu, poll: 8000, noNav: true, after: () => { filterMenu(); S.popId = null; focusDish(); }, skel: 'menu' }, '/cart': { title: 'Cart', render: cart, poll: 8000, noNav: true, after: () => { S.popId = null; }, skel: 'detail' }, '/pay/:code': { title: 'Payment', render: pay, noNav: true, skel: 'detail' },
       '/orders': { title: 'My orders', render: orders, poll: 5000 }, '/orders/:code': { title: 'Track order', render: track, poll: 2000, skel: 'detail', after: () => { PL.track.customerMount(); mountLottie(); } }, '/me': { title: 'Account', render: account }, '/addresses': { title: 'Delivery addresses', render: addresses }, '/places': { title: 'Find your place', render: placesView }, '/addresses/:id': { title: 'Delivery address', render: addressForm },
       '/support': { title: 'Help & support', render: support, after: () => { const l = PL.$('#hb-log'); if (l) l.scrollTop = l.scrollHeight; } }, '/support/new': { title: 'Contact the team', render: supportNew },
       '/support/:code': { title: 'Support ticket', render: supportTicket, poll: 6000, after: () => { const l = PL.$('#tk-log'); if (l) l.scrollTop = l.scrollHeight; } } } });

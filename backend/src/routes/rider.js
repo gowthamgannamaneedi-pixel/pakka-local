@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authenticate, requireRole } from '../auth.js';
-import { claimOrder, dismissOffer, verifyPickup, verifyDelivery, balances, requestCashout, saveUpload, iso, getSetting, tripInfo, nearActive } from '../services/core.js';
+import { claimOrder, dismissOffer, verifyPickup, verifyDelivery, balances, requestCashout, saveUpload, iso, getSetting, tripInfo, nearActive, straightM, riderPayParts } from '../services/core.js';
 import { send, parse, wrap } from './util.js';
 import crypto from 'node:crypto';
 import rateLimit from 'express-rate-limit';
@@ -23,7 +23,11 @@ export function riderRoutes(db) {
   // mine=false (an open offer): no customer phone, exact address, GPS pin, maps link or instructions until the rider has accepted
   const card = (o, mine = o.rider_id != null) => {
     const loc = o.delivery_location_id ? db.prepare('SELECT name, area, distance_km FROM delivery_locations WHERE id=?').get(o.delivery_location_id) : null;
-    return { id: o.id, order_code: o.order_code, status: o.status, fee_paise: o.rider_payout_paise, eta_at: o.eta_at,
+    // how this payout is made up (Model A): shown on the offer before accepting. Uses the distance the order was priced on.
+    const pk0 = db.prepare('SELECT pickup_lat AS lat, pickup_lng AS lng FROM restaurants WHERE id=?').get(o.restaurant_id);
+    const dm = Number.isFinite(o.delivery_distance_m) ? o.delivery_distance_m : pk0?.lat != null && o.dest_lat != null ? straightM(pk0, { lat: o.dest_lat, lng: o.dest_lng }) : null;
+    const pay_parts = dm != null && !Number(getSetting(db, 'rider_per_km_paise')) ? { ...riderPayParts(db, dm), total_paise: o.rider_payout_paise } : null;
+    return { id: o.id, order_code: o.order_code, status: o.status, fee_paise: o.rider_payout_paise, pay_parts, eta_at: o.eta_at,
       restaurant: db.prepare('SELECT name,address,phone,maps_link FROM restaurants WHERE id=?').get(o.restaurant_id),
       customer: mine ? { name: o.customer_name, phone: o.customer_phone } : { name: null, phone: null },
       destination: mine ? { text: o.dest_text, lat: o.dest_lat, lng: o.dest_lng, maps_link: o.dest_maps_link, nav_url: navUrl(o.dest_lat, o.dest_lng),

@@ -24,6 +24,7 @@
     if (!cur) cur = { versionCode: 9, versionName: '', old: true };
     let L; try { L = await (await fetch('/rider-app/latest.json', { cache: 'no-store' })).json(); } catch { return; }
     if (!L?.versionCode || !L.url || !(L.versionCode > (cur.versionCode || 0))) return;
+    L.required = true;      // every update is required: no 'Later' (riders must be on the latest app to take deliveries)
     upd.shown = true; upd.L = L; upd.cur = cur;
     const open = () => PL.modal(updBox(L, cur), { cls: 'upd-ov', onClose: () => { if (L.required) setTimeout(open, 300); else upd.shown = false; } });
     open();
@@ -98,12 +99,7 @@
   let curId = null, collapsed = false;
   const setAlertSpace = (box) => document.documentElement.style.setProperty('--alert-h', box.classList.contains('hide') ? '0px' : box.offsetHeight + 'px');
   const onWay = (o) => (o.on_the_way ? `<div class="d-onway">${PL.icon('nav')}<span><b>On your way</b> · restaurant ${o.on_the_way.pickup_km} km and drop-off ${o.on_the_way.drop_km} km from your current delivery</span></div>` : '');
-  const brief = (o) => `${onWay(o)}<div class="row between mt2 wrap">${PL.code(o.order_code)}<span class="d-fee">${rs(o.fee_paise)}<small>you earn</small></span></div>
-    <div class="small mute">${tripTxt(o)}${o.eta_at ? 'Customer expects ~' + PL.time(o.eta_at) : ''}</div>
-    <div class="rq-items"><div class="kv"><span class="mute small">Pickup</span><span class="right"><b>${e(o.restaurant.name)}</b><br><span class="small">${e(o.restaurant.address || '')}</span></span></div>
-    <div class="kv"><span class="mute small">Drop-off</span><span class="right small">${e(o.destination.text || '')}</span></div>
-    <div class="kv"><span class="mute small">Items</span><span class="right small">${o.items.map((i) => `${i.qty} × ${e(i.name)}`).join(', ')}</span></div></div>
-    <div class="small mute">Maps, phone numbers and instructions are on the Deliveries tab.</div>`;
+  const brief = (o) => `${offerCard(o)}<div class="small mute mt2">Address, phone and map open after you accept.</div>`;
   async function tick() {
     let d; try { d = await PL.api('/api/rider/offers'); } catch { return; }
     S.last = d; PL.track?.sync?.(d.active.length); nativeSync(); bgCheck();      // share location only while a delivery is assigned
@@ -162,6 +158,35 @@
     if (on && !PL.sound.unlocked) await PL.sound.enable(); const r = await PL.run(() => PL.post('/api/rider/online', { online: on }), on ? 'You are online' : 'You are offline'); await refreshMe(); if (r) PL.rerender(); };
 
   // ---------- deliveries ----------
+  // ---------- simple screens: payout up front, one step at a time ----------
+  let codeForm = () => '';
+  const kmOf = (o) => o.pay_parts?.km ?? o.trip?.km ?? o.distance_km ?? null;
+  const r2 = (v) => (v % 100 ? (v / 100).toFixed(2) : String(v / 100));      // ₹7, ₹2.50
+  const payNote = (o) => { const p = o.pay_parts; if (!p) return ''; return p.minimum_applied ? `Minimum ₹${r2(p.minimum_paise)} per delivery`
+    : `₹${r2(p.base_rate_paise)}/km + ₹${r2(p.route_rate_paise)}/km ${e(p.route_label)}`; };
+  const offerCard = (o) => { const km = kmOf(o);
+    return `<div class="ro">${onWay(o)}<div class="ro-top"><div><span class="ro-fee">${rs(o.fee_paise)}</span><span class="ro-pay">${payNote(o) || 'you earn'}</span></div>${km != null ? `<span class="ro-km">${km} km</span>` : ''}</div>
+      <div class="ro-route"><div class="ro-pt"><i class="a"></i><div><b>${e(o.restaurant.name)}</b><small>${e(o.restaurant.address || '')}</small></div></div>
+        <div class="ro-pt"><i class="b"></i><div><b>${e(o.destination.text || 'Customer')}</b><small>${o.items.reduce((n, i) => n + i.qty, 0)} item${o.items.reduce((n, i) => n + i.qty, 0) > 1 ? 's' : ''}${o.eta_at ? ' · expected ~' + PL.time(o.eta_at) : ''}</small></div></div></div></div>`; };
+  const stepCard = (o) => { const st = o.status, n = st === 'PICKED_UP' ? 2 : st === 'READY' ? 1 : 0, d = o.destination;
+    const titles = ['Go to the restaurant', 'Collect the order', 'Deliver to the customer'];
+    const big = (href, icon, label, cls = '') => href ? `<a class="btn ${cls} grow" href="${e(href)}" ${href.startsWith('tel:') ? '' : 'target="_blank" rel="noopener" data-nav'}>${PL.icon(icon, 'width="18" height="18"')} ${label}</a>` : '';
+    const place = n < 2 ? `<div class="rs-place"><span class="rs-ic">${PL.icon('shop')}</span><div><b>${e(o.restaurant.name)}</b><small>${e(o.restaurant.address || '')}</small></div></div>
+        <div class="row mt2">${big(o.restaurant.maps_link, 'pin', 'Navigate')}${o.restaurant.phone ? big('tel:' + o.restaurant.phone, 'phone', 'Call', 'ghost') : ''}</div>`
+      : `<div class="rs-place"><span class="rs-ic green">${PL.icon('pin')}</span><div><b>${e(d.place_name || d.building || d.text || 'Customer')}</b><small>${e([d.block && 'Block ' + d.block, d.floor && 'Floor ' + d.floor, d.room && 'Room ' + d.room].filter(Boolean).join(' · ') || d.landmark || '')}</small></div></div>
+        <div class="row mt2">${big(d.nav_url, 'pin', 'Navigate')}${o.customer.phone ? big('tel:' + o.customer.phone, 'phone', 'Call', 'ghost') : ''}</div>`;
+    const wait = (st === 'ACCEPTED' || st === 'PREPARING') ? '<div class="rs-wait">The kitchen is preparing. Enter the pickup code here when it’s ready.</div>' : '';
+    const items = o.items.map((i) => `<div class="kv"><span>${i.qty} × ${e(i.name)}</span></div>`).join('');
+    return `<div class="card rs">
+      <div class="rs-head"><span class="rs-n">Step ${n + 1} of 3</span><span class="rs-fee">${rs(o.fee_paise)}</span></div>
+      <div class="rs-bar"><i style="width:${(n + 1) * 33.34}%"></i></div>
+      <h3 class="rs-title">${titles[n]}</h3>${place}${wait}${codeForm(o)}
+      ${chatBtn(o.id, o.unread_messages)}
+      <details class="rs-more"><summary>Order details · ${PL.code(o.order_code)}</summary>
+        <div class="sec">Items</div>${items}${o.instructions ? `<div class="sec">Instructions</div><div class="small">${e(o.instructions)}</div>` : ''}
+        ${n < 2 && !d.area_only ? `<div class="sec">Drop-off</div>${destCard(o)}` : n === 2 ? `<div class="sec">Address details</div>${destCard(o)}` : ''}
+        ${payNote(o) ? `<div class="sec">Your payout</div><div class="small">${rs(o.fee_paise)} · ${payNote(o)}${kmOf(o) != null ? ` · ${kmOf(o)} km` : ''}</div>` : ''}
+      </details></div>`; };
   async function jobs() {
     await refreshMe(); const d = S.last || (await PL.api('/api/rider/offers')); const act = (await PL.api('/api/rider/active')).active, me = S.me;
     const vs = me.verification_status, gate = vs !== 'approved' ? `<div class="card status-card st-${vs}"><b>${e(PL.LABEL[vs] || vs)}</b>
@@ -172,16 +197,15 @@
     const today = await earnToday(), can = me.can_take_orders !== false && vs === 'approved';
     const hero = can ? `<div class="d-hero ${me.is_online ? 'on' : ''}"><div class="grow"><span class="d-state"><i></i>${me.is_online ? 'You’re online' : 'You’re offline'}</span><div class="small">${me.is_online ? (act.length ? 'Finish your delivery. Orders on your way still arrive.' : 'Waiting for delivery offers near you.') : 'Go online to start receiving delivery offers.'}</div></div>
         <button class="d-go" data-act="online" aria-pressed="${!!me.is_online}">${me.is_online ? 'Go offline' : 'Go online'}</button></div>
-      <div class="d-kpis"><div><b>${today ? rs(today.today_paise) : '–'}</b><span>Earned today</span></div><div><b>${today ? rs(today.week_paise) : '–'}</b><span>Last 7 days</span></div><div><b>${act.length}</b><span>Active now</span></div></div>` : '';
+      ${act.length ? '' : `<div class="d-kpis"><div><b>${today ? rs(today.today_paise) : '–'}</b><span>Earned today</span></div><div><b>${today ? rs(today.week_paise) : '–'}</b><span>Last 7 days</span></div><div><b>${act.length}</b><span>Active now</span></div></div>`}` : '';      // during a delivery the step card comes first
     const stepOf = (st) => (st === 'PICKED_UP' ? 2 : st === 'READY' ? 1 : 0);
     const track = (o) => `<ol class="d-steps">${['Go to restaurant', 'Collect order', 'Deliver to customer'].map((l, i) => `<li class="${i < stepOf(o.status) ? 'done' : i === stepOf(o.status) ? 'cur' : ''}"><span>${i < stepOf(o.status) ? PL.icon('check') : i + 1}</span>${l}</li>`).join('')}</ol>`;
     // the code box comes first (right under the steps), as 4 big boxes; typing the 4th digit submits it
-    const codeForm = (o) => o.status === 'READY' ? `<form data-form="pickup" data-id="${o.id}" class="mt d-code d-code-top"><label>${PL.icon('box')}<span>Ask the restaurant for the <b>pickup code</b></span></label>${digits()}<button class="btn block lg mt2" type="submit">Confirm pickup</button></form>`
+    codeForm = (o) => o.status === 'READY' ? `<form data-form="pickup" data-id="${o.id}" class="mt d-code d-code-top"><label>${PL.icon('box')}<span>Ask the restaurant for the <b>pickup code</b></span></label>${digits()}<button class="btn block lg mt2" type="submit">Confirm pickup</button></form>`
       : o.status === 'PICKED_UP' ? `<form data-form="deliver" data-id="${o.id}" class="mt d-code d-code-top green"><label>${PL.icon('check')}<span>Ask the customer for the <b>delivery code</b></span></label>${digits()}<button class="btn green block lg mt2" type="submit">Complete delivery</button></form>` : '';
-    return `${gate}${hero}${RN() ? `<div id="bgcheck">${S.bgHtml || ''}</div>` : ''}${act.length ? (PL.track?.card?.() || '') : ''}${S.push === 'on' || RN() ? '' : (PL.push?.card?.('rider') || '')}${act.map((o) => `<div class="card d-active"><div class="row between"><b class="d-title">Active delivery</b>${PL.chip(o.status)}</div>${track(o)}${codeForm(o)}
-      ${o.status === 'ACCEPTED' || o.status === 'PREPARING' ? '<div class="banner info mt" style="margin-bottom:0">The restaurant is still preparing. You’ll enter the pickup code here when it’s ready.</div>' : ''}${detail(o)}${chatBtn(o.id, o.unread_messages)}</div>`).join('')}
+    return `${gate}${hero}${RN() ? `<div id="bgcheck">${S.bgHtml || ''}</div>` : ''}${act.length ? (PL.track?.card?.() || '') : ''}${S.push === 'on' || RN() ? '' : (PL.push?.card?.('rider') || '')}${act.map((o) => stepCard(o)).join('')}
       ${act.length && me.is_online && d.can_add ? `<div class="small mute" style="margin:10px 2px 0">You can add another order if it’s on your way (restaurant and drop-off within ${d.batch_radius_km || 2} km of your current delivery).</div>` : ''}
-      ${offers.length ? `<div class="sec">${act.length ? 'Orders on your way' : 'Available offers'}</div>${offers.map((o) => `<div class="card">${onWay(o)}${detail(o)}<div class="row mt2"><button class="btn ghost grow" data-act="dismiss" data-id="${o.id}">Not now</button><button class="btn grow" data-act="claim" data-id="${o.id}">Accept</button></div></div>`).join('')}` : ''}
+      ${offers.length ? `<div class="sec">${act.length ? 'Orders on your way' : 'Available offers'}</div>${offers.map((o) => `<div class="card">${offerCard(o)}<div class="row mt2"><button class="btn ghost grow" data-act="dismiss" data-id="${o.id}">Not now</button><button class="btn grow lg" data-act="claim" data-id="${o.id}">Accept ${rs(o.fee_paise)}</button></div></div>`).join('')}` : ''}
       ${!act.length && !offers.length ? `<div class="empty">${me.is_online ? `<span class="d-radar" aria-hidden="true">${PL.icon('bike')}</span><b>Looking for deliveries…</b><span class="small">Keep this screen open. New offers ring and appear here.</span>` : `${PL.icon('bike', 'width="36" height="36"')}<b>No active deliveries</b>`}</div>` : ''}`;
   }
   // ---------- 4-box code entry (numbers only; paste fills all; 4th digit submits) ----------

@@ -15,15 +15,17 @@ const order = async (id, rest = W.rest, item = W.item) => { const r = await W.ca
   return W.db.prepare('SELECT * FROM orders WHERE order_code=?').get(r.body.order_code); };
 const accept = async (o, owner = W.owner) => { await W.call('POST', `/api/restaurant/orders/${o.id}/accept`, {}, owner); };
 
-test('no rate set: the rider is paid by distance at the default ₹10 per km, same as the customer charge', async () => {
+// Model A (Nov 2026 partner plan): higher of ₹20 or ₹9.50 × km (₹7 base + ₹2.50 SRSA/ERA), rounded up to the rupee
+const modelA = (m) => Math.max(2000, Math.ceil((950 * m / 1000) / 100) * 100);
+test('no rate set: the rider is paid by Model A (₹20 minimum, ₹9.50/km rounded up); the customer pays the per-km charge', async () => {
   const p = { lat: 17.394, lng: 78.4867 }, o = await order(await addr(p.lat, p.lng)), rupees = Math.round(metres(R, p) / 100);
-  assert.equal(o.rider_payout_paise, rupees * 100); assert.equal(o.delivery_paise, rupees * 100);
+  assert.equal(o.rider_payout_paise, modelA(metres(R, p))); assert.equal(o.delivery_paise, rupees * 100);
 });
 
-test('with ₹10/km: the rider earns the same distance-based amount the customer is charged (the reported ₹10 vs ₹30 case)', async () => {
+test('with ₹10/km for customers: the rider is still paid by Model A on the same distance', async () => {
   await set({ gps_per_km_paise: '1000' });
   const p = { lat: 17.394, lng: 78.4867 }, o = await order(await addr(p.lat, p.lng)), rupees = Math.round(metres(R, p) / 100);
-  assert.equal(o.delivery_paise, rupees * 100); assert.equal(o.rider_payout_paise, rupees * 100, 'rider pay = distance × rate, rounded to the rupee');
+  assert.equal(o.delivery_paise, rupees * 100); assert.equal(o.rider_payout_paise, modelA(metres(R, p)), 'rider pay = Model A on the same distance');
   // listed places: the customer pays the place's own charge, the rider is still paid by the distance to that place's point
   const l = (await W.call('POST', '/api/customer/orders', W.cart(), W.cust)).body; const lo = W.db.prepare('SELECT * FROM orders WHERE order_code=?').get(l.order_code);
   assert.equal(lo.rider_payout_paise % 100, 0); assert.ok(lo.rider_payout_paise > 0);
@@ -57,4 +59,11 @@ test('a rider carrying a delivery is offered and can accept only orders on their
   const fr = await W.call('POST', `/api/rider/orders/${farO.id}/accept`, {}, W.rider); assert.equal(fr.status, 409); assert.equal(fr.body.code, 'NOT_NEARBY');
   assert.equal((await W.call('POST', `/api/rider/orders/${near.id}/accept`, {}, W.rider)).status, 200, 'nearby one accepted');
   assert.equal((await W.call('GET', '/api/rider/offers', null, W.rider)).body.offers.length, 0, 'full at 2: no more offers');
+});
+
+test('Model A payout table from the partner plan (1–7 km) and SRSA/ERA labels', async () => {
+  const { riderPayParts } = await import('../src/services/core.js');
+  const want = { 1: 20, 1.5: 20, 2: 20, 2.5: 24, 3: 29, 3.5: 34, 4: 38, 4.5: 43, 5: 48, 5.5: 53, 6: 57, 6.5: 62, 7: 67 };
+  for (const [km, rs] of Object.entries(want)) { const p = riderPayParts(W.db, Number(km) * 1000); assert.equal(p.total_paise, rs * 100, `${km} km`); }
+  assert.equal(riderPayParts(W.db, 5000).route_label, 'SRSA'); assert.equal(riderPayParts(W.db, 5001).route_label, 'ERA'); assert.equal(riderPayParts(W.db, 1000).minimum_applied, true);
 });

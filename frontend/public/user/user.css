@@ -1225,3 +1225,7 @@ body[data-wx=hot] .u-mood{--g1:#ffb347;--g2:#ff3d3d;--m2:#b91c1c}
 .u-sky.misty i{filter:none}
 .u-mood .wx{backdrop-filter:none;-webkit-backdrop-filter:none}
 .u-mood .pk{backdrop-filter:none;-webkit-backdrop-filter:none}
+.u-dish.u-flash{animation:dflash 2.2s ease-out}@keyframes dflash{0%,30%{background:#fff1e4;box-shadow:0 0 0 3px #f6b98f;border-radius:16px}100%{background:transparent;box-shadow:none}}
+/* weather card stays still: no bob, no zoom, no tilt (effects inside the card still play) */
+.u-mood,.u-mood .ph{animation:none!important;transform:none!important}
+.u-mood .ph{margin-top:-68px}@media (min-width:700px){.u-mood .ph{margin-top:-85px}}@media (max-width:380px){.u-mood .ph{margin-top:-58px}}
