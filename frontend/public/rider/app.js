@@ -171,7 +171,7 @@
   let codeForm = () => '';
   const kmOf = (o) => o.pay_parts?.km ?? o.trip?.km ?? o.distance_km ?? null;
   const r2 = (v) => (v % 100 ? (v / 100).toFixed(2) : String(v / 100));      // ₹7, ₹2.50
-  const payNote = (o) => { const p = o.pay_parts; if (!p) return ''; return p.minimum_applied ? 'Includes minimum guarantee' : `Includes ${e(p.route_name)}`; };
+  const payNote = (o) => { const p = o.pay_parts; if (!p) return ''; return p.minimum_applied ? 'Includes short-trip guarantee' : `Includes ${e(p.route_name)}`; };
   // How the payout is made up (partner payout plan, Model A), in whole rupees with no rates or sums shown: Base Delivery
   // Payout, route support (SRSA up to 5 km, ERA above) and, on short trips, the minimum-guarantee top-up. The lines always
   // add up exactly to the total (whole-rupee rounding is folded into the base line). Longer trips pay more, by the metre.
@@ -179,7 +179,7 @@
     const route = Math.round(p.route_paise / 100) * 100, top = p.minimum_applied ? Math.max(0, t - Math.round(p.base_paise / 100) * 100 - route) : 0, base = t - route - top;
     if (base < 0) return null;
     const rows = [['Base Delivery Payout', base], [`${e(p.route_name)} (${e(p.route_label)})`, route]];
-    if (top > 0) rows.push(['Minimum guarantee', top]);
+    if (top > 0) rows.push(['Short-trip guarantee', top]);
     return rows; };
   const rp = (v) => PL.rs(v);
   const offerCard = (o) => { const km = kmOf(o), l = legs(o);

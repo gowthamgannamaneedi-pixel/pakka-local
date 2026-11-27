@@ -16,7 +16,7 @@ const order = async (id, rest = W.rest, item = W.item) => { const r = await W.ca
 const accept = async (o, owner = W.owner) => { await W.call('POST', `/api/restaurant/orders/${o.id}/accept`, {}, owner); };
 
 // Model A (Nov 2026 partner plan): higher of ₹20 or ₹9.50 × km (₹7 base + ₹2.50 SRSA/ERA), rounded up to the rupee
-const modelA = (m) => Math.max(2000, Math.ceil((950 * m / 1000) / 100) * 100);
+const modelA = (m) => Math.max(2000, Math.ceil((2000 + Math.max(0, m / 1000 - 1) * 400) / 100) * 100, Math.ceil((950 * m / 1000) / 100) * 100);
 test('no rate set: the rider is paid by Model A (₹20 minimum, ₹9.50/km rounded up); the customer pays the per-km charge', async () => {
   const p = { lat: 17.394, lng: 78.4867 }, o = await order(await addr(p.lat, p.lng)), rupees = Math.round(metres(R, p) / 100);
   assert.equal(o.rider_payout_paise, modelA(metres(R, p))); assert.equal(o.delivery_paise, rupees * 100);
@@ -63,7 +63,8 @@ test('a rider carrying a delivery is offered and can accept only orders on their
 
 test('Model A payout table from the partner plan (1–7 km) and SRSA/ERA labels', async () => {
   const { riderPayParts } = await import('../src/services/core.js');
-  const want = { 1: 20, 1.5: 20, 2: 20, 2.5: 24, 3: 29, 3.5: 34, 4: 38, 4.5: 43, 5: 48, 5.5: 53, 6: 57, 6.5: 62, 7: 67 };
+  // short trips step up from Rs 20 (Rs 1 every 250 m after the first km), then the plan's per-km table
+  const want = { 0.5: 20, 1: 20, 1.25: 21, 1.5: 22, 1.75: 23, 2: 24, 2.5: 26, 3: 29, 3.5: 34, 4: 38, 4.5: 43, 5: 48, 5.5: 53, 6: 57, 6.5: 62, 7: 67 };
   for (const [km, rs] of Object.entries(want)) { const p = riderPayParts(W.db, Number(km) * 1000); assert.equal(p.total_paise, rs * 100, `${km} km`); }
   assert.equal(riderPayParts(W.db, 5000).route_label, 'SRSA'); assert.equal(riderPayParts(W.db, 5001).route_label, 'ERA'); assert.equal(riderPayParts(W.db, 1000).minimum_applied, true);
 });

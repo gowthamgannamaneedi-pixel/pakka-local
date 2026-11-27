@@ -42,6 +42,10 @@ const DEFAULTS = { tax_bps: '0', gps_delivery_fee_paise: '4000', rider_payout_pa
   // ₹2.50/km Route Support Allowance) x one-way distance, rounded UP to the rupee. The allowance is called SRSA up to and including
   // rider_route_switch_km (5) and ERA above it: same rate, never both. rider_per_km_paise, when set, overrides with the older flat rate.
   rider_base_km_paise: '700', rider_route_km_paise: '250', rider_route_switch_km: '5',
+  // Short trips: the minimum covers the first rider_min_cover_km (1 km); after that the short-trip pay grows by
+  // rider_short_km_paise (Rs 4/km, i.e. Rs 1 every 250 m) until the per-km formula above pays more (about 2.9 km). So 1.25 km pays Rs 21,
+  // 1.5 km Rs 22, 2 km Rs 24 instead of a flat Rs 20. Set rider_short_km_paise to 0 for the plan's flat Rs 20 minimum.
+  rider_min_cover_km: '1', rider_short_km_paise: '400',
   // A rider already carrying a delivery is offered (and may accept) another one only when its restaurant AND its drop-off are
   // within this many km of one of their current deliveries. max_active_per_rider still caps how many at once.
   batch_radius_km: '2' };
@@ -201,9 +205,10 @@ export function riderPay(db, r, point, roadM) {
 export function riderPayParts(db, distanceM) {
   const km = Math.max(0, Number(distanceM) || 0) / 1000, base = Number(getSetting(db, 'rider_base_km_paise')) || 700, route = Number(getSetting(db, 'rider_route_km_paise')) || 250;
   const min = Number(getSetting(db, 'rider_min_payout_paise')) || 2000, sw = Number(getSetting(db, 'rider_route_switch_km')) || 5;
-  const byKm = Math.ceil(((base + route) * km) / 100) * 100, total = Math.max(min, byKm);
+  const cover = Number(getSetting(db, 'rider_min_cover_km') ?? 1) || 0, step = Number(getSetting(db, 'rider_short_km_paise')) || 0;
+  const byKm = Math.ceil(((base + route) * km) / 100) * 100, short = Math.ceil((min + Math.max(0, km - cover) * step) / 100) * 100, total = Math.max(min, short, byKm);
   return { km: Math.round(km * 100) / 100, base_paise: Math.round(base * km), route_paise: Math.round(route * km), base_rate_paise: base, route_rate_paise: route,
-    route_label: km <= sw ? 'SRSA' : 'ERA', route_name: km <= sw ? 'Short Route Support Allowance' : 'Extended Route Allowance', minimum_paise: min, minimum_applied: min > byKm, total_paise: total };
+    route_label: km <= sw ? 'SRSA' : 'ERA', route_name: km <= sw ? 'Short Route Support Allowance' : 'Extended Route Allowance', minimum_paise: min, minimum_applied: total > byKm, total_paise: total };
 }
 // Is this order on the way for a rider who already has deliveries? Restaurant and drop-off both within batch_radius_km of one of them.
 export function nearActive(db, riderId, o) {
