@@ -81,7 +81,8 @@
   const COOK = ['ACCEPTED', 'PREPARING'], PAST = ['PICKED_UP', 'DELIVERED', 'REJECTED', 'CANCELLED'];
   const sc = (o) => '#' + e(String(o.order_code).slice(-6));
   // full order ID + rider on every card, so several orders at once are never mixed up
-  const ids = (o, riderTxt) => `<div class="k-ids"><span><small>Order ID</small><b>${e(o.order_code)}</b></span><span class="${o.rider ? 'on' : ''}"><small>Rider</small><b>${PL.icon('bike')}${o.rider ? e(o.rider.name) : riderTxt}</b></span></div>`;
+  const ids = (o, riderTxt) => `<div class="k-ids"><span><small>Order ID</small><b>${e(o.order_code)}</b></span><span class="${o.rider ? 'on' : ''}"><small>Rider</small><b>${PL.icon('bike')}${o.rider ? e(o.rider.name) : riderTxt}</b>${o.rider?.vehicle ? `<small class="k-veh">${e(o.rider.vehicle)}</small>` : ''}</span></div>
+      ${o.rider?.phone ? `<a class="btn ghost sm k-call" href="tel:${e(o.rider.phone)}">${PL.icon('phone', 'width="16" height="16"')} Call ${e(String(o.rider.name || 'rider').split(' ')[0])}</a>` : ''}`;
   const itemsList = (o) => `<ul class="k-items">${o.items.map((i) => `<li><b>${i.qty}×</b><span>${e(i.name)}</span></li>`).join('')}</ul>`;
   const newCard = (o) => `<div class="k-card k-new"><div class="k-top"><b class="k-code">${sc(o)}</b><span class="timer" data-placed="${e(o.placed_at || o.created_at)}"></span></div>
       ${ids(o, 'Assigned after you accept')}${itemsList(o)}<div class="k-pay"><span>You get</span><b>${rs(o.payout_paise)}</b></div>

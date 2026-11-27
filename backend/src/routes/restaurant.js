@@ -127,7 +127,9 @@ export function restaurantRoutes(db) {
     rejection_reason: o.rejection_reason, eta_at: o.eta_at, instructions: null,
     items: db.prepare('SELECT name,qty,base_price_paise,prep_time_min FROM order_items WHERE order_id=?').all(o.id),
     pickup_otp: o.status === 'READY' ? derivedOtp('pickup', o.order_code) : undefined,
-    rider: o.rider_id ? db.prepare('SELECT u.name FROM users u WHERE u.id=?').get(o.rider_id) : null,
+    // the delivery partner coming for this order: name and vehicle number to recognise them; phone only while the order is active
+    rider: o.rider_id ? (({ name, phone, vehicle }) => ({ name, vehicle, phone: ['ACCEPTED', 'PREPARING', 'READY'].includes(o.status) ? phone : undefined }))(
+      db.prepare('SELECT u.name, u.phone, r.vehicle_reg_no AS vehicle FROM users u LEFT JOIN riders r ON r.user_id=u.id WHERE u.id=?').get(o.rider_id) || {}) : null,
     refund: db.prepare('SELECT status FROM refunds WHERE order_id=?').pluck().get(o.id) || null });
   r.get('/orders', (req, res) => { const t = getSetting(db, 'restaurant_accept_timeout_min');
     res.json({ accept_timeout_sec: t ? Number(t) * 60 : null, server_time: new Date().toISOString(), orders: db.prepare("SELECT * FROM orders WHERE restaurant_id=? AND status NOT IN ('PAYMENT_PENDING','PAYMENT_FAILED','EXPIRED') ORDER BY id DESC LIMIT 100").all(req.restaurantId).map(serialize) }); });

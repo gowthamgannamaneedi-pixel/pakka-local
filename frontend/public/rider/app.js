@@ -1,5 +1,5 @@
 (function () {
-  const e = PL.esc, rs = PL.rs, S = PL.state; S.dismissed = new Set(); S.me = null;
+  const e = PL.esc, rs = PL.rs, S = PL.state; S.dismissed = new Set(); S.me = null; S.chk = {};
   try { localStorage.setItem('pl.sound', '1'); } catch {}      // riders always get the new-offer sound (no mute button)
   // Pakka Rider Android app: tell the native side when the rider is online / on a delivery, so offers, ringing,
   // the floating side icon and delivery location keep working while the app is in the background.
@@ -196,10 +196,16 @@
         <div class="row mt2">${big(d.nav_url, 'pin', 'Navigate')}${o.customer.phone ? big('tel:' + o.customer.phone, 'phone', 'Call', 'ghost') : ''}</div>`;
     const wait = (st === 'ACCEPTED' || st === 'PREPARING') ? '<div class="rs-wait">The kitchen is preparing. Enter the pickup code here when it’s ready.</div>' : '';
     const items = o.items.map((i) => `<div class="kv"><span>${i.qty} × ${e(i.name)}</span></div>`).join('');
+    // Before pickup the rider ticks each item after checking it with the restaurant; the pickup code is accepted only when all are ticked.
+    const ck = S.chk[o.id] || (S.chk[o.id] = new Set()), nI = o.items.length, all = ck.size >= nI;
+    const check = n < 2 ? `<div class="rs-items"><div class="rs-items-h"><b>Check the items</b><span>${ck.size}/${nI} checked</span></div>
+        ${o.items.map((i, k) => `<button type="button" class="rs-it ${ck.has(k) ? 'on' : ''}" data-act="it-chk" data-id="${o.id}" data-k="${k}" aria-pressed="${ck.has(k)}"><i>${ck.has(k) ? '✓' : ''}</i><span><b>${i.qty} ×</b> ${e(i.name)}</span></button>`).join('')}
+        <small>${all ? 'All items checked. Enter the pickup code.' : 'Match each item with the restaurant, then tick it.'}</small></div>`
+      : `<div class="rs-items"><div class="rs-items-h"><b>Hand over these items</b><span>${o.items.reduce((s, i) => s + i.qty, 0)} total</span></div>${o.items.map((i) => `<div class="rs-it on"><i>✓</i><span><b>${i.qty} ×</b> ${e(i.name)}</span></div>`).join('')}</div>`;
     return `<div class="card rs">
       <div class="rs-head"><span class="rs-n">Step ${n + 1} of 3</span><span class="rs-fee">${rs(o.fee_paise)}</span></div>
       <div class="rs-bar"><i style="width:${(n + 1) * 33.34}%"></i></div>
-      <h3 class="rs-title">${titles[n]}</h3>${place}${wait}${codeForm(o)}
+      <h3 class="rs-title">${titles[n]}</h3>${place}${wait}${check}${codeForm(o)}
       ${chatBtn(o.id, o.unread_messages)}
       <details class="rs-more"><summary>Order details · ${PL.code(o.order_code)}</summary>
         <div class="sec">Items</div>${items}${o.instructions ? `<div class="sec">Instructions</div><div class="small">${e(o.instructions)}</div>` : ''}
@@ -212,7 +218,7 @@
       <p class="small mt2">${{ draft: `Finish your application to start delivering.${me.missing_count ? ` ${me.missing_count} item${me.missing_count > 1 ? 's' : ''} still needed.` : ''}`, pending: 'Pakka Local is checking your application. You cannot receive deliveries until it is approved.', corrections_requested: 'Pakka Local asked you to correct some details.', reverification_required: 'Please update your application. You can finish deliveries you already have, but you will not get new ones until it is approved.', rejected: 'Your application was not approved.', suspended: 'Your account is suspended. Contact Pakka Local.' }[vs] || ''}</p>
       ${['draft', 'corrections_requested', 'reverification_required'].includes(vs) ? '<button class="btn sm mt2" data-act="go" data-path="/profile">Continue my application</button>' : vs === 'pending' ? '<button class="btn ghost sm mt2" data-act="go" data-path="/profile">View my application</button>' : ''}</div>` : !me.is_online ? '<div class="banner info">You are offline. Switch Online (top right) to receive delivery offers.</div>' : '';
     const offers = d.offers.filter((o) => !S.dismissed.has(o.id) && !act.find((a) => a.id === o.id));
-    act.forEach((o) => { S.fee[o.id] = o.fee_paise; });
+    act.forEach((o) => { S.fee[o.id] = o.fee_paise; }); S.lastAct = act;
     const today = await earnToday(), can = me.can_take_orders !== false && vs === 'approved';
     const hero = can ? `<div class="d-hero ${me.is_online ? 'on' : ''}"><div class="grow"><span class="d-state"><i></i>${me.is_online ? 'You’re online' : 'You’re offline'}</span><div class="small">${me.is_online ? (act.length ? 'Finish your delivery. Orders on your way still arrive.' : 'Waiting for delivery offers near you.') : 'Go online to start receiving delivery offers.'}</div></div>
         <button class="d-go" data-act="online" aria-pressed="${!!me.is_online}">${me.is_online ? 'Go offline' : 'Go online'}</button></div>
@@ -239,7 +245,9 @@
   document.addEventListener('paste', (ev) => { const t = ev.target; if (!t.classList?.contains('d-dg')) return; ev.preventDefault(); dgFill(t.closest('.d-digits'), (ev.clipboardData || window.clipboardData).getData('text'), 0); });
   const dgCheck = (f) => { const v = PL.form(f).otp || ''; if (!/^\d{4}$/.test(v)) { PL.toast('Enter all 4 digits of the code.', true); f.querySelector('.d-dg')?.focus(); return null; } return v; };
   const dgClear = (f) => { f.querySelectorAll('.d-dg').forEach((x) => { x.value = ''; x.classList.remove('on'); }); f.querySelector('.d-dg')?.focus(); };
-  PL.forms.pickup = async (f) => { const otp = dgCheck(f); if (!otp) return; const r = await PL.run(() => PL.post(`/api/rider/orders/${f.dataset.id}/pickup`, { otp }), 'Pickup confirmed'); if (r) PL.rerender(); else dgClear(f); };
+  PL.actions['it-chk'] = (el) => { const id = el.dataset.id, k = Number(el.dataset.k), s = S.chk[id] || (S.chk[id] = new Set()); s.has(k) ? s.delete(k) : s.add(k); PL.rerender(); };
+  PL.forms.pickup = async (f) => { const o = (S.lastAct || []).find((x) => String(x.id) === f.dataset.id); if (o && (S.chk[o.id]?.size || 0) < o.items.length) { PL.toast('Check every item with the restaurant and tick it first.', true); return; }
+    const otp = dgCheck(f); if (!otp) return; const r = await PL.run(() => PL.post(`/api/rider/orders/${f.dataset.id}/pickup`, { otp }), 'Pickup confirmed'); if (r) PL.rerender(); else dgClear(f); };
   PL.forms.deliver = async (f) => { const otp = dgCheck(f); if (!otp) return; const r = await PL.run(() => PL.post(`/api/rider/orders/${f.dataset.id}/deliver`, { otp })); if (!r) { dgClear(f); return; } S.et = null;
     await PL.celebrate({ title: 'Delivered!', sub: S.fee[f.dataset.id] ? `${rs(S.fee[f.dataset.id])} added to your earnings.` : 'Earnings added to your balance.' }); PL.rerender(); };
   S.fee = {};
