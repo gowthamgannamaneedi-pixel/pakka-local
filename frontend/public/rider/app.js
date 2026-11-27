@@ -173,12 +173,17 @@
   const r2 = (v) => (v % 100 ? (v / 100).toFixed(2) : String(v / 100));      // ₹7, ₹2.50
   const payNote = (o) => { const p = o.pay_parts; if (!p) return ''; return p.minimum_applied ? `Minimum ₹${r2(p.minimum_paise)} per delivery`
     : `₹${r2(p.base_rate_paise)}/km + ₹${r2(p.route_rate_paise)}/km ${e(p.route_label)}`; };
-  // How the payout is made up: a pickup part (riding to the restaurant) and a delivery part (restaurant -> customer).
-  // The two parts always add up exactly to the payout shown; nothing extra is promised.
-  const legs = (o) => { const t = Number(o.fee_paise) || 0, pick = Math.round((t * 0.25) / 100) * 100; return t ? [pick, t - pick] : null; };
+  // How the payout is made up (partner payout plan, Model A): Base Delivery Payout ₹7/km + route support ₹2.50/km
+  // (SRSA up to 5 km, ERA above), topped up to the ₹20 minimum, rounded up to the rupee. The lines always add up to the total.
+  const legs = (o) => { const p = o.pay_parts, t = Number(o.fee_paise) || 0; if (!p || !t) return null;
+    const b = Math.round(p.base_paise), r = Math.round(p.route_paise), x = t - b - r;
+    const rows = [[`Base Delivery Payout · ₹${r2(p.base_rate_paise)} × ${p.km} km`, b], [`${e(p.route_name)} (${e(p.route_label)}) · ₹${r2(p.route_rate_paise)} × ${p.km} km`, r]];
+    if (x > 0) rows.push([p.minimum_applied ? `Minimum guarantee top-up (₹${r2(p.minimum_paise)} minimum)` : 'Rounded up to the whole rupee', x]);
+    return x < 0 ? null : rows; };
+  const rp = (v) => '₹' + r2(v);
   const offerCard = (o) => { const km = kmOf(o), l = legs(o);
     return `<div class="ro">${onWay(o)}<div class="ro-top"><div><span class="ro-fee">${rs(o.fee_paise)}</span><span class="ro-pay">${payNote(o) || 'you earn'}</span></div>${km != null ? `<span class="ro-km">${km} km</span>` : ''}</div>
-      ${l ? `<div class="ro-legs"><div><span>${PL.icon('bike')} Pickup · ride to the restaurant</span><b>${rs(l[0])}</b></div><div><span>${PL.icon('pin')} Delivery · restaurant to customer${km != null ? ` (${km} km)` : ''}</span><b>${rs(l[1])}</b></div><div class="tot"><span>Total you earn</span><b>${rs(o.fee_paise)}</b></div></div>` : ''}
+      ${l ? `<div class="ro-legs">${l.map(([t, v]) => `<div><span>${t}</span><b>${rp(v)}</b></div>`).join('')}<div class="tot"><span>Total you earn</span><b>${rs(o.fee_paise)}</b></div></div>` : ''}
       <div class="ro-route"><div class="ro-pt"><i class="a"></i><div><b>${e(o.restaurant.name)}</b><small>${e(o.restaurant.address || '')}</small></div></div>
         <div class="ro-pt"><i class="b"></i><div><b>${e(o.destination.text || 'Customer')}</b><small>${o.items.reduce((n, i) => n + i.qty, 0)} item${o.items.reduce((n, i) => n + i.qty, 0) > 1 ? 's' : ''}${o.eta_at ? ' · expected ~' + PL.time(o.eta_at) : ''}</small></div></div></div></div>`; };
   const stepCard = (o) => { const st = o.status, n = st === 'PICKED_UP' ? 2 : st === 'READY' ? 1 : 0, d = o.destination;
