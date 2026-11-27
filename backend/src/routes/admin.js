@@ -8,6 +8,9 @@ import * as Locs from '../services/locations.js';
 import * as Pricing from '../services/distancePricing.js';
 import * as Routing from '../services/routing.js';
 import { autoStatus } from '../services/daily.js';
+import { cleanupPreview, runCleanup } from '../services/cleanup.js';
+import { backupDb } from '../db/index.js';
+import { config as appConfig } from '../config.js';
 import { perKmRate, allSettings, setSetting, SETTING_KEYS, adminCashout, balances, settleRefund, eligibleRiderCount, getSetting, iso, adminCancel, adminUnassign } from '../services/core.js';
 import { send, parse, wrap, wrapA, money } from './util.js';
 import { importMenu } from '../services/menuImport.js';
@@ -423,6 +426,16 @@ export function adminRoutes(db) {
   // broadcast campaigns (Web Push only; promotions never go through WhatsApp)
   const aud = z.object({ audience_type: z.enum(['all_customers', 'location', 'ordered_recent', 'inactive', 'riders', 'restaurants', 'user']), audience_param: z.union([z.string().max(40), z.number()]).nullish() });
   r.post('/campaigns/preview', wrap((req, res) => { const d = parse(aud, req, res); if (!d) return; res.json({ audience_size: audienceUsers(db, d.audience_type, d.audience_param).length }); }));
+  // production clean-up of test / demo data (main admin only; password confirmation; full backup first)
+  const keepSelf = (req) => [req.user.id, ...db.prepare('SELECT id FROM users WHERE phone=?').pluck().all(mainPhone() || '')];
+  r.get('/cleanup', (req, res) => { if (!isMain(req)) return res.status(403).json({ error: MAIN_ONLY }); res.json(cleanupPreview(db, { keepIds: keepSelf(req) })); });
+  r.post('/cleanup', fresh, wrap(async (req, res) => {
+    if (!isMain(req)) return res.status(403).json({ error: MAIN_ONLY });
+    let backup; try { backup = await backupDb(db, appConfig.backupDir); } catch (e) { return res.status(500).json({ error: 'Backup failed, nothing was changed: ' + e.message }); }
+    const results = runCleanup(db, { keepIds: keepSelf(req) });
+    audit(db, req, 'cleanup.test_data', 'system', null, { count: results.length, backup: backup.split(/[\/]/).pop() });
+    res.json({ ok: true, backup: backup.split(/[\/]/).pop(), results });
+  }));
   // automatic messages (lunch / snack / dinner / rain) for the Broadcast page
   r.get('/auto-messages', (req, res) => res.json(autoStatus(db)));
   r.get('/campaigns', (req, res) => res.json({ campaigns: db.prepare('SELECT * FROM campaigns ORDER BY id DESC LIMIT 50').all().map((c) => ({ ...c, stats: campaignStats(db, c.id) })) }));

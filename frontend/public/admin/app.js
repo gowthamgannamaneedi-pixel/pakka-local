@@ -525,7 +525,21 @@
   // verified / not verified pill on the Admin team cards
   const MAIL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/></svg>';
   const vBadge = (ok) => ok ? `<span class="tm-vb ok">${PL.icon('check')}Verified</span>` : `<span class="tm-vb off">${PL.icon('alert')}Not verified</span>`;
-  async function team() { const { admins, me, main_phone: mp, can_manage: can, email_ready: mailOk } = await A('/admins');
+  // ---------- production clean-up (main admin only): test / demo accounts and data ----------
+  const ROLE_NAME = { admin: 'Admin login', customer: 'Customer', rider: 'Rider', restaurant: 'Restaurant login' };
+  const cleanupCard = (c) => { const n = c.users.length + c.restaurants.length + c.places.length;
+    return `<div class="card mt2 cu-card"><div class="row between wrap" style="gap:10px"><div><b>Remove test data before going live</b><div class="small mute">Test and demo accounts found by clear markers (test numbers starting +91 5…, the staging admin, names starting “TEST” or “Demo”). Real accounts, the main admin and you are never touched.</div></div></div>
+      ${n ? `<ul class="cu-list">${c.users.map((u) => `<li><span class="tm-badge">${e(ROLE_NAME[u.role] || u.role)}</span> ${e(u.name || '')} <span class="mute">${e(ph10(u.phone || ''))}</span></li>`).join('')}
+        ${c.restaurants.map((r) => `<li><span class="tm-badge">Restaurant</span> ${e(r.name)}</li>`).join('')}${c.places.map((l) => `<li><span class="tm-badge">Delivery place</span> ${e(l.name)}</li>`).join('')}</ul>
+        <p class="small mute">A full backup is taken first. Each item is deleted permanently; items with past orders are switched off instead so your order history stays intact. Deleting cannot be undone (only by restoring the backup).</p>
+        <button class="btn danger solid" data-act="cu-run">Back up and remove ${n} test item${n > 1 ? 's' : ''}</button>` : '<p class="small ok-t mt2">No test data left. ✓</p>'}</div>`; };
+  PL.actions['cu-run'] = async () => {
+    if (!(await PL.confirm('Remove all listed test data?', 'Delete test data', { text: 'A backup is taken first. Deleted items cannot be brought back except from that backup.', danger: true }))) return;
+    await PL.closeModalAsync();
+    const r = await PL.reauth('Confirm with your password', (a) => P('/cleanup', a)); if (!r) return;
+    PL.modal(`<h3>Test data removed</h3><p class="small mute">Backup saved first: ${e(r.backup)}</p><ul class="cu-list">${r.results.map((x) => `<li><span class="tm-badge">${e(x.kind)}</span> ${e(x.name || '')} <span class="mute">${e(x.phone ? ph10(x.phone) : '')}</span> — <b>${e(x.result)}</b></li>`).join('')}</ul><button class="btn block mt" data-act="close-modal">Done</button>`);
+    PL.rerender(); };
+  async function team() { const { admins, me, main_phone: mp, can_manage: can, email_ready: mailOk } = await A('/admins'); const cu = await A('/cleanup').catch(() => null);
     const mine = admins.find((a) => a.id === me) || {}, list = [...admins].sort((a, b) => (b.phone === mp) - (a.phone === mp) || b.active - a.active || a.id - b.id);
     const card = (a) => { const isMain = a.phone === mp, you = a.id === me;
       return `<div class="tm-card ${a.active ? '' : 'off'}"><div class="tm-av ${isMain ? 'main' : ''}">${e(ini(a.name))}</div>
@@ -541,6 +555,7 @@
         ${can ? `<button class="btn" data-act="adm-new">${PL.icon('plus', 'width="18" height="18"')} Add admin</button>` : ''}</div>
       ${mp ? '' : '<div class="banner warn mt2">No main admin is set yet, so every admin can add or turn off admins. Tap “Make main” on the right person.</div>'}
       ${!can ? '<div class="banner info mt2">Only the main admin can add, edit or turn off admins.</div>' : ''}${mailOk ? '' : '<div class="banner warn mt2">E-mail sending is not set up on this server, so welcome and password-reset e-mails cannot be sent.</div>'}
+      ${cu ? cleanupCard(cu) : ''}
       <div class="tm-me mt2"><div><b>My account</b><div class="tm-line"><span class="ic">${MAIL}</span>${mine.email ? `<span class="v">${e(mine.email)}</span>${vBadge(mine.email_verified)}` : '<span class="v">Add an e-mail so you can reset your password if you forget it.</span>'}</div></div>
         <div class="row" style="gap:6px;flex-wrap:wrap"><button class="btn ghost sm" data-act="me-email" data-m="${e(mine.email || '')}">${mine.email ? 'Change e-mail' : 'Add e-mail'}</button><button class="btn ghost sm" data-act="me-pw">Change my password</button></div></div>
       <div class="tm-grid mt2">${list.map(card).join('')}</div>`; }

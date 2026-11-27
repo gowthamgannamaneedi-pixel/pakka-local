@@ -699,3 +699,4 @@ body.p-admin .tbl td .btn.sm{white-space:nowrap}
 .am-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}.am-grid>div{padding:10px 12px;border-radius:12px;background:var(--bg2,#f7f5f2)}.am-grid span{display:block}.am-grid b{font-size:1.1rem}
 .ok-t{color:#067647}.warn-t{color:#b54708}
 .am-sep{height:1px;background:var(--line);margin:16px 0}
+.cu-card{border:1px solid #fecdca;background:linear-gradient(180deg,#fff,#fffafa)}.cu-list{list-style:none;padding:0;margin:12px 0;display:grid;gap:6px;max-height:320px;overflow:auto}.cu-list li{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 10px;border-radius:10px;background:#f9fafb;font-size:.88rem}
