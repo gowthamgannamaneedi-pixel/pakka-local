@@ -323,7 +323,39 @@
   PL.actions['app-submit'] = async () => { if (!(await PL.confirm('Submit your application for verification? You cannot edit it while it is being reviewed.', 'Submit'))) return;
     const r = await PL.run(() => PL.post('/api/rider/application/submit'), 'Submitted for verification'); if (r) PL.go('/profile'); };
 
-  PL.start({ portal: 'rider', name: 'Rider', home: '/jobs', loginView: (root) => PL.staffLogin(root, { title: 'Delivery partner', blurb: 'Sign in with the account Pakka Local created for you.' }),
+  // ---------- sign in / join with an SMS code (like Swiggy / Zomato partner apps) ----------
+  // New numbers get a draft application (mobile already verified) and go straight to it; Pakka Local reviews it before any delivery.
+  let rlTimer = null;
+  const rlPhoneStep = () => `<h2>Sign in or join</h2><p class="mute">Enter your mobile number. We’ll send a 6-digit code by SMS.</p>
+    <form data-form="rl-req"><div class="field pre"><span>+91</span><input name="phone" inputmode="numeric" maxlength="10" autocomplete="tel-national" placeholder="98765 43210" required autofocus aria-label="Mobile number"></div>
+    <button class="btn block lg mt" type="submit">Send OTP</button></form>
+    <p class="rl-fine">New delivery partner? Sign in with your number, then add your details and documents. Pakka Local checks them before you can take deliveries.</p>
+    <button class="linkbtn mt2" data-act="rl-pw">Sign in with password instead</button>`;
+  const rlCodeStep = (phone, wait) => `<h2>Enter the 6-digit code</h2><p class="mute">Sent by SMS to <b>+91 ${e(phone.slice(-10))}</b></p>
+    <form data-form="rl-ver" data-p="${e(phone)}"><input class="rl-otp" name="otp" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code" required autofocus aria-label="6-digit code" placeholder="••••••">
+    <button class="btn block lg mt" type="submit">Verify and continue</button></form>
+    <div class="row between mt2"><button class="linkbtn" data-act="rl-back">Change number</button><button class="linkbtn" id="rl-resend" data-act="rl-resend" data-p="${e(phone)}" disabled>Resend in ${wait}s</button></div>`;
+  const rlSheet = (html) => { const el = PL.$('#rl-sheet'); if (el) { el.innerHTML = html; setTimeout(() => el.querySelector('input:not([type=hidden])')?.focus(), 50); } };
+  const rlCount = (wait) => { clearInterval(rlTimer); let t = wait; rlTimer = setInterval(() => { const b = PL.$('#rl-resend'); if (!b) return clearInterval(rlTimer); t--; if (t <= 0) { b.disabled = false; b.textContent = 'Resend code'; clearInterval(rlTimer); } else b.textContent = `Resend in ${t}s`; }, 1000); };
+  const riderLogin = (root) => {
+    root.innerHTML = `<div class="rl"><div class="rl-hero"><img class="rl-logo" src="/assets/logo.png" alt="Pakka Local"><span class="rl-tag">${PL.icon('bike')} Delivery partner</span>
+        <h1>Ride with<br>Pakka Local</h1><p>Deliver hot food from local kitchens near you.</p>
+        <ul class="rl-pts"><li>${PL.icon('wallet')}<span><b>At least ₹20</b> for every delivery</span></li><li>${PL.icon('nav')}<span>See your payout <b>before you accept</b></span></li><li>${PL.icon('check')}<span>Quick sign-up with your <b>mobile number</b></span></li></ul></div>
+      <div class="rl-sheet" id="rl-sheet">${rlPhoneStep()}</div></div>`;
+  };
+  PL.forms['rl-req'] = async (f) => { const d = f.phone.value.replace(/\D/g, '').slice(-10); if (!/^[6-9]\d{9}$/.test(d)) return PL.toast('Enter your 10-digit mobile number.', true);
+    const r = await PL.run(() => PL.post('/api/auth/rider/otp/request', { phone: '+91' + d })); if (!r) return; rlSheet(rlCodeStep('+91' + d, r.resendAfterSec || 45)); rlCount(r.resendAfterSec || 45); };
+  PL.actions['rl-resend'] = async (el) => { const r = await PL.run(() => PL.post('/api/auth/rider/otp/request', { phone: el.dataset.p }), 'New code sent'); if (r) { rlSheet(rlCodeStep(el.dataset.p, r.resendAfterSec || 45)); rlCount(r.resendAfterSec || 45); } };
+  PL.actions['rl-back'] = () => { clearInterval(rlTimer); rlSheet(rlPhoneStep()); };
+  PL.actions['rl-pw'] = () => PL.staffLogin(PL.$('#root'), { title: 'Delivery partner', blurb: 'Sign in with your mobile number and password.' });
+  PL.forms['rl-ver'] = async (f) => { const otp = f.otp.value.replace(/\D/g, ''); if (otp.length !== 6) return PL.toast('Enter the 6-digit code.', true);
+    const r = await PL.run(() => PL.post('/api/auth/rider/otp/verify', { phone: f.dataset.p, otp })); if (!r) { f.otp.value = ''; f.otp.focus(); return; }
+    clearInterval(rlTimer); PL.setSession(r);
+    history.replaceState({ idx: 0 }, '', r.is_new ? '#/profile' : '#/jobs');      // new partners go straight to their application
+    PL.toast(r.is_new ? 'Welcome! Let’s set up your delivery partner profile.' : 'Welcome back!', 'ok'); PL.boot(); };
+  document.addEventListener('input', (ev) => { if (ev.target.classList?.contains('rl-otp')) { ev.target.value = ev.target.value.replace(/\D/g, '').slice(0, 6); if (ev.target.value.length === 6) ev.target.form?.requestSubmit(); } });
+
+  PL.start({ portal: 'rider', name: 'Rider', home: '/jobs', loginView: riderLogin,
     right: () => '',
     tabs: [{ path: '/jobs', label: 'Deliveries', icon: 'bike' }, { path: '/earnings', label: 'Earnings', icon: 'wallet' }, { path: '/profile', label: 'Account', icon: 'user' }],
     onReady: () => { refreshMe(); tick(); const a = setInterval(tick, 1000), b = setInterval(refreshMe, 15000); PL.hooks.stop = [() => { nsig = ''; RN()?.sync({ online: false, active: 0, token: '', api: '' }).catch(() => {}); S.fcmSent = null; PL.track.stop(); clearInterval(a); clearInterval(b); const x = PL.$('#alerts'); if (x) { x.innerHTML = ''; x.dataset.h = ''; x.classList.add('hide'); setAlertSpace(x); } }]; },

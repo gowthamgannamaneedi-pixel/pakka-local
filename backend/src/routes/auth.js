@@ -124,6 +124,33 @@ export function authRoutes(db) {
     res.json({ ...sessionOut(user), is_new: !user.name });
   });
 
+  // Delivery partners sign up / sign in with an SMS code (like Swiggy / Zomato partner apps). A new number gets a rider account in
+  // 'draft' with the mobile number already verified; the rider then fills in the application (documents, bank, vehicle) and
+  // submits it; an admin approves or rejects it. Nobody can take deliveries before approval. Existing riders can still use a password.
+  r.post('/rider/otp/request', limiter(10), async (req, res) => {
+    const out = await requestCode(db, req.body?.phone); if (otpSend(res, out) !== null) return;
+    res.json({ ok: true, resendAfterSec: out.resendAfterSec, expiresInSec: out.expiresInSec, channel: out.channel });
+  });
+  r.post('/rider/otp/verify', limiter(20), (req, res) => {
+    const p = z.object({ phone: z.string().max(20), otp: z.string().max(10), name: z.string().trim().min(1).max(80).optional() }).safeParse(req.body);
+    if (!p.success) return res.status(400).json({ error: 'Enter the 6-digit code.' });
+    const ok = checkCode(db, p.data.phone, p.data.otp); if (otpSend(res, ok) !== null) return;
+    const phone = ok.phone, now = new Date().toISOString();
+    const out = db.transaction(() => {
+      let u = db.prepare("SELECT * FROM users WHERE phone = ? AND role = 'rider'").get(phone), isNew = false;
+      if (!u) {
+        const nm = p.data.name && nameSchema.safeParse(p.data.name).success ? p.data.name.trim() : '';
+        const id = db.prepare("INSERT INTO users (role, phone, name) VALUES ('rider', ?, ?)").run(phone, nm).lastInsertRowid;
+        db.prepare("INSERT INTO riders (user_id, verification_status, phone_verified_at) VALUES (?, 'draft', ?)").run(id, now);
+        u = db.prepare('SELECT * FROM users WHERE id = ?').get(id); isNew = true;
+      } else db.prepare('UPDATE riders SET phone_verified_at = COALESCE(phone_verified_at, ?) WHERE user_id = ?').run(now, u.id);
+      return { u, isNew };
+    })();
+    if (!out.u.active) return res.status(403).json({ error: 'This account has been deactivated. Contact Pakka Local.' });
+    db.prepare('UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = ?').run(out.u.id);
+    res.json({ ...sessionOut(out.u), is_new: out.isNew });
+  });
+
   // ---- STAGING-ONLY e-mail login for allow-listed testers (WhatsApp OTP above stays the real customer login) ----
   // 6-digit code, 5-minute expiry, 5 attempts, 60 s resend wait, hashed, single use, per-IP and per-address limits.
   // Each allow-listed address signs in as the customer account of the phone number it is mapped to.

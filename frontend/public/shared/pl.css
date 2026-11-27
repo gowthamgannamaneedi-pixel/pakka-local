@@ -723,3 +723,18 @@ body.p-admin .tbl td .btn.sm{white-space:nowrap}
 .rs-wait{margin-top:12px;padding:10px 12px;border-radius:12px;background:#eff8ff;color:#175cd3;font-size:.86rem;font-weight:600}
 .rs-more{margin-top:12px;border-top:1px dashed var(--line);padding-top:10px}.rs-more summary{cursor:pointer;font-weight:700;color:var(--mute);list-style:none;display:flex;align-items:center;gap:8px}
 .rs-more summary::-webkit-details-marker{display:none}.rs-more summary::after{content:'▾';margin-left:auto}.rs-more[open] summary::after{content:'▴'}
+
+/* ---------- rider sign in / join (SMS code) ---------- */
+.rl{min-height:100vh;display:flex;flex-direction:column;background:#0f1729}
+.rl-hero{position:relative;overflow:hidden;padding:34px 22px 56px;color:#fff;background:radial-gradient(120% 80% at 100% 0%,#ff9a3d 0%,transparent 55%),linear-gradient(160deg,#e2550f,#b8326a)}
+.rl-hero::after{content:'';position:absolute;right:-60px;bottom:-60px;width:220px;height:220px;border-radius:50%;background:rgba(255,255,255,.08)}
+.rl-logo{width:58px;height:58px;border-radius:16px;background:#fff;padding:5px;box-shadow:0 8px 20px rgba(0,0,0,.2)}
+.rl-tag{display:inline-flex;align-items:center;gap:6px;margin:18px 0 0;padding:5px 12px;border-radius:999px;background:rgba(255,255,255,.18);font:700 .78rem var(--font)}.rl-tag svg{width:16px;height:16px}
+.rl-hero h1{margin:12px 0 6px;font:800 2.1rem/1.05 var(--font);letter-spacing:-.02em;color:#fff}.rl-hero p{margin:0;opacity:.9}
+.rl-pts{list-style:none;padding:0;margin:18px 0 0;display:grid;gap:10px}.rl-pts li{display:flex;align-items:center;gap:10px;font-size:.92rem}
+.rl-pts svg{flex:none;width:30px;height:30px;padding:6px;border-radius:10px;background:rgba(255,255,255,.18)}
+.rl-sheet{flex:1;margin-top:-26px;position:relative;z-index:1;background:#fff;border-radius:26px 26px 0 0;padding:24px 20px 28px;max-width:520px;width:100%;align-self:center;box-sizing:border-box}
+.rl-sheet h2{margin:0 0 6px;font-size:1.35rem}.rl-sheet .mute{margin:0 0 14px}
+.rl-otp{width:100%;font:800 1.8rem var(--font);letter-spacing:.5em;text-align:center;padding:12px;border:2px solid var(--line);border-radius:14px}.rl-otp:focus{border-color:var(--brand,#e2550f);outline:none}
+.rl-fine{margin:14px 0 0;font-size:.82rem;color:var(--mute);line-height:1.45}
+@media (min-width:900px){.rl{flex-direction:row}.rl-hero{flex:1;padding:60px;display:flex;flex-direction:column;justify-content:center}.rl-sheet{margin:0;border-radius:0;display:flex;flex-direction:column;justify-content:center;max-width:480px;padding:48px}}
