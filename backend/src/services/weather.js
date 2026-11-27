@@ -17,25 +17,34 @@ async function fetchJson(url) {
   finally { clearTimeout(t); }
 }
 
-// one point -> { cond, temp, day }; cond is one of clear, clouds, fog, rain, storm
+// one point -> { cond, temp, day, clouds, vis_km }; cond is one of clear, clouds, haze, fog, rain, storm.
+// Decided from the real readings, in this order: storm, real rain (>= 0.3 mm or a rain reading), real fog (visibility
+// under 1 km), mostly covered sky (>= 80 % cloud = cloudy, even if the provider also says "haze"), haze/dust/smoke with
+// fair visibility, partly cloudy (>= 60 %), otherwise clear.
+export function classify({ storm, rainMm, rainCode, visKm, clouds, hazeCode }) {
+  if (storm) return 'storm';
+  if (rainMm >= WET_MM || rainCode) return 'rain';
+  if (Number.isFinite(visKm) && visKm < 1) return 'fog';
+  if (clouds >= 80) return 'clouds';
+  if (hazeCode) return 'haze';
+  if (clouds >= 60) return 'clouds';
+  return 'clear';
+}
 async function point(lat, lng) {
   if (config.weather.key) { try { return await owm(lat, lng); } catch { /* key not active yet or limit reached: use Open-Meteo for now */ } }
   return openMeteo(lat, lng);
 }
 async function owm(lat, lng) {
-  {
-    const d = await fetchJson(`https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lng}&units=metric&appid=${encodeURIComponent(config.weather.key)}`);
-    const w = d.weather?.[0] || {}, id = Number(w.id), mm = Number(d.rain?.['1h'] ?? 0);
-    const cond = id >= 200 && id < 300 ? 'storm' : (id >= 500 && id < 600) || (id >= 300 && id < 400 && mm >= WET_MM) ? (mm >= WET_MM || id >= 501 ? 'rain' : 'clouds')
-      : id >= 700 && id < 800 ? 'fog' : id === 800 ? 'clear' : 'clouds';
-    return { cond, temp: d.main?.temp, day: String(w.icon || '').endsWith('d'), src: 'openweathermap' };
-  }
+  const d = await fetchJson(`https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lng}&units=metric&appid=${encodeURIComponent(config.weather.key)}`);
+  const w = d.weather?.[0] || {}, id = Number(w.id), mm = Number(d.rain?.['1h'] ?? 0), clouds = Number(d.clouds?.all ?? 0), visKm = d.visibility != null ? Number(d.visibility) / 1000 : NaN;
+  const cond = classify({ storm: id >= 200 && id < 300, rainMm: mm, rainCode: id >= 501 && id < 600, visKm, clouds, hazeCode: id >= 700 && id < 800 });
+  return { cond, temp: d.main?.temp, day: String(w.icon || '').endsWith('d'), clouds, vis_km: visKm, src: 'openweathermap' };
 }
 async function openMeteo(lat, lng) {
-  const d = await fetchJson(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,weather_code,is_day,precipitation,cloud_cover&timezone=Asia%2FKolkata`);
-  const c = d.current || {}, code = Number(c.weather_code), mm = Number(c.precipitation || 0);
-  const cond = code >= 95 ? 'storm' : (code >= 61 || mm >= WET_MM) && code >= 51 ? 'rain' : code === 45 || code === 48 ? 'fog' : Number(c.cloud_cover) >= 60 ? 'clouds' : 'clear';      // cloudy by actual cloud cover, not a drizzle blip
-  return { cond, temp: c.temperature_2m, day: c.is_day === 1, src: 'open-meteo' };
+  const d = await fetchJson(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,weather_code,is_day,precipitation,cloud_cover,visibility&timezone=Asia%2FKolkata`);
+  const c = d.current || {}, code = Number(c.weather_code), clouds = Number(c.cloud_cover ?? 0), visKm = c.visibility != null ? Number(c.visibility) / 1000 : NaN;
+  const cond = classify({ storm: code >= 95, rainMm: Number(c.precipitation || 0), rainCode: code >= 61 && code < 95, visKm, clouds, hazeCode: code === 45 || code === 48 });
+  return { cond, temp: c.temperature_2m, day: c.is_day === 1, clouds, vis_km: visKm, src: 'open-meteo' };
 }
 
 // the centre plus 4 points ~5 km away (kept inside the radius)
@@ -46,10 +55,12 @@ async function lookup(a) {
   const res = (await Promise.allSettled(pointsFor(a).map(([la, ln]) => point(la, ln)))).filter((r) => r.status === 'fulfilled').map((r) => r.value);
   if (!res.length) throw new Error('no weather');
   const n = (c) => res.filter((r) => r.cond === c).length, wet = n('rain') + n('storm');
-  const condition = n('storm') >= 2 ? 'storm' : wet >= 2 ? 'rain' : n('fog') >= 3 ? 'fog' : n('clouds') >= 3 ? 'clouds' : 'clear';
+  // the area's weather = what most points say (rain or storm already when 2 of 5 points really have it)
+  const condition = n('storm') >= 2 ? 'storm' : wet >= 2 ? 'rain' : n('fog') >= 3 ? 'fog' : n('clouds') >= 3 ? 'clouds' : n('haze') + n('fog') >= 3 ? 'haze' : n('clouds') + n('haze') + n('fog') >= 3 ? 'clouds' : 'clear';
+  const avg = (k) => { const v = res.map((r) => Number(r[k])).filter(Number.isFinite); return v.length ? Math.round((v.reduce((a2, b) => a2 + b, 0) / v.length) * 10) / 10 : null; };
   const temps = res.map((r) => Number(r.temp)).filter(Number.isFinite);
   return { condition, temp_c: temps.length ? Math.round(temps.reduce((s, x) => s + x, 0) / temps.length) : null, is_day: res[0].day,
-    raining_points: wet, points: res.length, source: res.every((r) => r.src === 'openweathermap') ? 'openweathermap' : res.some((r) => r.src === 'openweathermap') ? 'mixed' : 'open-meteo' };
+    raining_points: wet, points: res.length, cloud_cover: avg('clouds'), visibility_km: avg('vis_km'), source: res.every((r) => r.src === 'openweathermap') ? 'openweathermap' : res.some((r) => r.src === 'openweathermap') ? 'mixed' : 'open-meteo' };
 }
 
 export async function currentWeather(db) {
