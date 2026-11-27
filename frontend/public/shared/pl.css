@@ -705,6 +705,7 @@ body.p-admin .tbl td .btn.sm{white-space:nowrap}
 .ro-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
 .ro-fee{display:block;font:800 1.9rem/1 var(--font);color:var(--ok,#067647);letter-spacing:-.02em}
 .ro-pay{display:block;margin-top:4px;font-size:.78rem;font-weight:700;color:var(--mute)}
+.ro-legs{margin:10px 0 2px;padding:8px 12px;border-radius:12px;background:var(--bg2,#f6f6f7);font-size:.82rem}.ro-legs>div{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:3px 0}.ro-legs span{display:flex;align-items:center;gap:6px;color:var(--mute)}.ro-legs svg{width:15px;height:15px;flex:none}.ro-legs .tot{border-top:1px dashed #d8d8dc;margin-top:3px;padding-top:6px;font-weight:800}.ro-legs .tot span{color:inherit}
 .ro-km{flex:none;padding:6px 12px;border-radius:999px;background:#f2f4f7;font-weight:800;font-size:.9rem}
 .ro-route{margin-top:12px;display:grid;gap:10px;position:relative}
 .ro-route::before{content:'';position:absolute;left:6px;top:14px;bottom:14px;width:2px;background:repeating-linear-gradient(#d0d5dd 0 4px,transparent 4px 8px)}

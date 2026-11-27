@@ -39,6 +39,10 @@ public class RiderNativePlugin extends Plugin {
     @PluginMethod
     public void getStatus(PluginCall call) { call.resolve(status()); }
 
+    /** Ring for waiting offers with the phone's alarm-volume ringer (loud, loops, vibrates). {ok:false} = service not running: the page rings itself. */
+    @PluginMethod
+    public void ring(PluginCall call) { JSObject o = new JSObject(); o.put("ok", RiderService.ringFromPage(Boolean.TRUE.equals(call.getBoolean("on", false)))); call.resolve(o); }
+
     /** This phone's Firebase token (null until Firebase is set up). The page registers it with the server for the signed-in rider. */
     @PluginMethod
     public void getPushToken(PluginCall call) {
@@ -60,6 +64,7 @@ public class RiderNativePlugin extends Plugin {
                 i = Build.VERSION.SDK_INT >= 26 ? new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, getContext().getPackageName())
                     : new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getContext().getPackageName())); break;
             case "overlay": i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getContext().getPackageName())); break;
+            case "fullscreen": i = Build.VERSION.SDK_INT >= 34 ? new Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:" + getContext().getPackageName())) : new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getContext().getPackageName())); break;
             case "battery": i = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + getContext().getPackageName())); break;
             default: i = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getContext().getPackageName()));
         }
@@ -145,6 +150,8 @@ public class RiderNativePlugin extends Plugin {
         o.put("maker", Build.MANUFACTURER == null ? "" : Build.MANUFACTURER.toLowerCase());
         o.put("sdk", Build.VERSION.SDK_INT);
         o.put("push", PakkaFcmService.available(getContext()));
+        android.app.NotificationManager nmx = (android.app.NotificationManager) getContext().getSystemService(android.content.Context.NOTIFICATION_SERVICE);
+        o.put("fullScreen", Build.VERSION.SDK_INT < 34 || (nmx != null && nmx.canUseFullScreenIntent()));
         return o;
     }
 }

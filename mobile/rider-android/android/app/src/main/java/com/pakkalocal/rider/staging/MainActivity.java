@@ -32,6 +32,20 @@ public class MainActivity extends BridgeActivity {
         // keep the screen on while the rider app is in front
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         gates = new Gates(this);
+        handleOffer(getIntent());
+    }
+
+    // Opened from the ringing offer alert: show over the lock screen and wake the screen; "Accept" accepts on the server
+    // and opens the deliveries screen. The page then shows the offer / the accepted delivery as usual.
+    @Override
+    protected void onNewIntent(Intent intent) { super.onNewIntent(intent); setIntent(intent); handleOffer(intent); }
+    private void handleOffer(Intent i) {
+        if (i == null || !(i.hasExtra("offer") || i.hasExtra("accept"))) return;
+        if (Build.VERSION.SDK_INT >= 27) { setShowWhenLocked(true); setTurnScreenOn(true); }
+        else getWindow().addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
+        long acc = i.getLongExtra("accept", 0);
+        if (acc > 0) { RiderService.acceptFromAlert(this, acc); getBridge().getWebView().postDelayed(() -> getBridge().getWebView().evaluateJavascript("location.hash='#/jobs';", null), 1500); }
+        i.removeExtra("offer"); i.removeExtra("accept");
     }
 
     @Override

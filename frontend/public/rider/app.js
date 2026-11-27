@@ -5,6 +5,14 @@
   // the floating side icon and delivery location keep working while the app is in the background.
   // In a normal browser there is no native side and nothing happens.
   const RN = () => (window.Capacitor?.isNativePlatform?.() && window.Capacitor.Plugins?.RiderNative) || null;
+  // Offer ringing: in the Pakka Rider app (1.11+) the phone's own ringer plays at alarm volume, loops and vibrates until
+  // Accept / Not now (same sound as on the lock screen). Older apps and the browser use the page sound.
+  let ringNative = null, ringWant = null;
+  const ringFor = (on) => { const p = RN();
+    if (!p || ringNative === false) { PL.sound.sync(on); return; }
+    if (on === ringWant && ringNative) return; ringWant = on;
+    p.ring({ on }).then((r) => { ringNative = r?.ok ? true : null; PL.sound.sync(ringNative ? false : on); if (!ringNative) ringWant = null; })
+      .catch(() => { ringNative = false; PL.sound.sync(on); }); };
   let nsig = '';
   // ---------- in-app update (Pakka Rider APK) ----------
   // On every app start the app compares its own version with /rider-app/latest.json. If a newer APK is there it offers
@@ -55,6 +63,7 @@
     const rows = [[s.locationOn && s.locationPermission, 'Location', s.locationOn ? 'Allow location for Pakka Rider' : 'Turn on your phone’s Location', 'location'],
       [s.notifications, 'Notifications', 'Needed to ring for new offers', 'notifications'],
       [s.battery, 'Background running', 'Allow Pakka Rider to run without battery restrictions', 'battery'],
+      [s.fullScreen !== false, 'Ring on lock screen', 'Allow “Full screen notifications” so offers ring and show over the lock screen like a call', 'fullscreen'],
       [s.overlay, 'Floating icon', s.sdk >= 33 ? 'If Android says “App was denied access”: App info → ⋮ → Allow restricted settings, then allow again' : 'Allow “Display over other apps”', 'overlay'],
       [!(online || active) || s.running, 'Running in background', 'Not running. Tap Restart.', 'restart']];
     const bad = rows.filter((r) => !r[0]); const maker = Object.keys(MAKERS).find((k) => (s.maker || '').includes(k));
@@ -117,7 +126,7 @@
       ${brief(o)}
       ${PL.sound.unlocked ? '' : '<button class="btn ghost sm block mt2" data-act="sound-on">Tap to enable alert sound</button>'}<div class="row mt2"><button class="btn ghost grow" data-act="dismiss" data-id="${o.id}">Not now</button><button class="btn grow" data-act="claim" data-id="${o.id}">Accept</button></div></div>`;
     if (box.dataset.h !== html) { box.dataset.h = html; box.innerHTML = html; }
-    box.classList.toggle('hide', !n); setAlertSpace(box); PL.sound.sync(n > 0);
+    box.classList.toggle('hide', !n); setAlertSpace(box); ringFor(n > 0);
   }
   const move = (dlt) => { const offers = (S.last?.offers || []).filter((o) => !S.dismissed.has(o.id)); const i = offers.findIndex((o) => o.id === curId); const nx = offers[Math.min(offers.length - 1, Math.max(0, i + dlt))]; if (nx) curId = nx.id; tick(); };
   PL.actions['rq-prev'] = () => move(-1);
@@ -164,8 +173,12 @@
   const r2 = (v) => (v % 100 ? (v / 100).toFixed(2) : String(v / 100));      // ₹7, ₹2.50
   const payNote = (o) => { const p = o.pay_parts; if (!p) return ''; return p.minimum_applied ? `Minimum ₹${r2(p.minimum_paise)} per delivery`
     : `₹${r2(p.base_rate_paise)}/km + ₹${r2(p.route_rate_paise)}/km ${e(p.route_label)}`; };
-  const offerCard = (o) => { const km = kmOf(o);
+  // How the payout is made up: a pickup part (riding to the restaurant) and a delivery part (restaurant -> customer).
+  // The two parts always add up exactly to the payout shown; nothing extra is promised.
+  const legs = (o) => { const t = Number(o.fee_paise) || 0, pick = Math.round((t * 0.25) / 100) * 100; return t ? [pick, t - pick] : null; };
+  const offerCard = (o) => { const km = kmOf(o), l = legs(o);
     return `<div class="ro">${onWay(o)}<div class="ro-top"><div><span class="ro-fee">${rs(o.fee_paise)}</span><span class="ro-pay">${payNote(o) || 'you earn'}</span></div>${km != null ? `<span class="ro-km">${km} km</span>` : ''}</div>
+      ${l ? `<div class="ro-legs"><div><span>${PL.icon('bike')} Pickup · ride to the restaurant</span><b>${rs(l[0])}</b></div><div><span>${PL.icon('pin')} Delivery · restaurant to customer${km != null ? ` (${km} km)` : ''}</span><b>${rs(l[1])}</b></div><div class="tot"><span>Total you earn</span><b>${rs(o.fee_paise)}</b></div></div>` : ''}
       <div class="ro-route"><div class="ro-pt"><i class="a"></i><div><b>${e(o.restaurant.name)}</b><small>${e(o.restaurant.address || '')}</small></div></div>
         <div class="ro-pt"><i class="b"></i><div><b>${e(o.destination.text || 'Customer')}</b><small>${o.items.reduce((n, i) => n + i.qty, 0)} item${o.items.reduce((n, i) => n + i.qty, 0) > 1 ? 's' : ''}${o.eta_at ? ' · expected ~' + PL.time(o.eta_at) : ''}</small></div></div></div></div>`; };
   const stepCard = (o) => { const st = o.status, n = st === 'PICKED_UP' ? 2 : st === 'READY' ? 1 : 0, d = o.destination;

@@ -22,6 +22,11 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
 import androidx.core.app.NotificationCompat;
+import android.app.PendingIntent;
+import android.media.AudioAttributes;
+import android.media.MediaPlayer;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
 import androidx.core.content.ContextCompat;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -47,7 +52,7 @@ import org.json.JSONObject;
  * Only real server answers are shown; nothing is invented. Stops when the rider goes offline or signs out.
  */
 public class RiderService extends Service {
-    private static final String CH_STATUS = "rider_status", CH_OFFERS = "rider_offers_v1", CH_UPDATES = "rider_updates";
+    private static final String CH_STATUS = "rider_status", CH_OFFERS = "rider_offers_v1", CH_UPDATES = "rider_updates", CH_RING = "rider_offer_ring_v2";
     private static final int ID_STATUS = 1, ID_OFFER = 2;
     private static volatile RiderService inst;
     private static volatile boolean foreground = false;      // a restarted service runs without the app on screen; MainActivity sets true when it is visible
@@ -99,6 +104,13 @@ public class RiderService extends Service {
 
     @Override
     public int onStartCommand(Intent i, int flags, int startId) {
+        // Reject from the ringing alert (lock screen / notification): tell the server, stop ringing. Accept goes through MainActivity.
+        if (i != null && ("pl.offer.reject".equals(i.getAction()) || "pl.offer.accept".equals(i.getAction())) && inst != null && !token.isEmpty()) {
+            final long id = i.getLongExtra("id", 0); final boolean accept = "pl.offer.accept".equals(i.getAction());
+            stopRing(); cancelOffer(); handled.add(id);
+            if (ex != null) ex.execute(() -> { try { http("POST", "/api/rider/orders/" + id + (accept ? "/accept" : "/dismiss"), "{}"); } catch (Exception ignored) {} });
+            return START_STICKY;
+        }
         if (i != null && i.hasExtra("token")) {
             token = str(i.getStringExtra("token")); api = str(i.getStringExtra("api"));
             online = i.getBooleanExtra("online", false); active = i.getIntExtra("active", 0);
@@ -130,6 +142,7 @@ public class RiderService extends Service {
         stopLocation();
         main.post(() -> bubble.hide());
         if (wake != null && wake.isHeld()) wake.release();
+        stopRing();
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE); if (nm != null) nm.cancel(ID_OFFER);
         super.onDestroy();
     }
@@ -149,12 +162,22 @@ public class RiderService extends Service {
                 JSONObject o = offers.getJSONObject(k); long id = o.optLong("id"); now.add(id);
                 if (!seen.contains(id)) { fresh = true; if (first == null) first = describe(o); }
             }
-            seen.retainAll(now); seen.addAll(now);
+            seen.retainAll(now); seen.addAll(now); handled.retainAll(now);
+            long firstId = -1; for (Long x : now) if (!handled.contains(x)) { firstId = x; break; }
+            int w = 0; for (Long x : now) if (!handled.contains(x)) w++; final long ringId = firstId; final int waiting = w;
             final boolean seenOnScreen = inFront();
             final int n = now.size(); final boolean ring = fresh && !seenOnScreen && System.currentTimeMillis() - PakkaFcmService.lastOfferRing > 20000; final String text = first;      // skip if Firebase already rang for it
             if (nAct != active) { active = nAct; main.post(() -> { startLocation(); refreshStatus(); }); }
             final boolean frontNote = fresh && seenOnScreen;      // app open and phone unlocked: the screen rings, and the offer also appears as a notification
-            main.post(() -> { bubble.setAlert(n > 0); if (ring) offerNotification(n, text); if (frontNote) showQuiet(this, "New delivery offer", text == null ? "Open the offer to accept it." : text, "offer-front"); if (n == 0) cancelOffer(); });
+            if (first == null && ringId > 0 && offers != null) for (int k = 0; k < offers.length(); k++) if (offers.getJSONObject(k).optLong("id") == ringId) { first = describe(offers.getJSONObject(k)); break; }
+            final String ringText = first;
+            // Rings like an incoming call until the rider accepts / rejects (here, on the lock screen or in the app) or the offer is gone.
+            // While the rider is looking at the app, the page turns this same ringer on and off (ring()), so the sound never drops.
+            main.post(() -> { bubble.setAlert(n > 0);
+                if (waiting > 0 && !seenOnScreen) { startRing(); offerNotification(waiting, ringText, ringId); }
+                else if (waiting > 0) { if (pageRing) startRing(); else stopRing(); }      // app on screen: the page says when to ring (Accept / Not now stop it)
+                else { stopRing(); cancelOffer(); }
+                if (frontNote) showQuiet(this, "New delivery offer", text == null ? "Open the offer to accept it." : text, "offer-front"); });
             if (++rounds % 2 == 0) pollInbox();
         } catch (Exception ignored) { /* no network: try again on the next round */ }
     }
@@ -189,12 +212,11 @@ public class RiderService extends Service {
         return (from.isEmpty() ? "New delivery offer" : "Pickup from " + from) + (fee > 0 ? " · you earn ₹" + (fee / 100) : "");
     }
 
-    /** The rider is really looking at Pakka Rider: activity visible AND screen on AND phone unlocked. */
+    /** The rider is really looking at Pakka Rider: activity visible AND screen on (also over the lock screen). */
     private boolean inFront() {
         if (!foreground) return false;
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
-        android.app.KeyguardManager km = (android.app.KeyguardManager) getSystemService(KEYGUARD_SERVICE);
-        return (pm == null || pm.isInteractive()) && (km == null || !km.isKeyguardLocked());
+        return pm == null || pm.isInteractive();      // the app is visible (also when shown over the lock screen for an offer)
     }
 
     // ---------- location during a delivery (only while the app is not in front) ----------
@@ -249,7 +271,9 @@ public class RiderService extends Service {
         of.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
         NotificationChannel up = new NotificationChannel(CH_UPDATES, "Order updates and messages", NotificationManager.IMPORTANCE_HIGH);
         up.setDescription("Delivery changes, customer messages and announcements");
-        nm.createNotificationChannel(st); nm.createNotificationChannel(of); nm.createNotificationChannel(up);
+        NotificationChannel rg = new NotificationChannel(CH_RING, "Ringing delivery offers", NotificationManager.IMPORTANCE_HIGH);
+        rg.setDescription("Rings until you accept or reject a delivery offer"); rg.setSound(null, null); rg.enableVibration(false); rg.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+        nm.createNotificationChannel(st); nm.createNotificationChannel(of); nm.createNotificationChannel(up); nm.createNotificationChannel(rg);
     }
 
     /** A push from Firebase (works with the app closed). Offers use the ringing channel and replace any offer already shown. */
@@ -304,15 +328,45 @@ public class RiderService extends Service {
     }
     private void refreshStatus() { NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE); if (nm != null && inst != null) nm.notify(ID_STATUS, statusNotification()); }
 
-    private void offerNotification(int n, String text) {
-        Notification x = new NotificationCompat.Builder(this, CH_OFFERS).setSmallIcon(R.drawable.ic_stat_logo).setLargeIcon(logo(this))
+    private void offerNotification(int n, String text, long id) {
+        Intent full = new Intent(this, MainActivity.class).putExtra("offer", id).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        PendingIntent fullPi = PendingIntent.getActivity(this, 41, full, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        Intent acc = new Intent(this, MainActivity.class).putExtra("accept", id).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        PendingIntent accPi = PendingIntent.getActivity(this, 42, acc, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        PendingIntent rejPi = PendingIntent.getService(this, 43, new Intent(this, RiderService.class).setAction("pl.offer.reject").putExtra("id", id), PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        Notification x = new NotificationCompat.Builder(this, CH_RING).setSmallIcon(R.drawable.ic_stat_logo).setLargeIcon(logo(this))
             .setContentTitle(n > 1 ? n + " delivery offers waiting" : "New delivery offer").setContentText(text == null ? "Tap to see it" : text)
-            .setPriority(NotificationCompat.PRIORITY_HIGH).setCategory(NotificationCompat.CATEGORY_CALL).setAutoCancel(true)
-            .setSound(Uri.parse("android.resource://" + getPackageName() + "/" + R.raw.offer_ring)).setVibrate(new long[]{0, 400, 200, 400, 200, 400})
-            .setColor(0xFFD0450B).setContentIntent(openApp()).setVisibility(NotificationCompat.VISIBILITY_PUBLIC).build();
+            .setStyle(new NotificationCompat.BigTextStyle().bigText(text == null ? "Tap to see it" : text))
+            .setPriority(NotificationCompat.PRIORITY_MAX).setCategory(NotificationCompat.CATEGORY_CALL).setOngoing(true).setAutoCancel(false).setOnlyAlertOnce(true)
+            .setColor(0xFFD0450B).setContentIntent(fullPi).setFullScreenIntent(fullPi, true).setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .addAction(0, "Reject", rejPi).addAction(0, "Accept", accPi).build();
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (nm != null) nm.notify(ID_OFFER, x);
     }
+    // ---------- ringer: loops the offer sound (alarm volume, so it is heard over other apps) and vibrates until stopped ----------
+    private MediaPlayer ringer; private final Set<Long> handled = new HashSet<>();
+    private void startRing() {
+        if (ringer != null) return;
+        try {
+            ringer = new MediaPlayer();
+            ringer.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build());
+            ringer.setDataSource(this, Uri.parse("android.resource://" + getPackageName() + "/" + R.raw.offer_ring));
+            ringer.setLooping(true); ringer.prepare(); ringer.start();
+        } catch (Exception e) { ringer = null; }
+        Vibrator v = (Vibrator) getSystemService(VIBRATOR_SERVICE);
+        if (v != null) { long[] pat = {0, 700, 500, 700, 500}; if (Build.VERSION.SDK_INT >= 26) v.vibrate(VibrationEffect.createWaveform(pat, 0)); else v.vibrate(pat, 0); }
+    }
+    private void stopRing() {
+        if (ringer != null) { try { ringer.stop(); } catch (Exception ignored) {} ringer.release(); ringer = null; }
+        Vibrator v = (Vibrator) getSystemService(VIBRATOR_SERVICE); if (v != null) v.cancel();
+    }
+    /** Accept from the lock-screen alert: MainActivity opens the app and asks the service to accept on the server. */
+    static void acceptFromAlert(Context c, long id) { c.startService(new Intent(c, RiderService.class).setAction("pl.offer.accept").putExtra("id", id)); }
+    static void stopRinging() { RiderService s = inst; if (s != null) s.main.post(s::stopRing); }
+    /** The page (app on screen) has offers waiting: ring with the same alarm-volume ringer until the rider accepts or taps Not now. */
+    static volatile boolean pageRing = false;
+    static boolean ringFromPage(boolean on) { pageRing = on; RiderService s = inst; if (s == null) return false; s.main.post(on ? s::startRing : s::stopRing); return true; }
+
     private void cancelOffer() { NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE); if (nm != null) nm.cancel(ID_OFFER); }
 
     // ---------- floating icon ----------

@@ -64,5 +64,7 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- in-app update: lets the rider install a new Pakka Rider version downloaded from pakkalocal.online (Android asks to confirm) -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- ringing delivery offers: show over the lock screen like an incoming call (rider can turn it off in settings) -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 </manifest>
