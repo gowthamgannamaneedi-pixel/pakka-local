@@ -1063,13 +1063,9 @@ body[data-wx=hot] .u-mood{--m1:#f08a24;--m2:#9a3412}
 .wi.rain line{stroke:#bfe3ff}.wi.storm .bt{fill:#ffd166;stroke:none}
 /* sky layers (over the photo, under the text) */
 .u-sky{position:absolute;inset:0;z-index:1;pointer-events:none;overflow:hidden;border-radius:inherit}
-.u-sky.rainy i{position:absolute;top:-20%;width:1.5px;height:20px;border-radius:2px;background:linear-gradient(transparent,rgba(220,235,255,.95));transform:rotate(12deg)}
 .u-sky.rainy::after{content:'';position:absolute;inset:0;background:radial-gradient(4px 4px at 70% 30%,rgba(255,255,255,.55),transparent),radial-gradient(3px 3px at 82% 62%,rgba(255,255,255,.5),transparent),radial-gradient(5px 5px at 60% 75%,rgba(255,255,255,.4),transparent),radial-gradient(3px 3px at 90% 18%,rgba(255,255,255,.5),transparent),radial-gradient(4px 4px at 76% 88%,rgba(255,255,255,.45),transparent)}
 .u-sky.rainy .flash{position:absolute;inset:0;background:#fff;opacity:0}
 .u-sky.starry i{position:absolute;border-radius:50%;background:#fff;opacity:.6;box-shadow:0 0 6px rgba(255,255,255,.8)}
-.u-sky.cloudy i{position:absolute;width:180px;height:54px;border-radius:54px;background:rgba(255,255,255,.14);filter:blur(3px)}
-.u-sky.cloudy i:nth-child(1){top:6%;left:-20%}.u-sky.cloudy i:nth-child(2){top:48%;left:30%;width:220px;opacity:.7}.u-sky.cloudy i:nth-child(3){top:72%;left:-10%;width:130px}
-.u-sky.sunny i{position:absolute;right:8%;top:-60px;width:220px;height:220px;border-radius:50%;background:radial-gradient(circle,rgba(255,226,150,.55),transparent 62%)}
 /* steam rising from the hot food photo */
 .u-mood .steam{position:absolute;left:58%;top:22%;width:60px;height:80px}
 .u-mood .steam i{position:absolute;bottom:0;width:14px;height:44px;border-radius:50%;background:radial-gradient(ellipse at center,rgba(255,255,255,.55),transparent 70%);filter:blur(4px);opacity:0}
@@ -1089,11 +1085,8 @@ body[data-wx=hot] .u-mood{--m1:#f08a24;--m2:#9a3412}
   .u-mood .wx{animation:mdin .45s ease-out .1s both}.u-mood h2{animation:mdin .5s cubic-bezier(.2,.8,.2,1) .18s both}.u-mood p{animation:mdin .5s ease-out .28s both}
   .u-mood .cta{animation:mdin .5s ease-out .38s both}.u-mood .mini{animation:mdpop .45s cubic-bezier(.3,1.5,.5,1) calc(.5s + var(--i) * 80ms) both}
   .u-mood .steam i{animation:mdsteam 3.2s ease-out infinite}.u-mood .steam i:nth-child(2){animation-delay:1.1s}.u-mood .steam i:nth-child(3){animation-delay:2.1s}
-  .u-sky.rainy i{animation:mdrain .7s linear infinite}
   .u-sky.rainy .flash{animation:mdflash 7s ease-out 2s infinite}
   .u-sky.starry i{animation:mdtwinkle 3.2s ease-in-out infinite}
-  .u-sky.cloudy i{animation:mdcloud 26s linear infinite}.u-sky.cloudy i:nth-child(2){animation-duration:34s;animation-delay:-12s}.u-sky.cloudy i:nth-child(3){animation-duration:22s;animation-delay:-6s}
-  .u-sky.sunny i{animation:mdglow 5s ease-in-out infinite}
   .wi.sun .rays{transform-origin:24px 24px;animation:mdspin 18s linear infinite}
   .wi.moon .st{animation:mdtwinkle 2.4s ease-in-out infinite}.wi.moon .s2{animation-delay:-1.2s}
   .wi.cloud{animation:mdfloat 4s ease-in-out infinite}
@@ -1116,3 +1109,62 @@ body[data-wx=hot] .u-mood{--m1:#f08a24;--m2:#9a3412}
 /* 3D depth: smooth return when the pointer leaves; soft press on touch */
 .u-rrow .im,.u-ban,.u-pick,.u-dcard{transition:transform .25s ease}
 @media (hover:none){.u-rrow:active .im,.u-ban:active,.u-pick:active,.u-dcard:active{transform:scale(.98)}}
+
+/* ---------- richer weather motion (v2) ---------- */
+.u-mood .wx{position:relative;overflow:hidden}
+.u-mood .wx::after{content:'';position:absolute;inset:0;background:linear-gradient(100deg,transparent 30%,rgba(255,255,255,.35) 50%,transparent 70%);transform:translateX(-120%)}
+/* rain: far + near drops, splashes along the bottom, drops sliding down the glass */
+.u-sky.rainy .glass s{position:absolute;width:calc(7px * var(--z));height:calc(9px * var(--z));border-radius:50% 50% 50% 50%/60% 60% 40% 40%;background:radial-gradient(circle at 35% 30%,rgba(255,255,255,.9),rgba(255,255,255,.15) 45%,rgba(255,255,255,.05) 70%);box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.u-sky.rainy::after{display:none}
+.u-sky.stormy .bolt{position:absolute;right:16%;top:-4px;width:34px;height:104px;fill:#fff7c2;filter:drop-shadow(0 0 10px rgba(255,240,170,.9));opacity:0}
+/* sun: slow turning rays, glowing sun, soft lens flares */
+.u-sky.sunny .rays{position:absolute;right:-90px;top:-90px;width:300px;height:300px;border-radius:50%;
+  background:repeating-conic-gradient(from 0deg,rgba(255,236,170,.22) 0 8deg,transparent 8deg 22deg);-webkit-mask:radial-gradient(circle,#000 20%,transparent 68%);mask:radial-gradient(circle,#000 20%,transparent 68%)}
+.u-sky.sunny .sunball{position:absolute;right:18px;top:-30px;width:90px;height:90px;border-radius:50%;background:radial-gradient(circle,rgba(255,240,190,.95) 0 22%,rgba(255,205,110,.55) 40%,transparent 70%)}
+.u-sky.sunny .flare{position:absolute;right:calc(80px + var(--k) * 46px);top:calc(40px + var(--k) * 26px);width:calc(26px - var(--k) * 6px);height:calc(26px - var(--k) * 6px);border-radius:50%;background:rgba(255,230,170,.18);border:1px solid rgba(255,240,200,.25)}
+.u-sky.sunny i:not(.flare):not(.haze){display:none}
+.u-sky.hot .haze{position:absolute;left:-10%;right:-10%;height:22%;background:linear-gradient(transparent,rgba(255,200,120,.16),transparent);filter:blur(4px)}
+/* clouds: four soft layers drifting at different speeds */
+.u-sky.cloudy i{position:absolute;border-radius:999px;background:radial-gradient(ellipse at 50% 60%,rgba(255,255,255,.28),rgba(255,255,255,.08) 60%,transparent 72%);filter:blur(2px)}
+.u-sky.cloudy .c1{top:2%;width:240px;height:80px}.u-sky.cloudy .c2{top:34%;width:300px;height:96px;opacity:.75}
+.u-sky.cloudy .c3{top:62%;width:200px;height:70px}.u-sky.cloudy .c4{top:18%;width:160px;height:56px;opacity:.6}
+/* fog: wide mist bands */
+.u-sky.misty i{position:absolute;left:-60%;width:220%;height:26%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.22) 30%,rgba(255,255,255,.1) 60%,transparent);filter:blur(6px)}
+/* night: stars, moon glow, shooting stars, optional clouds */
+.u-sky.starry .moonglow{position:absolute;right:40px;top:-40px;width:140px;height:140px;border-radius:50%;background:radial-gradient(circle,rgba(255,245,215,.35),transparent 65%)}
+.u-sky.starry .shoot{position:absolute;top:12%;left:72%;width:90px;height:1.5px;background:linear-gradient(90deg,rgba(255,255,255,.95),transparent);transform:rotate(-24deg);opacity:0;border-radius:2px}
+.u-sky.starry .shoot.s2{top:30%;left:46%;width:70px}
+.u-sky.starry .nclouds i{position:absolute;width:220px;height:70px;border-radius:999px;background:radial-gradient(ellipse,rgba(255,255,255,.14),transparent 70%)}
+.u-sky.starry .nclouds i:first-child{top:10%;left:-10%}.u-sky.starry .nclouds i:last-child{top:55%;left:40%}
+@media (prefers-reduced-motion:no-preference){
+  .u-mood .wx::after{animation:wxshine 4.5s ease-in-out 1.2s infinite}
+  .u-mood .wx b{animation:wxtemp .7s cubic-bezier(.3,1.5,.5,1) .3s both}
+  .u-sky.rainy .glass s{animation:rglass 9s ease-in infinite}
+  .u-sky.stormy .bolt{animation:sbolt 6s ease-out 1.5s infinite}
+  .u-sky.stormy .flash{animation:mdflash 6s ease-out 1.5s infinite}
+  .u-mood:has(.stormy){animation:mdin .55s cubic-bezier(.2,.8,.2,1) both,sshake 6s ease-out 1.5s infinite}
+  .u-sky.sunny .rays{animation:srot 40s linear infinite}
+  .u-sky.sunny .sunball{animation:mdglow 4.5s ease-in-out infinite}
+  .u-sky.sunny .flare{animation:sflare 6s ease-in-out calc(var(--k) * -1.5s) infinite}
+  .u-sky.hot .haze{animation:shaze 3.5s ease-in-out infinite}
+  .u-sky.cloudy .c1{animation:cdrift 30s linear infinite}.u-sky.cloudy .c2{animation:cdrift 44s linear -18s infinite}
+  .u-sky.cloudy .c3{animation:cdrift 26s linear -8s infinite}.u-sky.cloudy .c4{animation:cdrift 52s linear -30s infinite}
+  .u-sky.misty i{animation:fmist 22s ease-in-out infinite alternate}
+  .u-sky.starry .moonglow{animation:mdglow 6s ease-in-out infinite}
+  .u-sky.starry .shoot{animation:nshoot 7s ease-out 2s infinite}.u-sky.starry .shoot.s2{animation-delay:5.5s;animation-duration:9s}
+  .u-sky.starry .nclouds i{animation:cdrift 40s linear infinite}.u-sky.starry .nclouds i:last-child{animation-duration:55s;animation-delay:-20s}
+}
+@keyframes wxshine{0%,70%{transform:translateX(-120%)}100%{transform:translateX(120%)}}
+@keyframes wxtemp{from{opacity:0;transform:translateY(6px) scale(.6);filter:blur(3px)}}
+@keyframes rsplash{0%{opacity:0;transform:scale(.2)}15%{opacity:.9}60%{opacity:0;transform:scale(1.4)}100%{opacity:0}}
+@keyframes rglass{0%,55%{transform:translateY(0)}75%{transform:translateY(14px)}100%{transform:translateY(60px);opacity:0}}
+@keyframes sbolt{0%,90%,100%{opacity:0}91%{opacity:1}92%{opacity:.2}93.5%{opacity:1}96%{opacity:0}}
+@keyframes sshake{0%,90%,100%{transform:none}91%{transform:translate(1px,-1px)}92%{transform:translate(-1px,1px)}93%{transform:none}}
+@keyframes srot{to{transform:rotate(360deg)}}
+@keyframes sflare{0%,100%{opacity:.4;transform:translate(0,0)}50%{opacity:1;transform:translate(-6px,4px)}}
+@keyframes shaze{0%,100%{transform:translateX(0) scaleY(1);opacity:.6}50%{transform:translateX(8px) scaleY(1.4);opacity:1}}
+@keyframes cdrift{from{transform:translateX(-60%)}to{transform:translateX(220%)}}
+@keyframes fmist{from{transform:translateX(0)}to{transform:translateX(30%)}}
+@keyframes nshoot{0%,82%{opacity:0;transform:rotate(-24deg) translateX(0)}84%{opacity:1}92%{opacity:0;transform:rotate(-24deg) translateX(-160px)}100%{opacity:0}}
+
+.u-sky.rainy .rainc{position:absolute;inset:0;width:100%;height:100%;display:block}

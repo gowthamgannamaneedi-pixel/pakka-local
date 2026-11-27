@@ -283,11 +283,20 @@
   const applyMood = (m) => { const b = document.body.dataset; b.mood = m.part; b.wx = m.wx || 'clear'; };
   // the sky layer: rain drops, lightning, stars, a slow sun glow or drifting clouds (CSS only, paused when motion is reduced)
   let seed = 0; const R = (a, z) => { seed = (seed * 9301 + 49297) % 233280; return (a + (seed / 233280) * (z - a)).toFixed(2); };      // fixed sequence: same layout on every refresh (no flicker)
-  const sky = (m) => { seed = 7;
-    if (m.wx === 'rain' || m.wx === 'storm') return `<div class="u-sky rainy" aria-hidden="true">${Array.from({ length: m.wx === 'storm' ? 34 : 26 }, () => `<i style="left:${R(0, 100)}%;animation-delay:-${R(0, 1.2)}s;animation-duration:${R(.55, .9)}s;opacity:${R(.25, .6)}"></i>`).join('')}${m.wx === 'storm' ? '<b class="flash"></b>' : ''}</div>`;
-    if (m.part === 'night' || m.part === 'late') return `<div class="u-sky starry" aria-hidden="true">${Array.from({ length: 22 }, () => `<i style="left:${R(0, 100)}%;top:${R(0, 70)}%;animation-delay:-${R(0, 4)}s;width:${R(1, 2.6)}px;height:${R(1, 2.6)}px"></i>`).join('')}</div>`;
-    if (m.wx === 'clouds' || m.wx === 'fog') return '<div class="u-sky cloudy" aria-hidden="true"><i></i><i></i><i></i></div>';
-    return '<div class="u-sky sunny" aria-hidden="true"><i></i></div>'; };
+  // the sky layer over the photo. Every effect is CSS only (no canvas), positions are fixed (no flicker on refresh),
+  // and everything stops for people who ask their phone for reduced motion.
+  const sky = (m) => { seed = 7; const n = (k, f) => Array.from({ length: k }, f).join('');
+    const night = m.part === 'night' || m.part === 'late';
+    if (m.wx === 'rain' || m.wx === 'storm') { const st = m.wx === 'storm';
+      return `<div class="u-sky rainy${st ? ' stormy' : ''}" aria-hidden="true"><canvas class="rainc" data-storm="${st ? 1 : 0}"></canvas>
+        <div class="glass">${n(st ? 3 : 4, () => `<s style="left:${R(40, 96)}%;top:${R(5, 60)}%;--z:${R(.6, 1.4)};animation-delay:-${R(0, 9)}s;opacity:.85"></s>`)}</div>
+        ${st ? '<svg class="bolt" viewBox="0 0 40 120"><path d="M22 0 6 64h14l-8 56 24-74H22L32 0z"/></svg><b class="flash"></b>' : ''}</div>`; }
+    if (m.wx === 'fog') return `<div class="u-sky misty" aria-hidden="true">${n(4, (_, k) => `<i style="top:${15 + k * 20}%;animation-delay:-${k * 5}s"></i>`)}</div>`;
+    if (night) return `<div class="u-sky starry" aria-hidden="true">${n(26, () => `<i style="left:${R(0, 100)}%;top:${R(0, 75)}%;animation-delay:-${R(0, 4)}s;width:${R(1, 2.6)}px;height:${R(1, 2.6)}px"></i>`)}
+        <b class="moonglow"></b><em class="shoot"></em><em class="shoot s2"></em>${m.wx === 'clouds' ? '<span class="nclouds"><i></i><i></i></span>' : ''}</div>`;
+    if (m.wx === 'clouds') return '<div class="u-sky cloudy" aria-hidden="true"><i class="c1"></i><i class="c2"></i><i class="c3"></i><i class="c4"></i></div>';
+    if (m.wx === 'hot') return `<div class="u-sky sunny hot" aria-hidden="true"><b class="rays"></b><b class="sunball"></b>${n(4, (_, k) => `<i class="haze" style="bottom:${k * 14}%;animation-delay:-${k * .7}s"></i>`)}</div>`;
+    return `<div class="u-sky sunny" aria-hidden="true"><b class="rays"></b><b class="sunball"></b>${n(3, (_, k) => `<i class="flare" style="--k:${k}"></i>`)}</div>`; };
   // only suggest dishes that are on today's menus; the search word is the word the menus actually use
   const reOf = (k) => (CATS.find(([c]) => c === k) || DISH.find(([c]) => c === k) || [])[CATS.some(([c]) => c === k) ? 2 : 1];
   // dish names of open kitchens only (not restaurant names or cuisines)
@@ -415,7 +424,30 @@
       <span class="stage" aria-hidden="true">${extra === 'route' ? `<span class="map"><svg viewBox="0 0 120 80"><path class="rt" d="M12 64 C 34 30, 58 74, 78 40 S 100 14, 108 16" fill="none"/><circle class="go" r="5"><animateMotion dur="3.2s" repeatCount="indefinite" path="M12 64 C 34 30, 58 74, 78 40 S 100 14, 108 16"/></circle><circle cx="108" cy="16" r="6" class="pin"/></svg></span>` : ''}
         ${extra === 'card' ? `<span class="pay"><i class="chip"></i><i class="l1"></i><i class="l2"></i><span class="ok">${I('check')}</span></span>` : ''}
         ${imgs.map((src, j) => `<img class="pl p${j + 1}" src="${src}" alt="" loading="lazy" decoding="async">`).join('')}<i class="sp a"></i><i class="sp b"></i><i class="sp c"></i></span></button>`;
-  const homeAfter = () => { filterHome(); if (S.offerNow) setTimeout(() => S.offerNow && offerPop(S.offerNow), 600);
+  // rain drawn on one canvas: far + near drops falling at a slant, splashes where near drops land. One layer, ~60 fps,
+  // stops by itself when the card leaves the page or the tab is hidden; a still frame for people who ask for reduced motion.
+  const rainStill = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const startRain = () => document.querySelectorAll('canvas.rainc:not([data-on])').forEach((cv) => {
+    cv.dataset.on = '1'; const ctx = cv.getContext('2d'); if (!ctx) return; const storm = cv.dataset.storm === '1';
+    let W = 0, H = 0, dpr = 1, drops = [], sp = [], last = 0;
+    const size = () => { dpr = Math.min(2, devicePixelRatio || 1); W = cv.clientWidth; H = cv.clientHeight; cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); };
+    const drop = (y) => { const near = Math.random() < (storm ? 0.4 : 0.3); return { x: Math.random() * (W + 60), y: y ?? Math.random() * H, near,
+      len: near ? 16 + Math.random() * 10 : 8 + Math.random() * 6, v: (near ? 620 : 360) * (storm ? 1.25 : 1) * (0.85 + Math.random() * 0.3), a: near ? 0.55 + Math.random() * 0.35 : 0.25 + Math.random() * 0.25 }; };
+    size(); drops = Array.from({ length: storm ? 90 : 60 }, () => drop());
+    const frame = (t) => {
+      if (!cv.isConnected) return;      // card replaced or page changed: stop
+      if (document.hidden) { last = 0; return requestAnimationFrame(frame); }
+      const dt = last ? Math.min(0.05, (t - last) / 1000) : 0.016; last = t;
+      if (cv.clientWidth !== W || cv.clientHeight !== H) size();
+      ctx.clearRect(0, 0, W, H); ctx.lineCap = 'round';
+      for (const d of drops) { d.y += d.v * dt; d.x -= d.v * 0.22 * dt;
+        if (d.y - d.len > H) { if (d.near && sp.length < 24) sp.push({ x: d.x, y: H - 4 - Math.random() * 10, r: 0, a: 0.7 }); Object.assign(d, drop(-d.len)); }
+        ctx.strokeStyle = `rgba(225,238,255,${d.a})`; ctx.lineWidth = d.near ? 1.6 : 1; ctx.beginPath(); ctx.moveTo(d.x, d.y); ctx.lineTo(d.x + d.len * 0.22, d.y - d.len); ctx.stroke(); }
+      for (const p of sp) { p.r += 26 * dt; p.a -= 1.6 * dt; if (p.a <= 0) continue; ctx.strokeStyle = `rgba(225,238,255,${p.a})`; ctx.lineWidth = 1; ctx.beginPath(); ctx.ellipse(p.x, p.y, p.r, p.r * 0.32, 0, 0, Math.PI * 2); ctx.stroke(); }
+      sp = sp.filter((p) => p.a > 0);
+      if (!rainStill) requestAnimationFrame(frame); };
+    requestAnimationFrame(frame); });
+  const homeAfter = () => { filterHome(); startRain(); if (S.offerNow) setTimeout(() => S.offerNow && offerPop(S.offerNow), 600);
     const w = PL.$('#u-word'), words = S.words?.length ? S.words : ['your favourite food']; let wi = 0;
     if (w && words.length > 1 && !reduce()) { const iv = setInterval(() => { if (!w.isConnected) return clearInterval(iv); wi = (wi + 1) % words.length; w.textContent = words[wi]; w.style.animation = 'none'; void w.offsetWidth; w.style.animation = ''; }, 2600); }
     const b = PL.$('#u-bans'), dots = PL.$('#u-bdots'); if (b && dots) { let touched = false; const sync = () => { const i = Math.round(b.scrollLeft / (b.firstElementChild?.offsetWidth + 12 || 1)); [...dots.children].forEach((d, k) => d.classList.toggle('on', k === i)); };
