@@ -311,16 +311,16 @@
   };
   const slotPick = (arr, mins = 20, salt = 0) => arr[(Math.floor(Date.now() / (mins * 60000)) + salt) % arr.length];
   // short lines that keep Home feeling alive: one rotates every few seconds under the weather card
-  const TICK = ['Zero platform fee. No cap.', 'Your bill = menu price + delivery. That’s it.', 'Packaging charge? Not in our vocabulary.', 'Convenience fee: ₹0. Always.',
-    'Track your rider live, every turn.', 'Local kitchens. Real food. Fair prices.', 'Hot food, zero drama.', 'Every rupee shown before you pay. Pinky promise.',
-    'Order in under a minute. Speedrun approved.', 'Support local kitchens. Eat like a legend.', 'Fresh from the kitchen, straight to your door.', 'Good food is a love language.'];
+  const TICK = [['💸', 'Zero platform fee. No cap.'], ['🧾', 'Your bill = menu price + delivery. That’s it.'], ['📦', 'Packaging charge? Not in our vocabulary.'], ['✨', 'Convenience fee: ₹0. Always.'],
+    ['🛵', 'Track your rider live, every turn.'], ['🍛', 'Local kitchens. Real food. Fair prices.'], ['😌', 'Hot food, zero drama.'], ['🤙', 'Every rupee shown before you pay. Pinky promise.'],
+    ['⚡', 'Order in under a minute. Speedrun approved.'], ['🏆', 'Support local kitchens. Eat like a legend.'], ['🔥', 'Fresh from the kitchen, straight to your door.'], ['💛', 'Good food is a love language.']];
   const ADDED = ['Added! Great pick 👌', 'In the cart. Your tummy says thanks 🙏', 'Added. That one slaps 🔥', 'Locked in 🔒 Nice choice', 'Cart W unlocked 🏆',
     'Added. Chef’s kiss 🤌', 'Good taste, bestie ✨', 'Added. Main-character meal 🍽️', 'Solid choice. No notes 📝', 'Added. It’s giving delicious 😋'];
   const anyOf = (arr) => arr[Math.floor(Math.random() * arr.length)];
   let tickIv = null;
-  const startTick = () => { const el = document.getElementById('u-tick-t'); if (!el || el.dataset.on) return; el.dataset.on = '1'; let i = Math.floor(Math.random() * TICK.length); el.textContent = TICK[i];
+  const startTick = () => { const el = document.getElementById('u-tick-t'); if (!el || el.dataset.on) return; el.dataset.on = '1'; let i = Math.floor(Math.random() * TICK.length); const ic = () => document.getElementById('u-tick-i'); const show = () => { const t = document.getElementById('u-tick-t'); if (t) t.textContent = TICK[i][1]; if (ic()) ic().textContent = TICK[i][0]; }; show();
     clearInterval(tickIv); tickIv = setInterval(() => { const t = document.getElementById('u-tick-t'); if (!t) return clearInterval(tickIv); if (document.hidden) return;
-      t.classList.add('out'); setTimeout(() => { i = (i + 1) % TICK.length; t.textContent = TICK[i]; t.classList.remove('out'); }, 280); }, 4200); };
+      t.classList.add('out'); ic()?.classList.add('out'); setTimeout(() => { i = (i + 1) % TICK.length; show(); t.classList.remove('out'); ic()?.classList.remove('out'); }, 280); }, 4200); };
   const WXWORD = { clear: 'Clear', clouds: 'Cloudy', fog: 'Foggy', drizzle: 'Drizzle', rain: 'Rain', storm: 'Storm', hot: 'Hot' };
   const moodNow = (wx) => {
     const part = PV.get('mood') || dayPart(), cond = PV.get('wx') || wx?.condition || '', temp = PV.has('temp') ? Number(PV.get('temp')) : wx?.temp_c;
@@ -436,7 +436,7 @@
     return `<div class="u-head" id="u-head"><div class="row1"><button class="u-loc" data-act="go" data-path="/addresses"><span class="pin">${I('pin')}</span><span class="txt"><b>${cur ? e(cur.kind === 'listed' ? cur.place_name || 'Selected place' : LBL[cur.label] || 'Home') : 'Set delivery location'}${I('chev')}</b><small>${c.testPayments ? '<i class="u-test">TEST</i>' : ''}${cur ? e(addrLine(cur, cur.kind === 'listed')) : 'Choose your PG, hostel or college'}</small></span></button>${PL.isGuest() ? '<button class="u-glog" data-act="to-login">Log in</button>' : `${PL.inbox.btn()}<button class="u-av" data-act="go" data-path="/me" aria-label="Account">${e((name || 'P').charAt(0).toUpperCase())}</button>`}</div>
         <a class="u-search" href="#/search" aria-label="Search for restaurants and dishes">${I('search')}<span class="ph">Search for ‘<i id="u-word">${e(S.words[0] || 'your favourite food')}</i>’</span></a></div>
       ${(() => { try { return moodCard(mood, all); } catch (x) { console.warn('mood card skipped', x); return ''; } })()}
-      <div class="u-tick" aria-hidden="true"><span class="sp">✦</span><span id="u-tick-t" class="tx">Zero platform fee. No cap.</span></div>
+      <div class="u-tick" aria-hidden="true"><span class="sp" id="u-tick-i">💸</span><span id="u-tick-t" class="tx">Zero platform fee. No cap.</span></div>
       ${notes}
       ${offer ? offerCard(offer) : ''}
       ${bans.length ? `<div class="u-bans" id="u-bans">${bans.join('')}</div><div class="u-bdots" id="u-bdots">${bans.map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</div>` : ''}

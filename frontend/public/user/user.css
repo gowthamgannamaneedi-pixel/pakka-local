@@ -1175,3 +1175,53 @@ body[data-wx=hot] .u-mood{--m1:#f08a24;--m2:#9a3412}
 .u-tick .tx.out{opacity:0;transform:translateY(-6px)}
 @media (prefers-reduced-motion:no-preference){.u-tick .sp{animation:tkspin 6s linear infinite}}
 @keyframes tkspin{to{transform:rotate(360deg)}}
+
+/* =================== Weather card v3: bright gradients, crisp round food photo, no drifting =================== */
+.u-mood{--g1:#ff9a3d;--g2:#ff5f2e;--m2:#c2410c;min-height:176px;background:linear-gradient(135deg,var(--g1),var(--g2));box-shadow:0 14px 30px -14px color-mix(in srgb,var(--g2) 80%,transparent)}
+.u-mood::before{background:radial-gradient(120% 90% at 0% 0%,rgba(255,255,255,.28),transparent 55%),radial-gradient(60% 70% at 100% 100%,rgba(255,255,255,.14),transparent 60%)!important}
+body[data-mood=morning] .u-mood{--g1:#ffc95c;--g2:#ff7a3d;--m2:#c2410c}
+body[data-mood=noon] .u-mood{--g1:#ffad42;--g2:#ff5a36;--m2:#c2410c}
+body[data-mood=evening] .u-mood{--g1:#ff8a5c;--g2:#c040a8;--m2:#9d1f7a}
+body[data-mood=night] .u-mood{--g1:#4f46e5;--g2:#1e1b4b;--m2:#3730a3}
+body[data-mood=late] .u-mood{--g1:#312e81;--g2:#0f0c29;--m2:#312e81}
+body[data-wx=clouds] .u-mood{--g1:#5cc2ff;--g2:#3b6cf5;--m2:#1d4ed8}
+body[data-mood=night][data-wx=clouds] .u-mood,body[data-mood=late][data-wx=clouds] .u-mood{--g1:#475569;--g2:#1e293b;--m2:#334155}
+body[data-wx=rain] .u-mood,body[data-wx=drizzle] .u-mood{--g1:#38bdf8;--g2:#1e40af;--m2:#1e40af}
+body[data-wx=storm] .u-mood{--g1:#6d28d9;--g2:#1e1b4b;--m2:#4c1d95}
+body[data-wx=fog] .u-mood{--g1:#a5b4c8;--g2:#5b6b82;--m2:#475569}
+body[data-wx=hot] .u-mood{--g1:#ffb347;--g2:#ff3d3d;--m2:#b91c1c}
+/* round food photo on the right */
+.u-mood .ph{inset:auto;right:14px;top:50%;left:auto;width:136px;height:136px;margin-top:-68px;border-radius:50%;z-index:1;transform:none;
+  border:4px solid rgba(255,255,255,.92);box-shadow:0 12px 26px rgba(0,0,0,.28),0 0 0 8px rgba(255,255,255,.14);animation:none}
+.u-mood .ph::after{content:'';position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at 30% 25%,rgba(255,255,255,.35),transparent 45%)}
+.u-mood .steam{left:50%;top:-34px;margin-left:-30px}
+.u-mood .body{max-width:calc(100% - 160px);z-index:3}
+.u-mood h2{font-size:1.5rem;text-shadow:0 2px 10px rgba(0,0,0,.18)}
+.u-mood p{color:rgba(255,255,255,.95)}
+.u-mood .wx{background:rgba(255,255,255,.22);border-color:rgba(255,255,255,.35)}
+.u-sky{z-index:2}
+.u-sky.sunny .rays{right:-60px;top:-110px}.u-sky.sunny .sunball{right:110px;top:-36px;width:70px;height:70px}
+@media (min-width:700px){.u-mood .ph{width:170px;height:170px;margin-top:-85px;right:28px}.u-mood .body{max-width:calc(100% - 220px)}.u-mood h2{font-size:1.9rem}}
+@media (max-width:380px){.u-mood .ph{width:116px;height:116px;margin-top:-58px;right:10px}.u-mood .body{max-width:calc(100% - 134px)}.u-mood h2{font-size:1.32rem}}
+@media (prefers-reduced-motion:no-preference){
+  .u-mood .ph{animation:phbob 4.5s ease-in-out infinite}
+  .u-mood .mini{animation:mdpop .45s cubic-bezier(.3,1.5,.5,1) calc(.5s + var(--i) * 80ms) both}
+}
+@keyframes phbob{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-6px) rotate(2deg)}}
+/* tagline strip v2: brand gradient border, icon bubble, bold line */
+.u-tick{position:relative;margin:10px 0 4px;padding:10px 14px 10px 10px;border:0;border-radius:16px;background:#fff;color:#1f1300;font:800 .88rem var(--font);
+  box-shadow:0 6px 18px rgba(226,85,15,.12);isolation:isolate}
+.u-tick::before{content:'';position:absolute;inset:0;border-radius:inherit;padding:1.5px;background:linear-gradient(90deg,#ff7a3d,#ff3d8b,#8b5cf6);
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;z-index:-1}
+.u-tick .sp{width:30px;height:30px;display:grid;place-items:center;border-radius:10px;background:linear-gradient(135deg,#fff1e4,#ffe4f0);font-size:1rem;animation:none!important}
+.u-tick .sp{transition:opacity .28s ease,transform .28s ease}.u-tick .sp.out{opacity:0;transform:scale(.6)}
+.u-mood .cta{white-space:nowrap;padding:0 12px 0 14px;font-size:.82rem}
+.u-mood .acts{flex-wrap:nowrap}
+@media (max-width:420px){.u-mood .mini:nth-of-type(n+3){display:none}.u-mood .mini{width:32px;height:32px}}
+/* v3 fix: no blur / mask layers (some phone GPUs paint them as a white wash); same look with plain gradients */
+.u-sky.cloudy i{filter:none;background:radial-gradient(ellipse at 50% 60%,rgba(255,255,255,.34),rgba(255,255,255,.12) 55%,transparent 70%)}
+.u-sky.sunny .rays{-webkit-mask:none;mask:none;background:radial-gradient(circle,rgba(255,236,170,.35) 0 18%,transparent 19%),repeating-conic-gradient(from 0deg,rgba(255,240,190,.16) 0 7deg,transparent 7deg 20deg);opacity:.75;border-radius:50%;clip-path:circle(50%)}
+.u-sky.hot .haze{filter:none}
+.u-sky.misty i{filter:none}
+.u-mood .wx{backdrop-filter:none;-webkit-backdrop-filter:none}
+.u-mood .pk{backdrop-filter:none;-webkit-backdrop-filter:none}
