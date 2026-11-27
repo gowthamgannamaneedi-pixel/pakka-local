@@ -61,3 +61,6 @@ export async function currentWeather(db) {
     .finally(() => { inflight = null; });
   return inflight;
 }
+
+// last known weather without waiting (null when older than 30 minutes or never fetched)
+export const cachedWeather = () => (cache.data && Date.now() - cache.at < 30 * 60 * 1000 ? cache.data : null);

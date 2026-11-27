@@ -7,6 +7,7 @@ import { adminView, decide, revealPayout, missing, DOC_LABEL, ID_TYPES } from '.
 import * as Locs from '../services/locations.js';
 import * as Pricing from '../services/distancePricing.js';
 import * as Routing from '../services/routing.js';
+import { autoStatus } from '../services/daily.js';
 import { perKmRate, allSettings, setSetting, SETTING_KEYS, adminCashout, balances, settleRefund, eligibleRiderCount, getSetting, iso, adminCancel, adminUnassign } from '../services/core.js';
 import { send, parse, wrap, wrapA, money } from './util.js';
 import { importMenu } from '../services/menuImport.js';
@@ -422,6 +423,8 @@ export function adminRoutes(db) {
   // broadcast campaigns (Web Push only; promotions never go through WhatsApp)
   const aud = z.object({ audience_type: z.enum(['all_customers', 'location', 'ordered_recent', 'inactive', 'riders', 'restaurants', 'user']), audience_param: z.union([z.string().max(40), z.number()]).nullish() });
   r.post('/campaigns/preview', wrap((req, res) => { const d = parse(aud, req, res); if (!d) return; res.json({ audience_size: audienceUsers(db, d.audience_type, d.audience_param).length }); }));
+  // automatic messages (lunch / snack / dinner / rain) for the Broadcast page
+  r.get('/auto-messages', (req, res) => res.json(autoStatus(db)));
   r.get('/campaigns', (req, res) => res.json({ campaigns: db.prepare('SELECT * FROM campaigns ORDER BY id DESC LIMIT 50').all().map((c) => ({ ...c, stats: campaignStats(db, c.id) })) }));
   r.post('/campaigns', wrap((req, res) => {
     const d = parse(aud.extend({ title: z.string().trim().min(1).max(60), body: z.string().trim().min(1).max(200), deep_link: z.string().max(200).regex(/^\/[\w\-/#?=&.]*$/).nullish(), image: z.string().max(5_000_000).optional(), scheduled_at: z.string().datetime().nullish(), draft: z.boolean().optional() }), req, res); if (!d) return;
@@ -481,6 +484,8 @@ export function adminRoutes(db) {
       if (k === 'gps_capture_timeout_sec' && !(/^\d{1,3}$/.test(String(v)) && +v >= 5 && +v <= 120)) return res.status(400).json({ error: 'GPS timeout must be 5 to 120 seconds.' });
       if (['rider_per_km_paise', 'rider_min_payout_paise'].includes(k) && v !== '' && !(/^\d{1,6}$/.test(String(v)) && +v <= 100000)) return res.status(400).json({ error: 'Rider pay must be ₹0 to ₹1,000, or empty.' });
       if (k === 'daily_notify_enabled' && !['0', '1'].includes(String(v))) return res.status(400).json({ error: 'daily_notify_enabled must be 0 or 1.' });
+      if (k === 'notify_per_day' && !['1', '2', '3'].includes(String(v))) return res.status(400).json({ error: 'notify_per_day must be 1, 2 or 3.' });
+      if (k === 'notify_rain' && !['0', '1'].includes(String(v))) return res.status(400).json({ error: 'notify_rain must be 0 or 1.' });
       if (k === 'test_orders_everyone' && !['0', '1'].includes(String(v))) return res.status(400).json({ error: 'test_orders_everyone must be 0 or 1.' });
       if (k === 'service_radius_km' && v !== '' && !(/^\d{1,3}(\.\d{1,2})?$/.test(String(v)) && +v > 0 && +v <= 200)) return res.status(400).json({ error: 'Service area radius must be more than 0 and at most 200 km, or empty for no limit.' });
       if (k === 'service_center_lat' && v !== '' && !(/^-?\d{1,2}\.\d{3,8}$/.test(String(v)) && Math.abs(+v) <= 90)) return res.status(400).json({ error: 'Latitude looks wrong (e.g. 17.33814).' });
