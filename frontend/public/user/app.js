@@ -290,7 +290,8 @@
     return '<div class="u-sky sunny" aria-hidden="true"><i></i></div>'; };
   // only suggest dishes that are on today's menus; the search word is the word the menus actually use
   const reOf = (k) => (CATS.find(([c]) => c === k) || DISH.find(([c]) => c === k) || [])[CATS.some(([c]) => c === k) ? 2 : 1];
-  const livePicks = (m, all) => { const txt = all.filter((x) => x.is_open).map((x) => x.dish_names || '').join(' | ')      // dish names of open kitchens only (not restaurant names or cuisines), seen = new Set(), out = [];
+  // dish names of open kitchens only (not restaurant names or cuisines)
+  const livePicks = (m, all) => { const txt = all.filter((x) => x.is_open).map((x) => x.dish_names || '').join(' | '), seen = new Set(), out = [];
     for (const [k, l] of [...m.picks, ['biryani', 'Biryani'], ['fried_rice', 'Fried rice'], ['noodles', 'Noodles'], ['curry', 'Curry'], ['chai', 'Chai'], ['shakes', 'Shakes']]) {
       if (out.length >= 4 || seen.has(k)) continue; seen.add(k); const re = reOf(k), hit = re && txt.match(re); if (!hit) continue;
       const w = hit[0].trim(); out.push([k, l, w.charAt(0).toUpperCase() + w.slice(1)]); }
@@ -372,7 +373,7 @@
     const live = active[0];
     return `<div class="u-head" id="u-head"><div class="row1"><button class="u-loc" data-act="go" data-path="/addresses"><span class="pin">${I('pin')}</span><span class="txt"><b>${cur ? e(cur.kind === 'listed' ? cur.place_name || 'Selected place' : LBL[cur.label] || 'Home') : 'Set delivery location'}${I('chev')}</b><small>${c.testPayments ? '<i class="u-test">TEST</i>' : ''}${cur ? e(addrLine(cur, cur.kind === 'listed')) : 'Choose your PG, hostel or college'}</small></span></button>${PL.isGuest() ? '<button class="u-glog" data-act="to-login">Log in</button>' : `${PL.inbox.btn()}<button class="u-av" data-act="go" data-path="/me" aria-label="Account">${e((name || 'P').charAt(0).toUpperCase())}</button>`}</div>
         <a class="u-search" href="#/search" aria-label="Search for restaurants and dishes">${I('search')}<span class="ph">Search for ‘<i id="u-word">${e(S.words[0] || 'your favourite food')}</i>’</span></a></div>
-      ${moodCard(mood, all)}
+      ${(() => { try { return moodCard(mood, all); } catch (x) { console.warn('mood card skipped', x); return ''; } })()}
       ${notes}
       ${offer ? offerCard(offer) : ''}
       ${bans.length ? `<div class="u-bans" id="u-bans">${bans.join('')}</div><div class="u-bdots" id="u-bdots">${bans.map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</div>` : ''}
