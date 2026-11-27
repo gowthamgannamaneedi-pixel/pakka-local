@@ -321,12 +321,12 @@
   const startTick = () => { const el = document.getElementById('u-tick-t'); if (!el || el.dataset.on) return; el.dataset.on = '1'; let i = Math.floor(Math.random() * TICK.length); const ic = () => document.getElementById('u-tick-i'); const show = () => { const t = document.getElementById('u-tick-t'); if (t) t.textContent = TICK[i][1]; if (ic()) ic().textContent = TICK[i][0]; }; show();
     clearInterval(tickIv); tickIv = setInterval(() => { const t = document.getElementById('u-tick-t'); if (!t) return clearInterval(tickIv); if (document.hidden) return;
       t.classList.add('out'); ic()?.classList.add('out'); setTimeout(() => { i = (i + 1) % TICK.length; show(); t.classList.remove('out'); ic()?.classList.remove('out'); }, 280); }, 4200); };
-  const WXWORD = { clear: 'Clear', clouds: 'Cloudy', fog: 'Foggy', drizzle: 'Drizzle', rain: 'Rain', storm: 'Storm', hot: 'Hot' };
+  const WXWORD = { clear: 'Clear', clouds: 'Cloudy', fog: 'Foggy', haze: 'Hazy', drizzle: 'Drizzle', rain: 'Rain', storm: 'Storm', hot: 'Hot' };
   const moodNow = (wx) => {
     const part = PV.get('mood') || dayPart(), cond = PV.get('wx') || wx?.condition || '', temp = PV.has('temp') ? Number(PV.get('temp')) : wx?.temp_c;
     const k = cond === 'storm' ? 'storm' : cond === 'rain' || cond === 'drizzle' ? 'rain' : cond === 'fog' && part === 'morning' ? 'fog' : temp >= 35 && (part === 'noon' || part === 'evening') ? 'hot' : '';
     const base = k ? WXMOOD[k] : MOOD[part], [title, line] = slotPick(base.v, 20, part.length);
-    const m = { ...base, title, line, part, wx: k || cond, temp };
+    const m = { ...base, title, line, part, wx: k || (cond === 'fog' ? 'haze' : cond), temp };      // daytime haze keeps the bright colours (grey only for real morning fog)
     if (!k && (part === 'night' || part === 'late')) m.icon = cond === 'clouds' ? 'cloud' : 'moon'; else if (!k && cond === 'clouds') m.icon = 'cloud';
     return m;
   };
