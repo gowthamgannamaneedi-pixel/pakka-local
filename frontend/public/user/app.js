@@ -296,16 +296,19 @@
       if (out.length >= 4 || seen.has(k)) continue; seen.add(k); const re = reOf(k), hit = re && txt.match(re); if (!hit) continue;
       const w = hit[0].trim(); out.push([k, l, w.charAt(0).toUpperCase() + w.slice(1)]); }
     return out; };
-  const moodCard = (m, all = []) => { const picks = livePicks(m, all); if (!picks.length) return '';
-    const [hk, hl, hq] = picks[0], title = m.title.replace('{dish}', hl), cond = WXWORD[m.wx] || '', warm = m.wx === 'rain' || m.wx === 'storm' || m.wx === 'fog' || m.part === 'morning' || m.part === 'evening';
+  // always shown (weather + time of day). With no open kitchen it says when the first one opens instead of offering dishes.
+  const moodCard = (m, all = []) => { const picks = livePicks(m, all), shut = !picks.length;
+    const next = shut ? all.map((x) => x.next_open_at).filter(Boolean).sort()[0] : null;
+    const [hk, hl, hq] = picks[0] || [m.picks[0][0], 'Hot food', ''], title = m.title.replace('{dish}', hl), cond = WXWORD[m.wx] || '', warm = m.wx === 'rain' || m.wx === 'storm' || m.wx === 'fog' || m.part === 'morning' || m.part === 'evening';
+    const line = shut ? `Kitchens are closed right now.${next ? ` ${opensTxt(next)}.` : ''}` : m.line;
     return `<section class="u-mood" aria-label="${e(title.replace('\n', ' '))}">
       <div class="ph" style="background-image:url('${catPic(hk)}')" aria-hidden="true">${warm ? '<span class="steam"><i></i><i></i><i></i></span>' : ''}</div>
       ${sky(m)}
       <div class="body">
         <span class="wx">${WXI[m.icon] || WXI.sun}${Number.isFinite(m.temp) ? `<b>${Math.round(m.temp)}°</b>` : ''}${cond ? `<span>${cond}</span>` : ''}</span>
-        <h2>${e(title).replace('\n', '<br>')}</h2><p>${e(m.line)}</p>
-        <div class="acts"><button class="cta" data-act="mood-q" data-q="${e(hq)}">Order ${e(hl.toLowerCase())} ${I('chev')}</button>
-          ${picks.slice(1, 4).map(([k, l, q], i) => `<button class="mini" data-act="mood-q" data-q="${e(q)}" style="--i:${i}" title="${e(l)}" aria-label="${e(l)}"><img src="${catPic(k)}" alt=""></button>`).join('')}</div>
+        <h2>${e(title).replace('\n', '<br>')}</h2><p>${e(line)}</p>
+        ${shut ? '' : `<div class="acts"><button class="cta" data-act="mood-q" data-q="${e(hq)}">Order ${e(hl.toLowerCase())} ${I('chev')}</button>
+          ${picks.slice(1, 4).map(([k, l, q], i) => `<button class="mini" data-act="mood-q" data-q="${e(q)}" style="--i:${i}" title="${e(l)}" aria-label="${e(l)}"><img src="${catPic(k)}" alt=""></button>`).join('')}</div>`}
       </div></section>`; };
   // 3D depth: cards and banners tilt slightly toward the pointer (mouse / trackpad only; phones get a soft press instead)
   if (matchMedia('(hover:hover) and (pointer:fine)').matches && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
