@@ -259,24 +259,74 @@
     rain: '<svg viewBox="0 0 48 48" class="wi rain"><path d="M14 30h20a8 8 0 0 0 0-16 11 11 0 0 0-21-2A9 9 0 0 0 14 30z"/><g class="dr"><line x1="17" y1="35" x2="15" y2="41"/><line x1="25" y1="35" x2="23" y2="41"/><line x1="33" y1="35" x2="31" y2="41"/></g></svg>',
     storm: '<svg viewBox="0 0 48 48" class="wi storm"><path d="M14 28h20a8 8 0 0 0 0-16 11 11 0 0 0-21-2A9 9 0 0 0 14 28z"/><path class="bt" d="M25 29l-5 9h5l-3 7 8-10h-5l3-6z"/></svg>',
   };
+  // what the card says: several takes per look, a mix of plain warm English and light Gen-Z/Alpha words that still read
+  // clearly at any age. The take changes every 20 minutes (stable between refreshes, so nothing jumps while you read).
   const MOOD = {
-    morning: { icon: 'sun', title: 'Rise & dine.', line: 'Idli, dosa and chai, hot at your door.', picks: [['dosa', 'Dosa'], ['idli', 'Idli'], ['chai', 'Chai'], ['paratha', 'Paratha']] },
-    noon: { icon: 'sun', title: 'Lunch is calling.', line: 'Biryani and meals from kitchens near you.', picks: [['biryani', 'Biryani'], ['thali', 'Meals'], ['curry', 'Curry'], ['fried_rice', 'Fried rice']] },
-    evening: { icon: 'sun', title: 'Snack o’clock.', line: 'Chai, something crispy, or both?', picks: [['chai', 'Chai'], ['pakoda', 'Pakoda'], ['momos', 'Momos'], ['rolls', 'Rolls']] },
-    night: { icon: 'moon', title: 'Dinner, sorted.', line: 'Hot food, live tracking, zero extra fees.', picks: [['biryani', 'Biryani'], ['chicken_curry', 'Chicken'], ['naan', 'Naan'], ['noodles', 'Noodles']] },
-    late: { icon: 'moon', title: 'Midnight cravings?', line: 'These kitchens are still open.', picks: [['biryani', 'Biryani'], ['fried_rice', 'Fried rice'], ['noodles', 'Noodles'], ['shakes', 'Shakes']] },
+    morning: { icon: 'sun', picks: [['dosa', 'Dosa'], ['idli', 'Idli'], ['chai', 'Chai'], ['paratha', 'Paratha']], v: [
+      ['Rise & dine.', 'Idli, dosa and chai, hot at your door.'],
+      ['Main character\nmorning.', 'Start strong with a hot breakfast. Zero extra fees.'],
+      ['Breakfast?\nSay less.', 'Crispy dosa and filter-coffee vibes, delivered.'],
+      ['Good morning,\nbestie.', 'Chai first. Everything else can wait.'],
+      ['No skipping\nbreakfast.', 'Your future self says thank you. Order in a tap.']] },
+    noon: { icon: 'sun', picks: [['biryani', 'Biryani'], ['thali', 'Meals'], ['curry', 'Curry'], ['fried_rice', 'Fried rice']], v: [
+      ['Lunch is calling.', 'Biryani and meals from kitchens near you.'],
+      ['Biryani o’clock.', 'Lowkey the best part of the day. Hot and on the way.'],
+      ['Lunch break\nunlocked.', 'Full meals, fair prices, zero platform fee.'],
+      ['That 1 pm\nhunger hits.', 'Fix it in a few taps. Live tracking included.'],
+      ['Eat well,\nwork well.', 'Home-style meals from local kitchens.']] },
+    evening: { icon: 'sun', picks: [['chai', 'Chai'], ['pakoda', 'Pakoda'], ['momos', 'Momos'], ['rolls', 'Rolls']], v: [
+      ['Snack o’clock.', 'Chai, something crispy, or both?'],
+      ['Chai + snacks\n= the vibe.', 'Evening plans sorted. No cap.'],
+      ['5 pm cravings\nare valid.', 'Momos, rolls, pakoda. Pick your fighter.'],
+      ['Treat yourself.\nYou earned it.', 'Small snack, big mood. Delivered hot.']] },
+    night: { icon: 'moon', picks: [['biryani', 'Biryani'], ['chicken_curry', 'Chicken'], ['naan', 'Naan'], ['noodles', 'Noodles']], v: [
+      ['Dinner, sorted.', 'Hot food, live tracking, zero extra fees.'],
+      ['Skip the dishes\ntonight.', 'Let a local kitchen do the cooking.'],
+      ['Dinner that\nhits different.', 'Biryani, curries and more. It’s giving comfort food.'],
+      ['Long day?\nWe got you.', 'Feet up. Dinner’s on the way.'],
+      ['Tonight’s plan:\neat good.', 'Real kitchens, real food, no hidden charges.']] },
+    late: { icon: 'moon', picks: [['biryani', 'Biryani'], ['fried_rice', 'Fried rice'], ['noodles', 'Noodles'], ['shakes', 'Shakes']], v: [
+      ['Midnight cravings?', 'These kitchens are still open.'],
+      ['Up late?\nSame.', 'Some kitchens are still cooking. Check below.'],
+      ['Night owl\nmode: on.', 'Study break, game break, snack break.'],
+      ['Late-night W.', 'Hot food after hours, from kitchens still open.']] },
   };
   const WXMOOD = {
-    rain: { icon: 'rain', title: 'Rain outside.\n{dish} inside.', line: 'We’ll bring it hot. Rain can slow riders a little.', picks: [['chai', 'Chai'], ['pakoda', 'Pakoda'], ['noodles', 'Noodles'], ['biryani', 'Biryani']] },
-    storm: { icon: 'storm', title: 'Stay in.\nStay dry.', line: 'Riders take the safe road. Allow a few extra minutes.', picks: [['chai', 'Chai'], ['pakoda', 'Pakoda'], ['curry', 'Curry'], ['biryani', 'Biryani']] },
-    fog: { icon: 'cloud', title: 'Foggy start?', line: 'A hot chai fixes most things.', picks: [['chai', 'Chai'], ['idli', 'Idli'], ['dosa', 'Dosa'], ['omelette', 'Omelette']] },
-    hot: { icon: 'sun', title: 'Too hot to\nstep out.', line: 'Cool shakes and curd rice, delivered.', picks: [['shakes', 'Shakes'], ['curd_rice', 'Curd rice'], ['sweets', 'Sweets'], ['cakes', 'Cakes']] },
+    rain: { icon: 'rain', picks: [['chai', 'Chai'], ['pakoda', 'Pakoda'], ['noodles', 'Noodles'], ['biryani', 'Biryani']], v: [
+      ['Rain outside.\n{dish} inside.', 'We’ll bring it hot. Rain can slow riders a little.'],
+      ['Rainy day\nplans: stay in.', 'Cosy food, zero fees. Rain can slow riders a little.'],
+      ['Baarish +\n{dish} = perfect.', 'Hot food while it pours. Riders may take a few extra minutes.'],
+      ['It’s pouring.\nYou’re snacking.', 'That’s the move. Allow a little extra time for riders.']] },
+    storm: { icon: 'storm', picks: [['chai', 'Chai'], ['pakoda', 'Pakoda'], ['curry', 'Curry'], ['biryani', 'Biryani']], v: [
+      ['Stay in.\nStay dry.', 'Riders take the safe road. Allow a few extra minutes.'],
+      ['Storm outside?\nStay cosy.', 'Safety first for our riders, so orders may be a bit slower.'],
+      ['Thunder vibes.\nComfort food.', 'We deliver carefully in storms. Thanks for your patience.']] },
+    fog: { icon: 'cloud', picks: [['chai', 'Chai'], ['idli', 'Idli'], ['dosa', 'Dosa'], ['omelette', 'Omelette']], v: [
+      ['Foggy start?', 'A hot chai fixes most things.'],
+      ['Low visibility,\nhigh cravings.', 'Warm breakfast, delivered with care.']] },
+    hot: { icon: 'sun', picks: [['shakes', 'Shakes'], ['curd_rice', 'Curd rice'], ['sweets', 'Sweets'], ['cakes', 'Cakes']], v: [
+      ['Too hot to\nstep out.', 'Cool shakes and curd rice, delivered.'],
+      ['Heatwave?\nStay chill.', 'Cold shakes and curd rice. Stay in, stay cool.'],
+      ['It’s giving\nsummer.', 'Beat the heat with something cold.']] },
   };
+  const slotPick = (arr, mins = 20, salt = 0) => arr[(Math.floor(Date.now() / (mins * 60000)) + salt) % arr.length];
+  // short lines that keep Home feeling alive: one rotates every few seconds under the weather card
+  const TICK = ['Zero platform fee. No cap.', 'Your bill = menu price + delivery. That’s it.', 'Packaging charge? Not in our vocabulary.', 'Convenience fee: ₹0. Always.',
+    'Track your rider live, every turn.', 'Local kitchens. Real food. Fair prices.', 'Hot food, zero drama.', 'Every rupee shown before you pay. Pinky promise.',
+    'Order in under a minute. Speedrun approved.', 'Support local kitchens. Eat like a legend.', 'Fresh from the kitchen, straight to your door.', 'Good food is a love language.'];
+  const ADDED = ['Added! Great pick 👌', 'In the cart. Your tummy says thanks 🙏', 'Added. That one slaps 🔥', 'Locked in 🔒 Nice choice', 'Cart W unlocked 🏆',
+    'Added. Chef’s kiss 🤌', 'Good taste, bestie ✨', 'Added. Main-character meal 🍽️', 'Solid choice. No notes 📝', 'Added. It’s giving delicious 😋'];
+  const anyOf = (arr) => arr[Math.floor(Math.random() * arr.length)];
+  let tickIv = null;
+  const startTick = () => { const el = document.getElementById('u-tick-t'); if (!el || el.dataset.on) return; el.dataset.on = '1'; let i = Math.floor(Math.random() * TICK.length); el.textContent = TICK[i];
+    clearInterval(tickIv); tickIv = setInterval(() => { const t = document.getElementById('u-tick-t'); if (!t) return clearInterval(tickIv); if (document.hidden) return;
+      t.classList.add('out'); setTimeout(() => { i = (i + 1) % TICK.length; t.textContent = TICK[i]; t.classList.remove('out'); }, 280); }, 4200); };
   const WXWORD = { clear: 'Clear', clouds: 'Cloudy', fog: 'Foggy', drizzle: 'Drizzle', rain: 'Rain', storm: 'Storm', hot: 'Hot' };
   const moodNow = (wx) => {
     const part = PV.get('mood') || dayPart(), cond = PV.get('wx') || wx?.condition || '', temp = PV.has('temp') ? Number(PV.get('temp')) : wx?.temp_c;
     const k = cond === 'storm' ? 'storm' : cond === 'rain' || cond === 'drizzle' ? 'rain' : cond === 'fog' && part === 'morning' ? 'fog' : temp >= 35 && (part === 'noon' || part === 'evening') ? 'hot' : '';
-    const m = { ...(k ? WXMOOD[k] : MOOD[part]), part, wx: k || cond, temp };
+    const base = k ? WXMOOD[k] : MOOD[part], [title, line] = slotPick(base.v, 20, part.length);
+    const m = { ...base, title, line, part, wx: k || cond, temp };
     if (!k && (part === 'night' || part === 'late')) m.icon = cond === 'clouds' ? 'cloud' : 'moon'; else if (!k && cond === 'clouds') m.icon = 'cloud';
     return m;
   };
@@ -386,6 +436,7 @@
     return `<div class="u-head" id="u-head"><div class="row1"><button class="u-loc" data-act="go" data-path="/addresses"><span class="pin">${I('pin')}</span><span class="txt"><b>${cur ? e(cur.kind === 'listed' ? cur.place_name || 'Selected place' : LBL[cur.label] || 'Home') : 'Set delivery location'}${I('chev')}</b><small>${c.testPayments ? '<i class="u-test">TEST</i>' : ''}${cur ? e(addrLine(cur, cur.kind === 'listed')) : 'Choose your PG, hostel or college'}</small></span></button>${PL.isGuest() ? '<button class="u-glog" data-act="to-login">Log in</button>' : `${PL.inbox.btn()}<button class="u-av" data-act="go" data-path="/me" aria-label="Account">${e((name || 'P').charAt(0).toUpperCase())}</button>`}</div>
         <a class="u-search" href="#/search" aria-label="Search for restaurants and dishes">${I('search')}<span class="ph">Search for ‘<i id="u-word">${e(S.words[0] || 'your favourite food')}</i>’</span></a></div>
       ${(() => { try { return moodCard(mood, all); } catch (x) { console.warn('mood card skipped', x); return ''; } })()}
+      <div class="u-tick" aria-hidden="true"><span class="sp">✦</span><span id="u-tick-t" class="tx">Zero platform fee. No cap.</span></div>
       ${notes}
       ${offer ? offerCard(offer) : ''}
       ${bans.length ? `<div class="u-bans" id="u-bans">${bans.join('')}</div><div class="u-bdots" id="u-bdots">${bans.map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</div>` : ''}
@@ -447,7 +498,7 @@
       sp = sp.filter((p) => p.a > 0);
       if (!rainStill) requestAnimationFrame(frame); };
     requestAnimationFrame(frame); });
-  const homeAfter = () => { filterHome(); startRain(); if (S.offerNow) setTimeout(() => S.offerNow && offerPop(S.offerNow), 600);
+  const homeAfter = () => { filterHome(); startRain(); startTick(); if (S.offerNow) setTimeout(() => S.offerNow && offerPop(S.offerNow), 600);
     const w = PL.$('#u-word'), words = S.words?.length ? S.words : ['your favourite food']; let wi = 0;
     if (w && words.length > 1 && !reduce()) { const iv = setInterval(() => { if (!w.isConnected) return clearInterval(iv); wi = (wi + 1) % words.length; w.textContent = words[wi]; w.style.animation = 'none'; void w.offsetWidth; w.style.animation = ''; }, 2600); }
     const b = PL.$('#u-bans'), dots = PL.$('#u-bdots'); if (b && dots) { let touched = false; const sync = () => { const i = Math.round(b.scrollLeft / (b.firstElementChild?.offsetWidth + 12 || 1)); [...dots.children].forEach((d, k) => d.classList.toggle('on', k === i)); };
@@ -552,14 +603,15 @@
     if (d.rid && S.cart.rid !== Number(d.rid)) S.cart = { rid: Number(d.rid), rname: d.rn, items: {} };
     const it = S.cart.items[id] || (S.cart.items[id] = { name: d.n, price: Number(d.p), qty: 0 }); if (d.dt) it.diet = d.dt; if (d.im) it.img = d.im;
     if (it.qty >= 20) return PL.toast('You can add up to 20 of one dish.', true);
-    it.qty++; if (S.menuR?.id === S.cart.rid) S.cart.rimg = S.menuR.image_path || S.cart.rimg; saveCart(); S.popId = id; if (navigator.vibrate) navigator.vibrate(8);
+    it.qty++; if (it.qty === 1 && Date.now() - (S.addedAt || 0) > 2500) { S.addedAt = Date.now(); PL.toast(anyOf(ADDED), 'ok'); }
+    if (S.menuR?.id === S.cart.rid) S.cart.rimg = S.menuR.image_path || S.cart.rimg; saveCart(); S.popId = id; if (navigator.vibrate) navigator.vibrate(8);
     if (d.close) PL.closeModal(); PL.rerender(); };
   PL.actions.dec = (el) => { const it = S.cart.items[el.dataset.id]; if (!it) return; it.qty--; if (it.qty <= 0) delete S.cart.items[el.dataset.id]; if (!cartCount()) S.cart.rid = null; S.popId = el.dataset.id; saveCart(); PL.rerender(); };
 
   // ---------- cart + checkout (same rules: server quote, confirmed destination, online payment only) ----------
   const body = () => ({ restaurant_id: S.cart.rid, items: Object.entries(S.cart.items).map(([id, i]) => ({ id: Number(id), qty: i.qty })), instructions: S.instr || undefined, address_id: S.addrId || undefined, coupon: S.coupon || undefined });
   async function cart() {
-    if (!cartCount()) return `<div class="u-pg">${empty('bag', 'Your cart is empty', 'Good food is always cooking. Go ahead, order some yummy items from the menu.', '<button class="btn mt" data-act="go" data-path="/home">Browse restaurants</button>')}</div>`;
+    if (!cartCount()) return `<div class="u-pg">${empty('bag', 'Your cart is empty', slotPick(['Good food is always cooking. Go ahead, pick something tasty.', 'Empty cart, full potential. Let’s fix that.', 'Nothing here yet. Your next favourite meal is one tap away.', 'Your cart is looking lonely. Add something delicious.'], 30), '<button class="btn mt" data-act="go" data-path="/home">Browse restaurants</button>')}</div>`;
     const [{ addresses: ad, gps_per_km_paise: perKm }, { locations: places }, crest] = await Promise.all([PL.api('/api/customer/addresses'), PL.api(placesUrl()), cartRest()]);
     const placeOf = (x) => places.find((l) => l.id === x.delivery_location_id);
     if (!ad.some((x) => x.id === S.addrId)) { S.addrId = (ad.find((x) => x.is_default) || ad[0])?.id || null; save('pl.addr', S.addrId); S.confirmed = false; }
@@ -744,7 +796,7 @@
 
   // ---------- orders ----------
   async function orders() { const { orders } = await PL.api('/api/customer/orders'); const act = orders.filter((o) => ACTIVE.includes(o.status)), unpaid = orders.filter((o) => o.status === 'PAYMENT_PENDING'), past = orders.filter((o) => !ACTIVE.includes(o.status) && o.status !== 'PAYMENT_PENDING');
-    if (!orders.length) return `<div class="u-pg">${empty('bag', 'No orders yet', 'When you order, you can track it here.', '<button class="btn mt" data-act="go" data-path="/home">Browse restaurants</button>')}</div>`;
+    if (!orders.length) return `<div class="u-pg">${empty('bag', 'No orders yet', slotPick(['When you order, you can track it here, live.', 'No orders yet. Your first one is going to be a W.', 'Nothing to track yet. Let’s change that.'], 30), '<button class="btn mt" data-act="go" data-path="/home">Browse restaurants</button>')}</div>`;
     const head = (o) => `<div class="h">${img(restPic(o.restaurant, o.restaurant_image, o.summary), '', o.restaurant)}<span class="txt"><b>${e(o.restaurant)}</b><small>${PL.dt(o.created_at)}</small></span>`;
     return `<div class="u-pg">${act.length ? `<div class="u-sec" style="margin-top:6px"><h2>Active orders</h2></div>${act.map((o) => `<button class="u-ocard live" data-act="go" data-path="/orders/${e(o.order_code)}">${head(o)}<span class="u-pill brand">${e(SAY[o.status]?.[0] || o.status)}</span></div><div class="bar"><i style="width:${PROG[o.status] || 8}%"></i></div><div class="ft"><span>${o.eta_at ? etaText(o) : e(SAY[o.status]?.[1] || '')}</span><b style="color:var(--brand)">Track ›</b></div></button>`).join('')}` : ''}
       ${unpaid.length ? `<div class="u-sec"${act.length ? '' : ' style="margin-top:6px"'}><h2>Waiting for payment<small>Not placed yet. The restaurant sees it only after payment.</small></h2></div>${unpaid.map((o) => `<div class="u-ocard"><button class="u-oh" data-act="go" data-path="/orders/${e(o.order_code)}">${head(o)}<span class="u-pill warn">Payment pending</span></div></button><div class="it">${e(o.summary || '')}</div><div class="ft"><b>${rs(o.total_paise)}</b><button class="btn sm" data-act="go" data-path="/pay/${e(o.order_code)}">Complete payment</button></div></div>`).join('')}` : ''}
