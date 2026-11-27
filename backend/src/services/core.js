@@ -46,8 +46,8 @@ const DEFAULTS = { tax_bps: '0', gps_delivery_fee_paise: '4000', rider_payout_pa
   // rider_short_km_paise (Rs 4/km, i.e. Rs 1 every 250 m) until the per-km formula above pays more (about 2.9 km). So 1.25 km pays Rs 21,
   // 1.5 km Rs 22, 2 km Rs 24 instead of a flat Rs 20. Set rider_short_km_paise to 0 for the plan's flat Rs 20 minimum.
   rider_min_cover_km: '1', rider_short_km_paise: '400',
-  // tell admin each time a partner's turn-downs for the day reach a multiple of this (3, 6, 9...)
-  rider_reject_alert: '3',
+  // from this many turn-downs in a day (India time), each further turn-down alerts admin and the partner is listed for review
+  rider_reject_alert: '2',
   // A rider already carrying a delivery is offered (and may accept) another one only when its restaurant AND its drop-off are
   // within this many km of one of their current deliveries. max_active_per_rider still caps how many at once.
   batch_radius_km: '2' };
@@ -424,9 +424,12 @@ export function offerCounts(db, riderId, since) {
 }
 export function dismissOffer(db, riderId, orderId, body = {}) {
   const code = body.reason == null ? null : String(body.reason), note = String(body.note || '').trim().slice(0, 200);
-  if (code !== null && !DISMISS_REASONS[code]) return { error: 'Choose a reason.', status: 400 };
+  // Every turn-down needs a reason. A request without one (the Reject button on an older app's ringing alert, or a page that
+  // has not reloaded since the update) is not recorded: the offer stays, and the app asks for the reason when opened.
+  if (code === null) return { ok: true, recorded: false, need_reason: true };
+  if (!DISMISS_REASONS[code]) return { error: 'Choose a reason.', status: 400 };
   if (code === 'other' && note.length < 3) return { error: 'Tell us the reason (a few words).', status: 400 };
-  const text = code === null ? 'Rejected from the ringing alert (no reason given)' : code === 'other' ? `Other: ${note}` : DISMISS_REASONS[code] + (note ? ` (${note})` : '');
+  const text = code === 'other' ? `Other: ${note}` : DISMISS_REASONS[code] + (note ? ` (${note})` : '');
   const o = db.prepare('SELECT id, order_code, status, rider_id FROM orders WHERE id=?').get(orderId);
   if (!o) return { error: 'Order not found.', status: 404 };
   db.prepare(`INSERT INTO rider_assignments (order_id,rider_id,status,responded_at,reason) VALUES (?,?,'DISMISSED',?,?)
@@ -436,9 +439,9 @@ export function dismissOffer(db, riderId, orderId, body = {}) {
 }
 function offerAlerts(db, riderId, o, text) {
   const name = db.prepare('SELECT name FROM users WHERE id=?').pluck().get(riderId) || 'A delivery partner', since = istDayStart(), c = offerCounts(db, riderId, since);
-  const every = Number(getSetting(db, 'rider_reject_alert')) || 3;
-  if (c.rejected >= every && c.rejected % every === 0)
-    notifyAdmins(db, `${name} turned down ${c.rejected} offers today`, `Accepted ${c.accepted}, turned down ${c.rejected} today. Latest: ${o.order_code} – ${text}. Open Delivery agents to see the reasons.`, o.id, `rejn:${riderId}:${since.slice(0, 10)}:${c.rejected}`);
+  const from = Number(getSetting(db, 'rider_reject_alert')) || 2;      // from the 2nd turn-down in a day, every one goes to admin
+  if (c.rejected >= from)
+    notifyAdmins(db, `Review ${name}: turned down ${c.rejected} offers today`, `Accepted ${c.accepted}, turned down ${c.rejected} today. Latest: ${o.order_code} – ${text}. Open Delivery agents → Turn-downs to review.`, o.id, `rejn:${riderId}:${since.slice(0, 10)}:${c.rejected}`);
   // nobody left: every approved, online partner has turned this order down
   if (o.rider_id || !['ACCEPTED', 'PREPARING', 'READY'].includes(o.status)) return;
   const left = db.prepare(`SELECT COUNT(*) FROM riders r JOIN users u ON u.id=r.user_id WHERE r.verification_status='approved' AND r.is_online=1 AND u.active=1 AND r.last_seen_at>?

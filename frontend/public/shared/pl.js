@@ -289,7 +289,12 @@
 
   // ---------- shell ----------
   // cfg: { portal, name, home, tabs:[{path,label,icon,badge?}], routes:{path:{title,render,after,poll,noNav}}, loginView(), onReady(), right() }
-  PL.start = (c) => { cfg = c; PL.portal = c.portal; document.body.classList.add("p-" + c.portal); if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {}); PL.boot(); };
+  // An open page picks up a new release by itself: when the new service worker takes over, reload (now if nothing is being
+  // typed, otherwise the next time the page is shown) so riders and kitchens never keep running old screens.
+  const swReload = () => { let done = false; const go = () => { if (done) return; const typing = document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+      if (!document.hidden && (typing || document.querySelector('.ov [role=dialog]'))) { document.addEventListener('visibilitychange', go, { once: true }); return; } done = true; location.reload(); };
+    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) navigator.serviceWorker.addEventListener('controllerchange', go); };
+  PL.start = (c) => { cfg = c; PL.portal = c.portal; document.body.classList.add("p-" + c.portal); if ('serviceWorker' in navigator) { swReload(); navigator.serviceWorker.register('/sw.js').then((r) => { setInterval(() => r.update().catch(() => {}), 10 * 60_000); document.addEventListener('visibilitychange', () => { if (!document.hidden) r.update().catch(() => {}); }); }).catch(() => {}); } PL.boot(); };
   // ---------- "Install the app" sheet (customer, restaurant and admin portals) ----------
   // Shown after every sign-in and once on every new visit, unless the app is already installed. Chrome/Edge give a real install
   // prompt (beforeinstallprompt, which only fires when the app is NOT installed); iPhone Safari and others get the exact manual steps.

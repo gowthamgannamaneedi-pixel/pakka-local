@@ -3,7 +3,7 @@ import { config } from '../config.js';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { authenticate, requireRole, audit, requireFreshAuth } from '../auth.js';
-import { adminView, decide, revealPayout, missing, DOC_LABEL, ID_TYPES } from '../services/riderApplication.js';
+import { adminView, decide, revealPayout, missing, DOC_LABEL, ID_TYPES, turndownReview, markReviewed } from '../services/riderApplication.js';
 import * as Locs from '../services/locations.js';
 import * as Pricing from '../services/distancePricing.js';
 import * as Routing from '../services/routing.js';
@@ -149,6 +149,7 @@ export function adminRoutes(db) {
       { key: 'placed_over', level: 'bad', n: placedOver, text: `order(s) waiting for the restaurant longer than ${t} min`, path: '/orders', flag: false },
       { key: 'placed', level: 'warn', n: t ? 0 : one("SELECT COUNT(*) FROM orders WHERE status='PLACED'"), text: 'order(s) waiting for a restaurant to accept', path: '/orders' },
       { key: 'maintenance', level: 'bad', n: getSetting(db, 'maintenance_mode') === '1' ? 1 : 0, text: 'Maintenance mode is ON: customers cannot place new orders. Switch it off in Settings', path: '/settings' },
+      { key: 'turndowns', level: 'warn', n: turndownReview(db).length, text: 'delivery agent(s) keep turning down offers today – review them', path: '/riders', set: 'review' },
       { key: 'unassigned', level: 'warn', n: one("SELECT COUNT(*) FROM orders WHERE rider_id IS NULL AND status IN ('ACCEPTED','PREPARING','READY')"), text: 'accepted order(s) without a delivery agent yet', path: '/orders' },
       { key: 'cashouts', level: 'warn', n: one("SELECT COUNT(*) FROM cashout_requests WHERE status IN ('PENDING','APPROVED')"), text: 'payout request(s) to process', path: '/cashouts' },
       { key: 'refunds', level: 'warn', n: one("SELECT COUNT(*) FROM refunds WHERE stage IN ('requested','approved')"), text: 'refund(s) with UPI details waiting for review or payment', path: '/refunds' },
@@ -331,12 +332,14 @@ export function adminRoutes(db) {
 
   // ---------- delivery-agent verification queue ----------
   r.get('/riders', (req, res) => {
-    const st = typeof req.query.status === 'string' && req.query.status !== 'all' ? req.query.status : null;
-    const rows = db.prepare(`SELECT u.id,u.name,u.phone,u.active,u.created_at,r.* FROM riders r JOIN users u ON u.id=r.user_id ${st ? 'WHERE r.verification_status=?' : ''}
+    const rv = turndownReview(db), rvById = new Map(rv.map((x) => [x.id, x]));
+    const st = typeof req.query.status === 'string' && !['all', 'review'].includes(req.query.status) ? req.query.status : null;
+    const rows0 = db.prepare(`SELECT u.id,u.name,u.phone,u.active,u.created_at,r.* FROM riders r JOIN users u ON u.id=r.user_id ${st ? 'WHERE r.verification_status=?' : ''}
       ORDER BY CASE r.verification_status WHEN 'pending' THEN 0 WHEN 'reverification_required' THEN 1 WHEN 'corrections_requested' THEN 2 WHEN 'draft' THEN 3 ELSE 4 END, COALESCE(r.submitted_at, u.created_at) ASC`).all(...(st ? [st] : []));
-    res.json({ counts: Object.fromEntries(db.prepare('SELECT verification_status s, COUNT(*) n FROM riders GROUP BY s').all().map((x) => [x.s, x.n])),
+    const rows = req.query.status === 'review' ? rows0.filter((x) => rvById.has(x.id)) : rows0;
+    res.json({ counts: { ...Object.fromEntries(db.prepare('SELECT verification_status s, COUNT(*) n FROM riders GROUP BY s').all().map((x) => [x.s, x.n])), review: rv.length },
       riders: rows.map((x) => ({ id: x.id, name: x.name, legal_name: x.legal_name, phone: x.phone, active: x.active, verification_status: x.verification_status, is_online: x.is_online,
-        vehicle_category: x.vehicle_category, vehicle_reg_no: x.vehicle_reg_no, submitted_at: x.submitted_at, decided_at: x.decided_at, missing_count: missing(x).length })) });
+        vehicle_category: x.vehicle_category, vehicle_reg_no: x.vehicle_reg_no, submitted_at: x.submitted_at, decided_at: x.decided_at, missing_count: missing(x).length, turndowns: rvById.get(x.id) || null })) });
   });
   // STAGING ONLY: made-up demo numbers (+91 5..., never a real Indian mobile) can never receive a code, so admin may confirm them.
   // Refused on production and for any real-looking number. Approval itself still needs the full application and the normal admin check.
@@ -350,6 +353,7 @@ export function adminRoutes(db) {
     db.prepare('UPDATE riders SET phone_verified_at=COALESCE(phone_verified_at, ?), application_updated_at=? WHERE user_id=?').run(now, now, a.user.id);
     audit(db, req, 'rider.demo_phone_confirmed', 'user', a.user.id, { phone: a.user.phone, app_env: config.appEnv }); res.json({ ok: true }); }));
   r.get('/riders/:id', (req, res) => { const a = adminView(db, Number(req.params.id)); a ? res.json({ application: { ...a, demo_phone_confirmable: demoConfirmable(a) }, doc_labels: DOC_LABEL, id_types: ID_TYPES }) : res.status(404).json({ error: 'Delivery agent not found.' }); });
+  r.post('/riders/:id/turndown-review', wrap((req, res) => { const out = markReviewed(db, req.user.id, Number(req.params.id), req.body?.note); if (!out.error) audit(db, req, 'rider.turndown_review', 'rider', req.params.id, { note: req.body?.note }); send(res, out); }));
   r.get('/riders/:id/history', (req, res) => res.json({ history: db.prepare('SELECT status,action,note,created_at FROM rider_verification_history WHERE rider_id=? ORDER BY id DESC').all(req.params.id) }));
   // reject / request corrections: reason required. Approve / suspend change who may receive orders: also need fresh authentication.
   const needsFresh = (req, res, next) => (['approve', 'suspend'].includes(req.body?.action) ? fresh(req, res, next) : next());
@@ -497,7 +501,7 @@ export function adminRoutes(db) {
       if (k === 'gps_accuracy_warn_m' && v !== '' && !(/^\d{1,4}$/.test(String(v)) && +v >= 5 && +v <= 5000)) return res.status(400).json({ error: 'GPS accuracy limit must be 5 to 5000 metres, or empty for no limit.' });
       if (k === 'gps_capture_timeout_sec' && !(/^\d{1,3}$/.test(String(v)) && +v >= 5 && +v <= 120)) return res.status(400).json({ error: 'GPS timeout must be 5 to 120 seconds.' });
       if (['rider_base_km_paise', 'rider_route_km_paise'].includes(k) && !(/^\d{1,5}$/.test(String(v)) && +v <= 5000)) return res.status(400).json({ error: 'Per-km rider pay must be ₹0 to ₹50.' });
-      if (k === 'rider_reject_alert' && !(/^\d{1,2}$/.test(String(v)) && +v >= 1 && +v <= 50)) return res.status(400).json({ error: 'Turn-down alert must be every 1 to 50 offers.' });
+      if (k === 'rider_reject_alert' && !(/^\d{1,2}$/.test(String(v)) && +v >= 1 && +v <= 50)) return res.status(400).json({ error: 'Turn-down review must start at 1 to 50 offers a day.' });
       if (k === 'rider_min_cover_km' && !(/^\d+(\.\d+)?$/.test(String(v)) && +v >= 0 && +v <= 10)) return res.status(400).json({ error: 'Distance covered by the minimum must be 0 to 10 km.' });
       if (k === 'rider_short_km_paise' && !(/^\d{1,4}$/.test(String(v)) && +v <= 2000)) return res.status(400).json({ error: 'Short-trip extra must be ₹0 to ₹20 per km.' });
       if (k === 'rider_route_switch_km' && !(/^\d+(\.\d+)?$/.test(String(v)) && +v > 0 && +v <= 50)) return res.status(400).json({ error: 'The SRSA/ERA switch must be between 0 and 50 km.' });

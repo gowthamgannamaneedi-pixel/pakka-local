@@ -177,6 +177,22 @@ export function decide(db, adminId, riderId, { action, note, fields, days }) {
   return { ok: true, status: st, suspended_until: until };
 }
 
+// Partners to review: turned down at least rider_reject_alert offers today (India time) since admin last reviewed them
+export function turndownReview(db) {
+  const IST = 330 * 60_000, d = new Date(Date.now() + IST); d.setUTCHours(0, 0, 0, 0); const today = new Date(d.getTime() - IST).toISOString();
+  const from = Number(db.prepare("SELECT value FROM app_settings WHERE key='rider_reject_alert'").pluck().get() || 2) || 2;
+  return db.prepare(`SELECT a.rider_id AS id, COUNT(*) AS rejected,
+      (SELECT COUNT(*) FROM rider_assignments x WHERE x.rider_id=a.rider_id AND x.status='ACCEPTED' AND x.responded_at>=?) AS accepted, MAX(a.responded_at) AS last_at
+    FROM rider_assignments a WHERE a.reason IS NOT NULL AND a.responded_at>=?
+      AND a.responded_at > COALESCE((SELECT MAX(h.created_at) FROM rider_verification_history h WHERE h.rider_id=a.rider_id AND h.action IN ('turndown_review','suspend')), '')
+    GROUP BY a.rider_id HAVING COUNT(*)>=?`).all(today, today, from);
+}
+export function markReviewed(db, adminId, riderId, note) {
+  const r = row(db, riderId); if (!r) return fail('Delivery agent not found.', 404);
+  note = String(note || '').trim().slice(0, 500); if (note.length < 3) return fail('Write what you decided (e.g. spoke to them, warned).');
+  db.prepare('INSERT INTO rider_verification_history (rider_id,status,action,note,admin_id,fields) VALUES (?,?,?,?,?,NULL)').run(riderId, r.verification_status, 'turndown_review', note, adminId);
+  return { ok: true };
+}
 // Offers accepted vs turned down (today in India time, last 7 days) with the reasons, for the admin review screen
 function offerStats(db, riderId) {
   const IST = 330 * 60_000, d = new Date(Date.now() + IST); d.setUTCHours(0, 0, 0, 0);
@@ -193,7 +209,7 @@ export function adminView(db, riderId) {
   const u = db.prepare('SELECT id, name, phone, email, active, created_at FROM users WHERE id=?').get(riderId);
   return { ...view(db, r), user: u, is_online: !!r.is_online,
     active_deliveries: db.prepare("SELECT order_code, status FROM orders WHERE rider_id=? AND status IN ('ACCEPTED','PREPARING','READY','PICKED_UP')").all(riderId),
-    suspended_until: r.verification_status === 'suspended' ? r.suspended_until : null, offers: offerStats(db, riderId),
+    suspended_until: r.verification_status === 'suspended' ? r.suspended_until : null, offers: offerStats(db, riderId), needs_review: turndownReview(db).some((x) => x.id === riderId),
     history: db.prepare('SELECT h.status, h.action, h.note, h.fields, h.created_at, a.name AS admin_name FROM rider_verification_history h LEFT JOIN users a ON a.id=h.admin_id WHERE h.rider_id=? ORDER BY h.id DESC').all(riderId)
       .map((h) => ({ ...h, fields: h.fields ? JSON.parse(h.fields) : null })) };
 }
