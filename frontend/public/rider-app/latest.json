@@ -1,7 +1,7 @@
 {
-  "versionCode": 12,
-  "versionName": "1.11",
-  "url": "/rider-app/PakkaRider-1.11.apk",
+  "versionCode": 13,
+  "versionName": "1.12",
+  "url": "/rider-app/PakkaRider-1.12.apk",
   "required": true,
-  "notes": ["New offers ring like a phone call until you tap Accept or Not now", "Rings on the lock screen, in other apps and when the app is closed", "Accept straight from the ringing alert"]
+  "notes": ["New offers pop up together with the ring (no delay)", "Offers are checked twice as often", "Keeps ringing while the app opens, until you tap Accept or Not now"]
 }

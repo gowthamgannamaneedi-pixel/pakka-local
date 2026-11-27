@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authenticate, requireRole } from '../auth.js';
-import { claimOrder, dismissOffer, verifyPickup, verifyDelivery, balances, requestCashout, saveUpload, iso, getSetting, tripInfo, nearActive, straightM, riderPayParts } from '../services/core.js';
+import { riderInArea, claimOrder, dismissOffer, verifyPickup, verifyDelivery, balances, requestCashout, saveUpload, iso, getSetting, tripInfo, nearActive, straightM, riderPayParts } from '../services/core.js';
 import { send, parse, wrap } from './util.js';
 import crypto from 'node:crypto';
 import rateLimit from 'express-rate-limit';
@@ -43,9 +43,16 @@ export function riderRoutes(db) {
   r.get('/me', (req, res) => { touch(req); const x = me(req); const m = missing(x);
     res.json({ rider: { verification_status: x.verification_status, is_online: x.is_online, vehicle_reg_no: x.vehicle_reg_no, vehicle_category: x.vehicle_category, can_take_orders: x.verification_status === 'approved',
       missing_count: m.length, profile_complete: !m.length, decision_note: x.decision_note, suspended_until: x.verification_status === 'suspended' ? x.suspended_until : null, correction_fields: x.correction_fields ? JSON.parse(x.correction_fields) : [] } }); });
+  // the partner's current position, only to check they are inside the delivery area (one point, overwritten each time)
+  r.post('/position', wrap((req, res) => {
+    const d = parse(z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) }).passthrough(), req, res); if (!d) return;
+    db.prepare('UPDATE riders SET area_lat=?, area_lng=?, area_at=? WHERE user_id=?').run(Math.round(d.lat * 1e5) / 1e5, Math.round(d.lng * 1e5) / 1e5, iso(), req.user.id);
+    res.json({ area: riderInArea(db, req.user.id) });
+  }));
   r.post('/online', wrap((req, res) => {
     const d = parse(z.object({ online: z.boolean() }), req, res); if (!d) return;
     if (d.online && me(req).verification_status !== 'approved') return res.status(403).json({ error: 'Your account must be approved by Pakka Local before you can go online.' });
+    if (d.online) { const a = riderInArea(db, req.user.id); if (!a.ok) return res.status(403).json({ error: a.message, code: a.code }); }
     db.prepare('UPDATE riders SET is_online=?, last_seen_at=? WHERE user_id=?').run(d.online ? 1 : 0, iso(), req.user.id);   // active deliveries are untouched
     res.json({ online: d.online });
   }));
@@ -54,6 +61,7 @@ export function riderRoutes(db) {
     // deliveries already assigned stay visible (and finishable) whatever the verification state; new offers only for approved + online
     const active = db.prepare("SELECT * FROM orders WHERE rider_id=? AND status IN ('ACCEPTED','PREPARING','READY','PICKED_UP') ORDER BY id").all(req.user.id).map((o) => card(o, true)).map(restaurantMaps);
     if (!x.is_online || x.verification_status !== 'approved') return res.json({ offers: [], active });
+    const inA = riderInArea(db, req.user.id); if (!inA.ok) return res.json({ offers: [], active, out_of_area: inA });
     const full = active.length >= Number(getSetting(db, 'max_active_per_rider'));
     // while carrying a delivery, only offers on the way (restaurant and drop-off near a current delivery) are shown, nearest first
     const offers = full ? [] : db.prepare(`SELECT * FROM orders o WHERE rider_id IS NULL AND status IN ('ACCEPTED','PREPARING','READY')

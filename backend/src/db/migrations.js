@@ -821,5 +821,14 @@ CREATE INDEX idx_admin_verify ON admin_verify_codes(user_id, kind, id);`
     sql: `
 ALTER TABLE rider_assignments ADD COLUMN reason TEXT;
 ALTER TABLE riders ADD COLUMN suspended_until TEXT;`
+  },
+  {
+    // Delivery partners must be inside the service area (e.g. 7 km circle) to receive offers: their last position, kept only
+    // as a single point (overwritten each time), never a history.
+    id: 'p28_001_rider_area',
+    sql: `
+ALTER TABLE riders ADD COLUMN area_lat REAL;
+ALTER TABLE riders ADD COLUMN area_lng REAL;
+ALTER TABLE riders ADD COLUMN area_at TEXT;`
   }
 ];

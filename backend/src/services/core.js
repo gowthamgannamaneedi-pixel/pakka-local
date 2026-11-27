@@ -48,6 +48,9 @@ const DEFAULTS = { tax_bps: '0', gps_delivery_fee_paise: '4000', rider_payout_pa
   rider_min_cover_km: '1', rider_short_km_paise: '400',
   // from this many turn-downs in a day (India time), each further turn-down alerts admin and the partner is listed for review
   rider_reject_alert: '2',
+  // the customer's delivery charge is never below the delivery partner's pay for that trip (Pakka Local pays no delivery cost)
+  // (on by default; the automated price tests of the per-km / place / distance charges switch it on only where they check it)
+  delivery_covers_rider: process.env.NODE_ENV === 'test' ? '0' : '1',
   // A rider already carrying a delivery is offered (and may accept) another one only when its restaurant AND its drop-off are
   // within this many km of one of their current deliveries. max_active_per_rider still caps how many at once.
   batch_radius_km: '2' };
@@ -169,6 +172,10 @@ export function quote(db, input) {
     fee = Math.max(Math.round(m * rate / 1000 / 100) * 100, minFee); pricing = 'gps_per_km';      // rounded off to the nearest whole rupee (₹23.40 -> ₹23, ₹23.50 -> ₹24)
     priced = { distance_m: m, band: `${km.toFixed(2)} km × ${PLrs(rate)}/km${road ? ' by road' : ' (straight distance)'}${fee === minFee && minFee ? ` · minimum ${PLrs(minFee)}${minFee === rate ? ' (first km)' : ''}` : ''}`, source: road ? input.route.source : 'gps_straight', pricing };
   }
+  // The customer's delivery charge always covers what the delivery partner is paid for this trip: Pakka Local does not pay
+  // any part of the delivery. (e.g. 1 km: ₹10/km charge -> ₹20, the partner's minimum.)
+  const riderPayout = riderPay(db, r, point, priced?.distance_m ?? input.route?.distance_m);
+  if (getSetting(db, 'delivery_covers_rider') !== '0' && fee < riderPayout) { fee = riderPayout; if (priced) priced.band = `${priced.band} · covers delivery partner pay ${PLrs(riderPayout)}`; }
   const delivery = r.free_delivery_above_paise && base + markup >= r.free_delivery_above_paise ? 0 : fee;     // restaurant-specific delivery rule
   const now = iso();
   let surge = 0;
@@ -191,7 +198,7 @@ export function quote(db, input) {
   const deliveryMin = trip ? tripMinutes(db, trip) : loc?.distance_km ? Math.round(loc.distance_km * perKm) + 3 : Number(getSetting(db, 'default_delivery_min'));
   return { restaurant: r, lines, dest, locationId: loc?.id ?? null, feeSource: loc ? 'listed' : 'gps', baseDeliveryFee: fee, pricing,
     distanceM: priced?.distance_m ?? null, band: priced?.band ?? null, routeSource: priced ? (priced.pricing === 'distance' || priced.pricing === 'gps_per_km' ? priced.source : `none:${priced.reason}`) : null, base, markup, delivery, surge, tax, total, discount, coupon, couponError, commissionBps: r.commission_bps, commission,
-    restaurantPayout: base - commission, riderPayout: riderPay(db, r, point, priced?.distance_m ?? input.route?.distance_m), prepMin: prep + r.packing_buffer_min, deliveryMin, trip };
+    restaurantPayout: base - commission, riderPayout, prepMin: prep + r.packing_buffer_min, deliveryMin, trip };
 }
 // What the rider earns for one delivery: distance from the restaurant to the customer (road when measured, else the straight GPS
 // distance) x the rider rate per km, rounded off to the nearest rupee; never below the optional minimum. Without a rate: fixed pay.
@@ -240,6 +247,15 @@ export const serviceArea = (db) => { const km = Number(getSetting(db, 'service_r
 export function outsideArea(db, point) { const a = serviceArea(db); if (!a || !point || point.lat == null || point.lng == null) return null;
   const km = straightM(a, point) / 1000; if (km <= a.km) return null;
   return { km: Math.round(km * 10) / 10, message: 'Sorry, we don’t deliver to this address yet. Please choose a nearby address.' }; }
+// Is this delivery partner inside the service area? Their last position (sent by the app when going online and every few
+// minutes while online) must be inside the circle. No area set = everyone qualifies. Unknown position = not inside.
+export function riderInArea(db, riderId) {
+  const a = serviceArea(db); if (!a) return { ok: true };
+  const p = db.prepare('SELECT area_lat AS lat, area_lng AS lng, area_at FROM riders WHERE user_id=?').get(riderId);
+  if (!p || p.lat == null) return { ok: false, code: 'NEED_LOCATION', message: 'Share your location to receive delivery offers.' };
+  const km = straightM(a, p) / 1000;
+  return km <= a.km ? { ok: true, km } : { ok: false, code: 'OUT_OF_AREA', km: Math.round(km * 10) / 10, message: `You are ${(Math.round(km * 10) / 10)} km from ${a.name}. Offers are only for partners within ${a.km} km.` };
+}
 export const straightM = (a, b) => { const h = Math.sin(rad(b.lat - a.lat) / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(rad(b.lng - a.lng) / 2) ** 2; return 2 * R_EARTH * Math.asin(Math.sqrt(h)); };
 export function tripInfo(from, to, roadM) {
   if (Number.isFinite(roadM)) return { km: Math.round(roadM / 100) / 10, byRoad: true };
@@ -398,6 +414,7 @@ export function claimOrder(db, riderId, orderId) {
     // a repeated accept (double tap, or the pop-up after accepting from the list) for an order this rider already holds is a success, not an error
     if (db.prepare("SELECT 1 FROM orders WHERE id=? AND rider_id=? AND status IN ('ACCEPTED','PREPARING','READY','PICKED_UP')").get(orderId, riderId)) return { ok: true, already: true };
     if (!r || !r.active || r.verification_status !== 'approved' || !r.is_online) return { error: 'You must be online and approved to accept deliveries.', status: 403 };
+    const inA = riderInArea(db, riderId); if (!inA.ok) return { error: inA.message, status: 403, code: inA.code };
     const active = db.prepare("SELECT COUNT(*) FROM orders WHERE rider_id=? AND status IN ('ACCEPTED','PREPARING','READY','PICKED_UP')").pluck().get(riderId);
     if (active >= Number(getSetting(db, 'max_active_per_rider'))) return { error: 'Finish your current deliveries first.', status: 409 };
     if (active > 0) { const o0 = db.prepare('SELECT id, restaurant_id, dest_lat, dest_lng FROM orders WHERE id=?').get(orderId);
@@ -444,8 +461,9 @@ function offerAlerts(db, riderId, o, text) {
     notifyAdmins(db, `Review ${name}: turned down ${c.rejected} offers today`, `Accepted ${c.accepted}, turned down ${c.rejected} today. Latest: ${o.order_code} – ${text}. Open Delivery agents → Turn-downs to review.`, o.id, `rejn:${riderId}:${since.slice(0, 10)}:${c.rejected}`);
   // nobody left: every approved, online partner has turned this order down
   if (o.rider_id || !['ACCEPTED', 'PREPARING', 'READY'].includes(o.status)) return;
-  const left = db.prepare(`SELECT COUNT(*) FROM riders r JOIN users u ON u.id=r.user_id WHERE r.verification_status='approved' AND r.is_online=1 AND u.active=1 AND r.last_seen_at>?
-    AND NOT EXISTS (SELECT 1 FROM rider_assignments a WHERE a.order_id=? AND a.rider_id=r.user_id AND a.status='DISMISSED')`).pluck().get(new Date(Date.now() - Number(getSetting(db, 'rider_online_ttl_sec')) * 1000).toISOString(), o.id);
+  const left = db.prepare(`SELECT r.user_id FROM riders r JOIN users u ON u.id=r.user_id WHERE r.verification_status='approved' AND r.is_online=1 AND u.active=1 AND r.last_seen_at>?
+    AND NOT EXISTS (SELECT 1 FROM rider_assignments a WHERE a.order_id=? AND a.rider_id=r.user_id AND a.status='DISMISSED')`).pluck().all(new Date(Date.now() - Number(getSetting(db, 'rider_online_ttl_sec')) * 1000).toISOString(), o.id)
+    .filter((id) => riderInArea(db, id).ok).length;
   if (left > 0) return;
   const why = db.prepare("SELECT u.name, a.reason FROM rider_assignments a JOIN users u ON u.id=a.rider_id WHERE a.order_id=? AND a.status='DISMISSED' AND a.reason IS NOT NULL ORDER BY a.id").all(o.id)
     .map((x) => `${x.name}: ${x.reason}`).join('; ');

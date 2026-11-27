@@ -75,7 +75,7 @@
   PL.actions['bg-fix'] = async (el) => { const p = RN(); if (!p) return; const w = el.dataset.w;
     if (w === 'restart') { nativeSync(true); setTimeout(() => bgCheck(true), 1500); return; }
     await p.openSettings({ what: w }).catch(() => {}); };
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) setTimeout(() => bgCheck(true), 600); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { tick(); setTimeout(() => bgCheck(true), 600); } });
   const nativeSync = (force) => { const p = RN(); if (!p) return; const s = PL.session(); const online = !!S.me?.is_online, active = S.last?.active?.length || 0, tok = s?.token || '';
     const sig = [online, active, tok].join('|'); if (sig === nsig && !force) return; nsig = sig;
     p.sync({ online, active, token: tok, api: location.origin }).catch(() => {});
@@ -171,8 +171,16 @@
   const locWatch = async () => { if (!PL.session() || !S.me?.is_online || S.locBusy) return; S.locBusy = true;
     try { const bad = await locProblem(false); if (bad && S.me?.is_online && !(S.last?.active?.length)) { await PL.post('/api/rider/online', { online: false }).catch(() => {}); await refreshMe(); PL.rerender(); locGuide([`${bad[0]} — you are offline`, bad[1], bad[2]]); } } finally { S.locBusy = false; } };
   setInterval(locWatch, 20000);
+  // where the partner is (one point, overwritten): offers are only for partners inside the delivery area
+  const sendPos = () => new Promise((ok) => { if (!navigator.geolocation) return ok(null);
+    navigator.geolocation.getCurrentPosition(async (p) => { try { const r = await PL.post('/api/rider/position', { lat: p.coords.latitude, lng: p.coords.longitude }); S.posAt = Date.now(); S.area = r.area; ok(r.area); } catch { ok(null); } },
+      () => ok(null), { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }); });
+  const posCheck = () => { if (PL.session() && S.me?.is_online && !document.hidden && !S.posBusy && Date.now() - (S.posAt || 0) > 120000) { S.posBusy = true;
+    sendPos().then((a) => { S.posBusy = false; if (a) { S.areaBad = !a.ok; tick(); } }); } };
+  setTimeout(posCheck, 2500); setInterval(posCheck, 30000); document.addEventListener('visibilitychange', () => setTimeout(posCheck, 800));
   PL.actions.online = async (el) => { el?.classList.add('busy'); const on = !S.me?.is_online;
-    if (on) { const bad = await locProblem(true); if (bad) { el?.classList.remove('busy'); return locGuide(bad); } }
+    if (on) { const bad = await locProblem(true); if (bad) { el?.classList.remove('busy'); return locGuide(bad); }
+      const a = await sendPos(); if (a && !a.ok) { el?.classList.remove('busy'); S.areaBad = true; return locGuide(['Outside the delivery area', a.message, null]); } }
     if (on && !PL.sound.unlocked) await PL.sound.enable(); const r = await PL.run(() => PL.post('/api/rider/online', { online: on }), on ? 'You are online' : 'You are offline'); await refreshMe(); if (r) PL.rerender(); };
 
   // ---------- deliveries ----------
@@ -205,12 +213,9 @@
         <div class="row mt2">${big(d.nav_url, 'pin', 'Navigate')}${o.customer.phone ? big('tel:' + o.customer.phone, 'phone', 'Call', 'ghost') : ''}</div>`;
     const wait = (st === 'ACCEPTED' || st === 'PREPARING') ? '<div class="rs-wait">The kitchen is preparing. Enter the pickup code here when it’s ready.</div>' : '';
     const items = o.items.map((i) => `<div class="kv"><span>${i.qty} × ${e(i.name)}</span></div>`).join('');
-    // Before pickup the rider ticks each item after checking it with the restaurant; the pickup code is accepted only when all are ticked.
-    const ck = S.chk[o.id] || (S.chk[o.id] = new Set()), nI = o.items.length, all = ck.size >= nI;
-    const check = n < 2 ? `<div class="rs-items"><div class="rs-items-h"><b>Check the items</b><span>${ck.size}/${nI} checked</span></div>
-        ${o.items.map((i, k) => `<button type="button" class="rs-it ${ck.has(k) ? 'on' : ''}" data-act="it-chk" data-id="${o.id}" data-k="${k}" aria-pressed="${ck.has(k)}"><i>${ck.has(k) ? '✓' : ''}</i><span><b>${i.qty} ×</b> ${e(i.name)}</span></button>`).join('')}
-        <small>${all ? 'All items checked. Enter the pickup code.' : 'Match each item with the restaurant, then tick it.'}</small></div>`
-      : `<div class="rs-items"><div class="rs-items-h"><b>Hand over these items</b><span>${o.items.reduce((s, i) => s + i.qty, 0)} total</span></div>${o.items.map((i) => `<div class="rs-it on"><i>✓</i><span><b>${i.qty} ×</b> ${e(i.name)}</span></div>`).join('')}</div>`;
+    // the items, always visible: before pickup to cross-check with the restaurant, after pickup to hand over
+    const check = `<div class="rs-items"><div class="rs-items-h"><b>${n < 2 ? 'Items to collect' : 'Hand over these items'}</b><span>${o.items.reduce((s, i) => s + i.qty, 0)} total</span></div>
+        ${o.items.map((i) => `<div class="rs-it plain"><span><b>${i.qty} ×</b> ${e(i.name)}</span></div>`).join('')}${n < 2 ? '<small>Cross-check these with the restaurant before entering the pickup code.</small>' : ''}</div>`;
     return `<div class="card rs">
       <div class="rs-head"><span class="rs-n">Step ${n + 1} of 3</span><span class="rs-fee">${rs(o.fee_paise)}</span></div>
       <div class="rs-bar"><i style="width:${(n + 1) * 33.34}%"></i></div>
@@ -228,6 +233,7 @@
       ${['draft', 'corrections_requested', 'reverification_required'].includes(vs) ? '<button class="btn sm mt2" data-act="go" data-path="/profile">Continue my application</button>' : vs === 'pending' ? '<button class="btn ghost sm mt2" data-act="go" data-path="/profile">View my application</button>' : ''}</div>` : !me.is_online ? '<div class="banner info">You are offline. Switch Online (top right) to receive delivery offers.</div>' : '';
     const offers = d.offers.filter((o) => !S.dismissed.has(o.id) && !act.find((a) => a.id === o.id));
     act.forEach((o) => { S.fee[o.id] = o.fee_paise; }); S.lastAct = act;
+    const out = d.out_of_area && me.is_online ? `<div class="banner warn">${PL.icon('pin')} <b>No offers here.</b> ${e(d.out_of_area.message)}</div>` : '';
     const today = await earnToday(), can = me.can_take_orders !== false && vs === 'approved';
     const hero = can ? `<div class="d-hero ${me.is_online ? 'on' : ''}"><div class="grow"><span class="d-state"><i></i>${me.is_online ? 'You’re online' : 'You’re offline'}</span><div class="small">${me.is_online ? (act.length ? 'Finish your delivery. Orders on your way still arrive.' : 'Waiting for delivery offers near you.') : 'Go online to start receiving delivery offers.'}</div></div>
         <button class="d-go" data-act="online" aria-pressed="${!!me.is_online}">${me.is_online ? 'Go offline' : 'Go online'}</button></div>
@@ -237,7 +243,7 @@
     // the code box comes first (right under the steps), as 4 big boxes; typing the 4th digit submits it
     codeForm = (o) => o.status === 'READY' ? `<form data-form="pickup" data-id="${o.id}" class="mt d-code d-code-top"><label>${PL.icon('box')}<span>Ask the restaurant for the <b>pickup code</b></span></label>${digits()}<button class="btn block lg mt2" type="submit">Confirm pickup</button></form>`
       : o.status === 'PICKED_UP' ? `<form data-form="deliver" data-id="${o.id}" class="mt d-code d-code-top green"><label>${PL.icon('check')}<span>Ask the customer for the <b>delivery code</b></span></label>${digits()}<button class="btn green block lg mt2" type="submit">Complete delivery</button></form>` : '';
-    return `${gate}${hero}${RN() ? `<div id="bgcheck">${S.bgHtml || ''}</div>` : ''}${act.length ? (PL.track?.card?.() || '') : ''}${S.push === 'on' || RN() ? '' : (PL.push?.card?.('rider') || '')}${act.map((o) => stepCard(o)).join('')}
+    return `${gate}${hero}${out}${RN() ? `<div id="bgcheck">${S.bgHtml || ''}</div>` : ''}${act.length ? (PL.track?.card?.() || '') : ''}${S.push === 'on' || RN() ? '' : (PL.push?.card?.('rider') || '')}${act.map((o) => stepCard(o)).join('')}
       ${act.length && me.is_online && d.can_add ? `<div class="small mute" style="margin:10px 2px 0">You can add another order if it’s on your way (restaurant and drop-off within ${d.batch_radius_km || 2} km of your current delivery).</div>` : ''}
       ${offers.length ? `<div class="sec">${act.length ? 'Orders on your way' : 'Available offers'}</div>${offers.map((o) => `<div class="card">${offerCard(o)}<div class="row mt2"><button class="btn ghost grow" data-act="dismiss" data-id="${o.id}">Not now</button><button class="btn grow lg" data-act="claim" data-id="${o.id}">Accept ${rs(o.fee_paise)}</button></div></div>`).join('')}` : ''}
       ${!act.length && !offers.length ? `<div class="empty">${me.is_online ? `<span class="d-radar" aria-hidden="true">${PL.icon('bike')}</span><b>Looking for deliveries…</b><span class="small">Keep this screen open. New offers ring and appear here.</span>` : `${PL.icon('bike', 'width="36" height="36"')}<b>No active deliveries</b>`}</div>` : ''}`;
@@ -254,8 +260,7 @@
   document.addEventListener('paste', (ev) => { const t = ev.target; if (!t.classList?.contains('d-dg')) return; ev.preventDefault(); dgFill(t.closest('.d-digits'), (ev.clipboardData || window.clipboardData).getData('text'), 0); });
   const dgCheck = (f) => { const v = PL.form(f).otp || ''; if (!/^\d{4}$/.test(v)) { PL.toast('Enter all 4 digits of the code.', true); f.querySelector('.d-dg')?.focus(); return null; } return v; };
   const dgClear = (f) => { f.querySelectorAll('.d-dg').forEach((x) => { x.value = ''; x.classList.remove('on'); }); f.querySelector('.d-dg')?.focus(); };
-  PL.actions['it-chk'] = (el) => { const id = el.dataset.id, k = Number(el.dataset.k), s = S.chk[id] || (S.chk[id] = new Set()); s.has(k) ? s.delete(k) : s.add(k); PL.rerender(); };
-  PL.forms.pickup = async (f) => { const o = (S.lastAct || []).find((x) => String(x.id) === f.dataset.id); if (o && (S.chk[o.id]?.size || 0) < o.items.length) { PL.toast('Check every item with the restaurant and tick it first.', true); return; }
+  PL.forms.pickup = async (f) => {
     const otp = dgCheck(f); if (!otp) return; const r = await PL.run(() => PL.post(`/api/rider/orders/${f.dataset.id}/pickup`, { otp }), 'Pickup confirmed'); if (r) PL.rerender(); else dgClear(f); };
   PL.forms.deliver = async (f) => { const otp = dgCheck(f); if (!otp) return; const r = await PL.run(() => PL.post(`/api/rider/orders/${f.dataset.id}/deliver`, { otp })); if (!r) { dgClear(f); return; } S.et = null;
     await PL.celebrate({ title: 'Delivered!', sub: S.fee[f.dataset.id] ? `${rs(S.fee[f.dataset.id])} added to your earnings.` : 'Earnings added to your balance.' }); PL.rerender(); };

@@ -17,7 +17,9 @@
     if (S.snap) for (const [id, x] of Object.entries(snap)) { const p = S.snap[id]; if (!p) continue;
       const msg = !p.rider && x.rider ? `Delivery partner ${x.rider} is coming for #${x.code}` : p.st !== 'PICKED_UP' && x.st === 'PICKED_UP' ? `#${x.code} picked up by the delivery partner` : p.st !== 'DELIVERED' && x.st === 'DELIVERED' ? `#${x.code} delivered` : p.st !== 'CANCELLED' && x.st === 'CANCELLED' ? `#${x.code} was cancelled by Pakka Local` : null;
       if (msg) { PL.chime(); PL.toast(msg, x.st === 'CANCELLED' ? true : 'ok'); } }
-    S.snap = snap;
+    const sig = Object.entries(snap).map(([id, x]) => `${id}:${x.st}:${x.rider || ''}`).join('|');
+    if (S.sig != null && sig !== S.sig && /^#\/(orders)?$|^$/.test(location.hash) && !document.querySelector('.ov [role=dialog]') && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || '')) PL.rerender();
+    S.sig = sig; S.snap = snap;
     if (S.prevN != null && pending.length > S.prevN) { try { navigator.vibrate?.([220, 120, 220]); } catch {} }
     S.prevN = pending.length; document.title = pending.length ? `(${pending.length}) New order · Pakka Local` : 'Restaurant · Pakka Local';
     const box = PL.$('#alerts'); if (!box) return;
@@ -92,7 +94,7 @@
   const readyCard = (o) => `<div class="k-card k-ready"><div class="k-top"><b class="k-code">${sc(o)}</b><span class="k-rider">${PL.icon('bike')} ${o.rider ? `${e(o.rider.name)} is coming` : 'Finding a rider…'}</span></div>
       ${ids(o, 'Finding a rider…')}${itemsList(o)}<div class="k-pick"><span>Give this code to the rider</span><div class="k-otp">${String(o.pickup_otp || '').split('').map((d) => `<i>${e(d)}</i>`).join('')}</div></div></div>`;
   const pastRow = (o) => `<div class="k-past"><div class="grow"><b>${e(o.order_code)}</b> <span class="small mute">${e(PL.dt(o.created_at))}</span><div class="small">${o.items.map((i) => `${i.qty}× ${e(i.name)}`).join(', ')}</div>
-      ${o.rejection_reason ? `<div class="small" style="color:var(--bad)">${o.status === 'CANCELLED' ? '' : 'Rejected: '}${e(o.rejection_reason)}${o.refund ? ' ' + PL.chip(o.refund) : ''}</div>` : ''}${o.status === 'PICKED_UP' && o.rider ? `<div class="small mute">Picked up by ${e(o.rider.name)}</div>` : ''}</div>
+      ${o.rejection_reason ? `<div class="small" style="color:var(--bad)">${o.status === 'CANCELLED' ? '' : 'Rejected: '}${e(o.rejection_reason)}${o.refund ? ' ' + PL.chip(o.refund) : ''}</div>` : ''}${['PICKED_UP', 'DELIVERED'].includes(o.status) && o.rider ? `<div class="small mute">${o.status === 'DELIVERED' ? 'Delivered' : 'Picked up'} by ${e(o.rider.name)}</div>` : ''}</div>
       <div class="right">${PL.chip(o.status)}<div class="small mt2">${['REJECTED', 'CANCELLED'].includes(o.status) ? '' : rs(o.payout_paise)}</div></div></div>`;
   const anyCard = (o) => (o.status === 'PLACED' ? newCard(o) : COOK.includes(o.status) ? cookCard(o) : o.status === 'READY' ? readyCard(o) : `<div class="k-card">${pastRow(o)}</div>`);
   const box = (cls, title, hint, list, card, emptyText) => `<section class="k-sec ${cls}"><div class="k-h"><h2>${title}</h2><span class="k-n">${list.length}</span></div><p class="k-hint">${hint}</p>
@@ -144,15 +146,22 @@
     const fresh = orders.filter((o) => o.status === 'PLACED').sort((a, b) => a.id - b.id), cook = orders.filter((o) => COOK.includes(o.status)).sort((a, b) => a.id - b.id), ready = orders.filter((o) => o.status === 'READY').sort((a, b) => a.id - b.id);
     const dayKey = (t) => new Date(String(t).replace(' ', 'T') + (/Z|[+-]\d\d:?\d\d$/.test(t) ? '' : 'Z')).toDateString(), todayKey = new Date().toDateString();
     const doneToday = orders.filter((o) => PAST.includes(o.status) && dayKey(o.created_at) === todayKey).length;
+    const onWay = orders.filter((o) => o.status === 'PICKED_UP').sort((a, b) => a.id - b.id), delivered = orders.filter((o) => o.status === 'DELIVERED' && dayKey(o.created_at) === todayKey).length;
+    // one glance: how many orders are at each step right now
+    const strip = `<div class="k-strip">${[['s-new', 'New', fresh.length, 'new'], ['s-cook', 'Cooking', cook.length, 'cook'], ['s-ready', 'Ready', ready.length, 'ready'], ['s-way', 'On the way', onWay.length, 'way'], ['', 'Delivered today', delivered, 'done']]
+      .map(([id, t, n, c]) => `<button type="button" class="k-st ${c} ${n ? 'has' : ''}" ${id ? `data-act="k-jump" data-to="${id}"` : 'data-act="go" data-path="/past"'}><b>${n}</b><span>${t}</span></button>`).join('')}</div>`;
+    const wayCard = (o) => `<div class="k-card k-way"><div class="k-top"><b class="k-code">${sc(o)}</b><span class="k-rider">${PL.icon('bike')} ${o.rider ? e(o.rider.name) : 'Delivery partner'} · on the way</span></div>${ids(o, '—')}<div class="small mute">${o.items.map((i) => `${i.qty}× ${e(i.name)}`).join(', ')}</div></div>`;
     const r0 = me.restaurant, noLoc = !hasLoc(r0);
     return `${warn}${noLoc ? locCard() : ''}${S.push === 'on' ? '' : PL.push.card('restaurant')}${headCard(me, today)}
       <button id="k-sound" class="btn block mt2 ${!PL.sound.unlocked ? '' : 'hide'}" data-act="sound-on">${PL.icon('sound')} Sound is off on this device — tap to turn on the order ring</button>
-      <div class="k-board">
+      ${strip}<div class="k-board">
       ${box('s-new', 'New orders', 'Check the items, then tap Accept. Cooking starts right away.', fresh, newCard, me.status.is_open ? 'No new orders. New orders ring and appear here.' : 'You are closed. Open the restaurant to get orders.')}
       ${box('s-cook', 'Cooking', 'When the food is packed, tap “Food is ready”.', cook, cookCard, 'Nothing cooking right now.')}
-      ${box('s-ready', 'Ready – give code to rider', 'Show the code to the rider when they arrive. The order disappears once it is picked up.', ready, readyCard, 'No orders waiting for pickup.')}</div>
+      ${box('s-ready', 'Ready – give code to rider', 'Show the code to the rider when they arrive. It moves to “On the way” once picked up.', ready, readyCard, 'No orders waiting for pickup.')}
+      ${onWay.length ? box('s-way', 'On the way to the customer', 'Picked up. You will see it under Delivered when the customer gets it.', onWay, wayCard, '') : ''}</div>
       <button class="k-pastlink" data-act="go" data-path="/past">${PL.icon('receipt')}<span class="grow"><b>Past orders</b><small>${doneToday} finished today · picked up, delivered and rejected orders</small></span>${PL.icon('chev')}</button>`;
   }
+  PL.actions['k-jump'] = (el) => document.querySelector('.k-sec.' + el.dataset.to)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   async function past() { const { orders } = await PL.api('/api/restaurant/orders'); const list = orders.filter((o) => PAST.includes(o.status));
     return `<p class="small mute">Your last ${list.length} finished orders (picked up, delivered or rejected).</p>${list.map((o) => `<div class="card">${pastRow(o)}</div>`).join('') || '<div class="empty">No past orders yet.</div>'}`; }
   // deep link target for notification taps

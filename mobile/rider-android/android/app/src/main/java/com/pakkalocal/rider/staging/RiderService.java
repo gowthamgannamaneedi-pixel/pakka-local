@@ -129,7 +129,7 @@ public class RiderService extends Service {
         }
         if (token.isEmpty() || api.isEmpty()) { stopSelf(); return START_NOT_STICKY; }
         if (wake != null && !wake.isHeld()) wake.acquire();
-        if (ex == null) { ex = Executors.newSingleThreadScheduledExecutor(); ex.scheduleWithFixedDelay(this::poll, 0, 8, TimeUnit.SECONDS); }
+        if (ex == null) { ex = Executors.newSingleThreadScheduledExecutor(); ex.scheduleWithFixedDelay(this::poll, 0, 4, TimeUnit.SECONDS); }
         startLocation();
         updateBubble();
         return START_STICKY;      // if the phone stops it, Android starts it again with the saved sign-in
@@ -174,11 +174,11 @@ public class RiderService extends Service {
             // Rings like an incoming call until the rider accepts / rejects (here, on the lock screen or in the app) or the offer is gone.
             // While the rider is looking at the app, the page turns this same ringer on and off (ring()), so the sound never drops.
             main.post(() -> { bubble.setAlert(n > 0);
-                if (waiting > 0 && !seenOnScreen) { startRing(); offerNotification(waiting, ringText, ringId); }
-                else if (waiting > 0) { if (pageRing) startRing(); else stopRing(); }      // app on screen: the page says when to ring (Accept / Not now stop it)
+                if (waiting > 0 && !seenOnScreen) { offerNotification(waiting, ringText, ringId); startRing(); }
+                else if (waiting > 0) { if (pageRing) startRing(); }      // app on screen: keeps ringing; the page stops it on Accept / Not now
                 else { stopRing(); cancelOffer(); }
                 if (frontNote) showQuiet(this, "New delivery offer", text == null ? "Open the offer to accept it." : text, "offer-front"); });
-            if (++rounds % 2 == 0) pollInbox();
+            if (++rounds % 4 == 0) pollInbox();      // about every 16 s
         } catch (Exception ignored) { /* no network: try again on the next round */ }
     }
 

@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import webpush from 'web-push';
 import { config } from '../config.js';
-import { iso, getSetting, nearActive } from './core.js';
+import { iso, getSetting, nearActive, riderInArea } from './core.js';
 import { loadFcm, fcmEnabled, sendFcm } from './fcm.js';
 
 // ---- sender abstraction: Web Push today; FCM / desktop adapters can implement the same (subscription, payload) interface ----
@@ -123,6 +123,7 @@ export function offerRiders(db, orderId, exceptRider = 0) {
     // a rider already carrying deliveries is only alerted for an order on their way, and not at all when they are full
     if (o && db.prepare("SELECT COUNT(*) FROM orders WHERE rider_id=? AND status IN ('ACCEPTED','PREPARING','READY','PICKED_UP')").pluck().get(id) >= cap) continue;
     if (o && !nearActive(db, id, o).near) continue;
+    if (!riderInArea(db, id).ok) continue;      // only partners inside the delivery area
     db.prepare("INSERT OR IGNORE INTO notifications (event_id,user_id,category,title,body,deep_link,order_id,kind) VALUES (?,?,'transactional','New delivery offer','A delivery is available. Open the app to view details.',?,?,'rider_offer')").run(`offer:${orderId}:${id}:${gen}`, id, `/rider/#/job/${orderId}`, orderId);
   }
 }
