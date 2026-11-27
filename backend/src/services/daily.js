@@ -98,10 +98,57 @@ export function sendDaily(db, now = Date.now()) {
   return n;
 }
 
+// ---------- riders: rush-hour reminders and weather safety alerts ----------
+// Approved riders only. Rush reminders go to riders who are offline shortly before lunch and dinner peaks; weather alerts
+// (rain, storm, heat, fog) go to every approved rider once a day when the area really has that weather; a late-shift safety
+// note goes to riders still online at night. 7:00–23:00 only, at most 4 a day. Admin setting rider_notify_enabled = 0 turns it off.
+const RIDER = {
+  lunch_rush: { from: 11 * 60 + 20, to: 11 * 60 + 40, offline: true,
+    t: ['Lunch rush in 30 min, {n} 🛵', '{n}, orders are about to pop off', 'Lunch peak loading, {n} ⏳'],
+    b: ['Go online now to catch lunch orders. Busy hours mean more trips.', 'Lunch peak starts around 12. Switch on and get the bag 💰', 'Kitchens are warming up. Go online to be first in line for orders.'] },
+  dinner_rush: { from: 18 * 60 + 40, to: 19 * 60, offline: true,
+    t: ['Dinner rush incoming, {n} 🌙', '{n}, evening orders are starting', 'Peak hours ahead, {n} 🔥'],
+    b: ['Go online now. Dinner is the busiest time of the day.', 'Evening peak starts around 7. Switch on and catch the wave 🌊', 'Customers are getting hungry. Go online to get dinner orders.'] },
+  night: { from: 21 * 60 + 30, to: 21 * 60 + 45, online: true,
+    t: ['Late shift, {n}? 🌙', 'Night ride check, {n}'],
+    b: ['Stay on lit roads, keep your phone charged and ride safe home.', 'Headlights on, helmet strapped, no rush. Safety first, always.'] },
+  rain: { t: ['Rain alert, {n} 🌧️', 'Roads are wet, {n}. Ride easy.'],
+    b: ['Slow down, raincoat on, keep your phone dry. Customers are told rain can delay orders.', 'Wet roads need longer braking. No delivery is worth a fall. Safety first.'] },
+  storm: { t: ['Storm alert, {n} ⛈️', 'Heavy weather, {n}. Stay safe.'],
+    b: ['If it gets heavy, stop under shelter and wait. Your safety comes before any delivery.', 'Lightning and strong wind around. Pause and shelter if needed; customers are told to expect delays.'] },
+  heat: { t: ['Heat alert, {n} 🥵', 'Hot one today, {n} ☀️'],
+    b: ['Drink water, take shade breaks and cover your head. Stay cool out there.', 'It is {temp}° outside. Keep a water bottle and rest in the shade between trips.'] },
+  fog: { t: ['Foggy roads, {n} 🌫️'], b: ['Headlights on, slow down and keep extra distance. Visibility is low.'] },
+};
+const RFROM = 7 * 60, RTO = 23 * 60, RMAX = 4;
+export function sendRiderTips(db, now = Date.now()) {
+  if (getSetting(db, 'rider_notify_enabled') === '0') return 0;
+  const day = istDay(now), m = istMin(now); if (m < RFROM || m > RTO) return 0;
+  const ttl = Number(getSetting(db, 'rider_online_ttl_sec')) * 1000;
+  const riders = db.prepare(`SELECT u.id, u.name, r.is_online, r.last_seen_at FROM users u JOIN riders r ON r.user_id=u.id WHERE u.role='rider' AND u.active=1 AND r.verification_status='approved'`).all();
+  const sent = db.prepare('SELECT 1 FROM notifications WHERE user_id=? AND event_id=?');
+  const today = db.prepare("SELECT COUNT(*) FROM notifications WHERE user_id=? AND kind='rider_tip' AND event_id LIKE ?");
+  const w = cachedWeather(), cond = w?.condition, temp = Number(w?.temp_c);
+  const wx = cond === 'storm' ? 'storm' : cond === 'rain' ? 'rain' : cond === 'fog' && m < 10 * 60 ? 'fog' : temp >= 36 && m >= 12 * 60 && m <= 16 * 60 ? 'heat' : null;
+  let n = 0;
+  for (const r of riders) {
+    const online = r.is_online === 1 && r.last_seen_at && now - Date.parse(r.last_seen_at) < ttl;
+    const first = String(r.name || '').trim().split(/\s+/)[0] || 'there';
+    const send = (k) => { const key = `rtip:${r.id}:${day}:${k}`; if (sent.get(r.id, key) || today.get(r.id, `rtip:${r.id}:${day}:%`) >= RMAX) return;
+      const c = RIDER[k], seed = `${r.id}:${day}:${k}`, fill = (x) => x.replace('{n}', first).replace('{temp}', Number.isFinite(temp) ? Math.round(temp) : '');
+      notify(db, r.id, 'transactional', fill(pick(c.t, seed + ':t')), fill(pick(c.b, seed + ':b')), '/rider/', null, key, 'rider_tip'); n++; };
+    if (wx) send(wx);
+    for (const k of ['lunch_rush', 'dinner_rush', 'night']) { const c = RIDER[k]; if (m < c.from || m > c.to) continue; if (c.offline && online) continue; if (c.online && !online) continue; send(k); }
+  }
+  return n;
+}
+
 // for the admin page: what is on and how many went out today
 export function autoStatus(db, now = Date.now()) {
   const day = istDay(now);
-  return { enabled: getSetting(db, 'daily_notify_enabled') !== '0', per_day: Math.min(3, Math.max(1, Number(getSetting(db, 'notify_per_day')) || 3)), rain: getSetting(db, 'notify_rain') !== '0',
+  return { riders_enabled: getSetting(db, 'rider_notify_enabled') !== '0', riders_sent_today: db.prepare("SELECT COUNT(*) FROM notifications WHERE kind='rider_tip' AND event_id LIKE ?").pluck().get(`rtip:%:${day}:%`),
+    riders_approved: db.prepare("SELECT COUNT(*) FROM riders r JOIN users u ON u.id=r.user_id WHERE u.active=1 AND r.verification_status='approved'").pluck().get(), weather: cachedWeather(),
+    enabled: getSetting(db, 'daily_notify_enabled') !== '0', per_day: Math.min(3, Math.max(1, Number(getSetting(db, 'notify_per_day')) || 3)), rain: getSetting(db, 'notify_rain') !== '0',
     raining_now: raining(), sent_today: db.prepare("SELECT COUNT(*) FROM notifications WHERE kind='daily' AND event_id LIKE ?").pluck().get(`daily:%:${day}:%`),
     reachable: db.prepare(`SELECT COUNT(*) FROM users u JOIN customers c ON c.user_id=u.id WHERE u.role='customer' AND u.active=1 AND c.promo_opt_in=1 AND EXISTS (SELECT 1 FROM push_subscriptions s WHERE s.user_id=u.id)`).pluck().get(),
     windows: MOMENTS.map((w) => w.k) };

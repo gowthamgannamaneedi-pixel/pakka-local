@@ -698,3 +698,4 @@ body.p-admin .tbl td .btn.sm{white-space:nowrap}
 
 .am-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}.am-grid>div{padding:10px 12px;border-radius:12px;background:var(--bg2,#f7f5f2)}.am-grid span{display:block}.am-grid b{font-size:1.1rem}
 .ok-t{color:#067647}.warn-t{color:#b54708}
+.am-sep{height:1px;background:var(--line);margin:16px 0}

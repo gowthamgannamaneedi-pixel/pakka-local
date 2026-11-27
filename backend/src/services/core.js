@@ -28,7 +28,7 @@ const DEFAULTS = { tax_bps: '0', gps_delivery_fee_paise: '4000', rider_payout_pa
   // '1' brings back the older fixed prices (each listed place's own charge, a fixed GPS charge). Off: everything by distance.
   fixed_place_fees: '0',
   // one personalised notification a day for each customer ('0' switches it off)
-  daily_notify_enabled: '1', notify_per_day: '3', notify_rain: '1',
+  daily_notify_enabled: '1', notify_per_day: '3', notify_rain: '1', rider_notify_enabled: '1',
   test_orders_everyone: '0',
   maintenance_mode: '0',
   main_admin_phone: '',

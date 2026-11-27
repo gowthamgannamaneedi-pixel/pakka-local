@@ -486,6 +486,7 @@ export function adminRoutes(db) {
       if (k === 'daily_notify_enabled' && !['0', '1'].includes(String(v))) return res.status(400).json({ error: 'daily_notify_enabled must be 0 or 1.' });
       if (k === 'notify_per_day' && !['1', '2', '3'].includes(String(v))) return res.status(400).json({ error: 'notify_per_day must be 1, 2 or 3.' });
       if (k === 'notify_rain' && !['0', '1'].includes(String(v))) return res.status(400).json({ error: 'notify_rain must be 0 or 1.' });
+      if (k === 'rider_notify_enabled' && !['0', '1'].includes(String(v))) return res.status(400).json({ error: 'rider_notify_enabled must be 0 or 1.' });
       if (k === 'test_orders_everyone' && !['0', '1'].includes(String(v))) return res.status(400).json({ error: 'test_orders_everyone must be 0 or 1.' });
       if (k === 'service_radius_km' && v !== '' && !(/^\d{1,3}(\.\d{1,2})?$/.test(String(v)) && +v > 0 && +v <= 200)) return res.status(400).json({ error: 'Service area radius must be more than 0 and at most 200 km, or empty for no limit.' });
       if (k === 'service_center_lat' && v !== '' && !(/^-?\d{1,2}\.\d{3,8}$/.test(String(v)) && Math.abs(+v) <= 90)) return res.status(400).json({ error: 'Latitude looks wrong (e.g. 17.33814).' });

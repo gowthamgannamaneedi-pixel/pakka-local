@@ -64,3 +64,5 @@ export async function currentWeather(db) {
 
 // last known weather without waiting (null when older than 30 minutes or never fetched)
 export const cachedWeather = () => (cache.data && Date.now() - cache.at < 30 * 60 * 1000 ? cache.data : null);
+// tests only: pretend the area has this weather right now
+export const setWeatherForTest = (data) => { cache = { at: Date.now(), key: 'test', data }; };
