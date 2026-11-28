@@ -20,7 +20,7 @@ const POLICIES = [['/terms', 'Terms & conditions'], ['/privacy', 'Privacy policy
 
 function page({ title, desc, path, body }) {
   const b = BUSINESS;
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>${e(title)}</title><meta name="description" content="${e(desc)}"><link rel="canonical" href="https://pakkalocal.online${e(path)}">
 <meta property="og:site_name" content="${e(b.name)}"><meta property="og:title" content="${e(title)}"><meta property="og:description" content="${e(desc)}"><meta property="og:image" content="https://pakkalocal.online/assets/icon-512.png">
 <meta name="theme-color" content="#d4500f"><link rel="icon" type="image/png" href="/assets/icon-192.png">

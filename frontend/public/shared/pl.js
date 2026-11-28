@@ -294,6 +294,9 @@
   const swReload = () => { let done = false; const go = () => { if (done) return; const typing = document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
       if (!document.hidden && (typing || document.querySelector('.ov [role=dialog]'))) { document.addEventListener('visibilitychange', go, { once: true }); return; } done = true; location.reload(); };
     if ('serviceWorker' in navigator && navigator.serviceWorker.controller) navigator.serviceWorker.addEventListener('controllerchange', go); };
+  // no zooming (iPhone Safari ignores user-scalable=no): block pinch gestures and two-finger zoom; ctrl+wheel stays for desktop accessibility
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach((t) => document.addEventListener(t, (ev) => ev.preventDefault(), { passive: false }));
+  document.addEventListener('touchmove', (ev) => { if (ev.touches && ev.touches.length > 1) ev.preventDefault(); }, { passive: false });
   PL.start = (c) => { cfg = c; PL.portal = c.portal; document.body.classList.add("p-" + c.portal); if ('serviceWorker' in navigator) { swReload(); navigator.serviceWorker.register('/sw.js').then((r) => { setInterval(() => r.update().catch(() => {}), 10 * 60_000); document.addEventListener('visibilitychange', () => { if (!document.hidden) r.update().catch(() => {}); }); }).catch(() => {}); } PL.boot(); };
   // ---------- "Install the app" sheet (customer, restaurant and admin portals) ----------
   // Shown after every sign-in and once on every new visit, unless the app is already installed. Chrome/Edge give a real install
