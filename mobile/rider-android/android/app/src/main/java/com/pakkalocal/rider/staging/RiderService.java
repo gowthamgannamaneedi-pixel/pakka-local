@@ -62,6 +62,9 @@ public class RiderService extends Service {
     private volatile int active;
     private ScheduledExecutorService ex;
     private LocationManager lm;
+    // accept / reject / location posts run here, so they never wait behind the long offer check
+    private java.util.concurrent.ExecutorService io;
+    private String pollKey = null; private long posAt = 0;
     private volatile Location last;
     private volatile long lastSent, every = 7000;
     private final Set<Long> seen = new HashSet<>();
@@ -108,7 +111,7 @@ public class RiderService extends Service {
         if (i != null && ("pl.offer.reject".equals(i.getAction()) || "pl.offer.accept".equals(i.getAction())) && inst != null && !token.isEmpty()) {
             final long id = i.getLongExtra("id", 0); final boolean accept = "pl.offer.accept".equals(i.getAction());
             stopRing(); cancelOffer(); handled.add(id);
-            if (ex != null) ex.execute(() -> { try { http("POST", "/api/rider/orders/" + id + (accept ? "/accept" : "/dismiss"), "{}"); } catch (Exception ignored) {} });
+            if (io != null) io.execute(() -> { try { http("POST", "/api/rider/orders/" + id + (accept ? "/accept" : "/dismiss"), "{}"); } catch (Exception ignored) {} });
             return START_STICKY;
         }
         if (i != null && i.hasExtra("token")) {
@@ -129,7 +132,9 @@ public class RiderService extends Service {
         }
         if (token.isEmpty() || api.isEmpty()) { stopSelf(); return START_NOT_STICKY; }
         if (wake != null && !wake.isHeld()) wake.acquire();
-        if (ex == null) { ex = Executors.newSingleThreadScheduledExecutor(); ex.scheduleWithFixedDelay(this::poll, 0, 4, TimeUnit.SECONDS); }
+        if (io == null) io = Executors.newSingleThreadExecutor();
+        // offers: a long check that the server answers the moment something changes, then the next one a second later
+        if (ex == null) { ex = Executors.newSingleThreadScheduledExecutor(); ex.scheduleWithFixedDelay(this::poll, 0, 1, TimeUnit.SECONDS); }
         startLocation();
         updateBubble();
         return START_STICKY;      // if the phone stops it, Android starts it again with the saved sign-in
@@ -139,6 +144,7 @@ public class RiderService extends Service {
     public void onDestroy() {
         inst = null;
         if (ex != null) ex.shutdownNow();
+        if (io != null) io.shutdownNow();
         stopLocation();
         main.post(() -> bubble.hide());
         if (wake != null && wake.isHeld()) wake.release();
@@ -150,11 +156,12 @@ public class RiderService extends Service {
     // ---------- offers ----------
     private void poll() {
         try {
-            String[] r = http("GET", "/api/rider/offers", null);
+            sendArea();
+            String[] r = http("GET", "/api/rider/offers?wait=20" + (pollKey == null ? "" : "&key=" + java.net.URLEncoder.encode(pollKey, "UTF-8")), null, 35000);
             int code = Integer.parseInt(r[0]);
             if (code == 401) { getSharedPreferences("rider_bg", MODE_PRIVATE).edit().clear().apply(); main.post(this::stopSelf); return; }        // signed out or session expired
-            if (code != 200) return;
-            JSONObject j = new JSONObject(r[1]);
+            if (code != 200) { pollKey = null; Thread.sleep(3000); return; }
+            JSONObject j = new JSONObject(r[1]); pollKey = j.optString("key", null);
             JSONArray offers = j.optJSONArray("offers"), act = j.optJSONArray("active");
             int nAct = act == null ? 0 : act.length();
             boolean fresh = false; Set<Long> now = new HashSet<>(); String first = null;
@@ -242,9 +249,9 @@ public class RiderService extends Service {
 
     private void maybeSend() {
         final Location l = last;
-        if (l == null || inFront() || active <= 0 || System.currentTimeMillis() - lastSent < every || ex == null) return;
+        if (l == null || inFront() || active <= 0 || System.currentTimeMillis() - lastSent < every || io == null) return;
         lastSent = System.currentTimeMillis();
-        ex.execute(() -> {
+        io.execute(() -> {
             try {
                 JSONObject b = new JSONObject().put("lat", l.getLatitude()).put("lng", l.getLongitude()).put("recorded_at", Math.min(l.getTime(), System.currentTimeMillis()));
                 if (l.hasAccuracy()) b.put("accuracy", l.getAccuracy());
@@ -372,10 +379,25 @@ public class RiderService extends Service {
     // ---------- floating icon ----------
     private void updateBubble() { if (inst == null) return; if (foreground) bubble.hide(); else bubble.show(); }
 
+    // Every 2 minutes, the phone's last known position, so Pakka Local knows the partner is inside the delivery area even while
+    // the app is in the background (one point, overwritten on the server; no history).
+    private void sendArea() {
+        if (System.currentTimeMillis() - posAt < 120000 || !hasLocation() || io == null) return; posAt = System.currentTimeMillis();
+        try {
+            LocationManager m = (LocationManager) getSystemService(LOCATION_SERVICE); if (m == null) return; Location best = null;
+            for (String p : new String[]{LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER}) {
+                try { Location l = m.getLastKnownLocation(p); if (l != null && (best == null || l.getTime() > best.getTime())) best = l; } catch (Exception ignored) {}
+            }
+            final Location l = best; if (l == null) return;
+            io.execute(() -> { try { http("POST", "/api/rider/position", new JSONObject().put("lat", l.getLatitude()).put("lng", l.getLongitude()).toString()); } catch (Exception ignored) {} });
+        } catch (Exception ignored) {}
+    }
+
     // ---------- small HTTPS helper (same server and session as the web page) ----------
-    private String[] http(String method, String path, String body) throws Exception {
+    private String[] http(String method, String path, String body) throws Exception { return http(method, path, body, 10000); }
+    private String[] http(String method, String path, String body, int readMs) throws Exception {
         HttpURLConnection c = (HttpURLConnection) new URL(api + path).openConnection();
-        c.setRequestMethod(method); c.setConnectTimeout(10000); c.setReadTimeout(10000);
+        c.setRequestMethod(method); c.setConnectTimeout(10000); c.setReadTimeout(readMs);
         c.setRequestProperty("Authorization", "Bearer " + token); c.setRequestProperty("Accept", "application/json");
         if (body != null) { c.setDoOutput(true); c.setRequestProperty("Content-Type", "application/json"); try (OutputStream o = c.getOutputStream()) { o.write(body.getBytes(StandardCharsets.UTF_8)); } }
         int code = c.getResponseCode();

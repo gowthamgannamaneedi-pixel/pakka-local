@@ -56,12 +56,22 @@ export function riderRoutes(db) {
     db.prepare('UPDATE riders SET is_online=?, last_seen_at=? WHERE user_id=?').run(d.online ? 1 : 0, iso(), req.user.id);   // active deliveries are untouched
     res.json({ online: d.online });
   }));
-  r.get('/offers', (req, res) => {
-    touch(req); const x = me(req);
+  // ?wait=N&key=K: hold the request up to N seconds (max 25) until the answer differs from K (the "key" of the previous
+  // answer): a new offer reaches the phone within about half a second instead of at the next check.
+  r.get('/offers', async (req, res) => {
+    const wait = Math.min(Math.max(Number(req.query.wait) || 0, 0), 25), known = typeof req.query.key === 'string' ? req.query.key : null;
+    try {
+      let out = offersFor(req), gone = false; res.on('close', () => { gone = true; });      // the phone gave up (or the app closed)
+      for (const end = Date.now() + wait * 1000; wait && known !== null && out.key === known && Date.now() < end && !gone;) { await new Promise((ok) => setTimeout(ok, 500)); out = offersFor(req); }
+      if (!gone) res.json(out);
+    } catch { if (!res.headersSent) res.status(500).json({ error: 'Could not load offers.' }); }
+  });
+  const offersFor = (req) => {
+    touch(req); const x = me(req), done = (o) => ({ ...o, key: [o.offers.map((y) => y.id).join(','), o.active.map((y) => `${y.id}:${y.status}`).join(','), o.out_of_area ? 'out' : ''].join('|') });
     // deliveries already assigned stay visible (and finishable) whatever the verification state; new offers only for approved + online
     const active = db.prepare("SELECT * FROM orders WHERE rider_id=? AND status IN ('ACCEPTED','PREPARING','READY','PICKED_UP') ORDER BY id").all(req.user.id).map((o) => card(o, true)).map(restaurantMaps);
-    if (!x.is_online || x.verification_status !== 'approved') return res.json({ offers: [], active });
-    const inA = riderInArea(db, req.user.id); if (!inA.ok) return res.json({ offers: [], active, out_of_area: inA });
+    if (!x.is_online || x.verification_status !== 'approved') return done({ offers: [], active });
+    const inA = riderInArea(db, req.user.id); if (!inA.ok) return done({ offers: [], active, out_of_area: inA });
     const full = active.length >= Number(getSetting(db, 'max_active_per_rider'));
     // while carrying a delivery, only offers on the way (restaurant and drop-off near a current delivery) are shown, nearest first
     const offers = full ? [] : db.prepare(`SELECT * FROM orders o WHERE rider_id IS NULL AND status IN ('ACCEPTED','PREPARING','READY')
@@ -69,8 +79,8 @@ export function riderRoutes(db) {
       .map((o) => ({ o, n: nearActive(db, req.user.id, o) })).filter((x) => !x.n.busy || x.n.near)
       .sort((a, b) => (a.n.busy ? a.n.pickup_m + a.n.drop_m : 0) - (b.n.busy ? b.n.pickup_m + b.n.drop_m : 0) || a.o.id - b.o.id)
       .map(({ o, n }) => ({ ...restaurantMaps(card(o, false)), on_the_way: n.busy ? { pickup_km: Math.round(n.pickup_m / 100) / 10, drop_km: Math.round(n.drop_m / 100) / 10 } : null }));
-    res.json({ offers, active, can_add: !full, batch_radius_km: Number(getSetting(db, 'batch_radius_km')) || 2 });
-  });
+    return done({ offers, active, can_add: !full, batch_radius_km: Number(getSetting(db, 'batch_radius_km')) || 2 });
+  };
   // single order (notification deep link): only if it is yours, or still genuinely open for you to take
   r.get('/orders/:id(\\d+)', (req, res) => { touch(req); const x = me(req);
     const o = db.prepare("SELECT * FROM orders WHERE id=? AND (rider_id=? OR (rider_id IS NULL AND status IN ('ACCEPTED','PREPARING','READY')))").get(req.params.id, req.user.id);

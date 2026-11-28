@@ -49,3 +49,18 @@ test('admin analysis: per-restaurant orders and earnings, how orders ended, reje
   }
   assert.equal((await W.call('GET', '/api/admin/analytics?preset=today', null, W.rider)).status, 403);
 });
+
+test('fast offers: a waiting request comes back about half a second after the restaurant accepts an order (not at Food is ready)', async () => {
+  await W.call('POST', '/api/rider/position', { lat: 17.39, lng: 78.49 }, W.rider); await W.call('POST', '/api/rider/online', { online: true }, W.rider);
+  for (const o of (await W.call('GET', '/api/rider/offers', null, W.rider)).body.active) W.db.prepare("UPDATE orders SET status='DELIVERED' WHERE id=?").run(o.id);
+  const first = (await W.call('GET', '/api/rider/offers', null, W.rider)).body; assert.ok(first.key != null);
+  const t0 = Date.now(), waiting = W.call('GET', `/api/rider/offers?wait=10&key=${encodeURIComponent(first.key)}`, null, W.rider);
+  const r = await W.call('POST', '/api/customer/orders', { restaurant_id: W.rest, items: [{ id: W.item, qty: 1 }], address_id: await (async () => (await W.call('POST', '/api/customer/addresses', FIX({ lat: 17.3905, lng: 78.4867 }), W.cust)).body.address.id)(), confirm_destination: true }, W.cust);
+  await W.call('POST', `/api/customer/payments/sandbox/${r.body.order_code}/complete`, { outcome: 'success' }, W.cust);
+  const id = W.db.prepare('SELECT id FROM orders WHERE order_code=?').pluck().get(r.body.order_code);
+  await new Promise((ok) => setTimeout(ok, 1200)); const tAcc = Date.now();
+  await W.call('POST', `/api/restaurant/orders/${id}/accept`, {}, W.owner);
+  const got = (await waiting).body; const ms = Date.now() - tAcc;
+  assert.ok(got.offers.some((x) => x.id === id), 'offer arrives on Accept'); assert.ok(ms < 1500, `came back ${ms} ms after Accept`); assert.ok(Date.now() - t0 < 9000);
+  const t1 = Date.now(); const same = (await W.call('GET', `/api/rider/offers?wait=1&key=${encodeURIComponent(got.key)}`, null, W.rider)).body; assert.ok(Date.now() - t1 >= 900, 'no change: waits'); assert.equal(same.key, got.key);
+});
