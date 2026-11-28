@@ -27,6 +27,8 @@ const tileSrc = (() => { try { const u = new URL(config.map.tileUrl.replace('{s}
 export function createApp(db) {
   const app = express();
   app.set('trust proxy', config.trustProxy);
+  // one address for search engines: www.pakkalocal.online -> pakkalocal.online (permanent), so Google keeps a single copy
+  app.use((req, res, next) => { const h = String(req.headers.host || ''); if (/^www\./i.test(h) && (req.method === 'GET' || req.method === 'HEAD')) return res.redirect(301, `https://${h.slice(4)}${req.originalUrl}`); next(); });
   app.disable('x-powered-by');
   // referrer: other sites see only our origin (https://pakkalocal.online), never the page path. OpenStreetMap's tile servers
   // refuse map tiles without it ("Access blocked"), so 'no-referrer' must not be used.
@@ -68,7 +70,7 @@ export function createApp(db) {
     if (!config.isTest && !fs.existsSync(path.join(root, 'vendor/leaflet/leaflet.js'))) console.warn('Map library missing: run scripts/vendor-leaflet.sh before deploying. Tracking works, but maps show a notice instead.');
     if (config.isProd && !config.map.tileUrl) console.warn('MAP_TILE_URL is not set: tracking pages will show status without a map.');
     app.use(express.static(root, { index: false, setHeaders: (res, f) => { if (f.endsWith('sw.js')) res.set('Cache-Control', 'no-cache'); } }));
-    app.get('/', (req, res) => res.redirect(302, '/user/'));      // the customer app is the home page (guests can browse without logging in)
+    app.get('/', (req, res) => res.redirect(301, '/user/'));      // the customer app is the home page (guests can browse without logging in); permanent, for search engines
     app.use(siteRoutes());      // public contact and policy pages (no login)
     for (const p of ['user', 'restaurant', 'rider', 'admin']) app.get([`/${p}`, `/${p}/*`], (req, res, next) => /\.\w+$/.test(req.path) ? next() : res.sendFile(path.join(root, p, 'index.html')));
   }
