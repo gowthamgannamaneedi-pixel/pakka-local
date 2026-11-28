@@ -62,13 +62,16 @@ export function riderRoutes(db) {
   // ?wait=N&key=K: hold the request up to N seconds (max 25) until the answer differs from K (the "key" of the previous
   // answer): a new offer reaches the phone within about half a second instead of at the next check.
   r.get('/offers', async (req, res) => {
-    const wait = Math.min(Math.max(Number(req.query.wait) || 0, 0), 25), known = typeof req.query.key === 'string' ? req.query.key : null;
+    const cap = Number(getSetting(db, 'offers_wait_sec')), wait = Math.min(Math.max(Number(req.query.wait) || 0, 0), Number.isFinite(cap) ? cap : 20, 25), known = typeof req.query.key === 'string' ? req.query.key : null;
     try {
       let out = offersFor(req), gone = false; res.on('close', () => { gone = true; });      // the phone gave up (or the app closed)
       for (const end = Date.now() + wait * 1000; wait && known !== null && out.key === known && Date.now() < end && !gone;) { await new Promise((ok) => setTimeout(ok, 500)); out = offersFor(req); }
-      if (!gone) res.json(out);
+      if (!gone) { res.json(out); seenOffers(req.user.id, out.offers); }
     } catch { if (!res.headersSent) res.status(500).json({ error: 'Could not load offers.' }); }
   });
+  // first time an offer reached this partner's phone (rider_assignments OFFERED row; Accept / Not now update the same row)
+  const seenOffers = (riderId, offers) => { try { const ins = db.prepare("INSERT OR IGNORE INTO rider_assignments (order_id,rider_id,status,offered_at) VALUES (?,?,'OFFERED',?)");
+    for (const o of offers) ins.run(o.id, riderId, new Date().toISOString()); } catch { /* never block offers */ } };
   const offersFor = (req) => {
     touch(req); const x = me(req), done = (o) => ({ ...o, key: [o.offers.map((y) => y.id).join(','), o.active.map((y) => `${y.id}:${y.status}`).join(','), o.out_of_area ? 'out' : ''].join('|') });
     // deliveries already assigned stay visible (and finishable) whatever the verification state; new offers only for approved + online

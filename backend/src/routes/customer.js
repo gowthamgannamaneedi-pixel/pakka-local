@@ -33,6 +33,8 @@ export const MAINT_DEFAULT = 'We are making Pakka Local better. Ordering will be
 export const maintenance = (db) => (getSetting(db, 'maintenance_mode') === '1' ? { message: (getSetting(db, 'maintenance_message') || '').trim() || MAINT_DEFAULT } : null);
 export function publicRoutes(db) {
   const r = Router();
+  // connection check: answers after s seconds (max 25), to see whether the hosting keeps long requests open
+  r.get('/wait', async (req, res) => { const s = Math.min(Math.max(Number(req.query.s) || 0, 0), 25); await new Promise((ok) => setTimeout(ok, s * 1000)); res.json({ waited: s }); });
   r.get('/config', (req, res) => res.json({ maintenance: maintenance(db), loginChannel: loginChannel(), emailLogin: !!config.emailOtp.enabled, testPayments: config.sandboxPayments, paymentsAvailable: config.sandboxPayments, ridersAvailable: eligibleRiderCount(db) > 0, noRiderMessage: NO_RIDER_MSG, business: { name: BUSINESS.name, phone: BUSINESS.phone, email: BUSINESS.email, address: BUSINESS.address || null } }));
   // weather at the service area (cached on the server), only to set the app's look; null when unknown
   r.get('/weather', async (req, res) => { res.set('Cache-Control', 'public, max-age=300'); res.json({ weather: await currentWeather(db).catch(() => null) }); });

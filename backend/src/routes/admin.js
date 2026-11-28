@@ -224,6 +224,10 @@ export function adminRoutes(db) {
       items: db.prepare('SELECT * FROM order_items WHERE order_id=?').all(o.id), payment: db.prepare('SELECT provider,merchant_order_id,provider_txn_id,status,amount_paise FROM payments WHERE order_id=?').get(o.id),
       refund: db.prepare('SELECT id,status,amount_paise,reason FROM refunds WHERE order_id=?').get(o.id) || null,
       events: db.prepare('SELECT e.event_type,e.actor_role,e.actor_user_id,e.metadata,e.created_at,u.name AS actor_name FROM order_events e LEFT JOIN users u ON u.id=e.actor_user_id WHERE order_id=? ORDER BY e.id').all(o.id),
+      // how fast the offer reached each delivery partner after the restaurant accepted
+      offer_times: (() => { const acc = db.prepare("SELECT created_at FROM order_events WHERE order_id=? AND event_type='RESTAURANT_ACCEPTED' ORDER BY id LIMIT 1").pluck().get(o.id);
+        return db.prepare('SELECT u.name, a.status, a.offered_at, a.responded_at, a.reason FROM rider_assignments a JOIN users u ON u.id=a.rider_id WHERE a.order_id=? ORDER BY a.offered_at').all(o.id)
+          .map((x) => ({ ...x, seconds_after_accept: acc && x.offered_at ? Math.round((Date.parse(x.offered_at) - Date.parse(acc)) / 100) / 10 : null })); })(),
       platform_revenue_paise: o.markup_paise + o.commission_paise + (o.delivery_paise - o.rider_payout_paise) + o.surge_paise - (o.discount_paise || 0) });
   });
   // manual UPI refunds: list (full UPI IDs, admins only), approve / reject / paid (fresh password) / failed
@@ -540,6 +544,7 @@ export function adminRoutes(db) {
       if (k === 'gps_capture_timeout_sec' && !(/^\d{1,3}$/.test(String(v)) && +v >= 5 && +v <= 120)) return res.status(400).json({ error: 'GPS timeout must be 5 to 120 seconds.' });
       if (['rider_base_km_paise', 'rider_route_km_paise'].includes(k) && !(/^\d{1,5}$/.test(String(v)) && +v <= 5000)) return res.status(400).json({ error: 'Per-km rider pay must be ₹0 to ₹50.' });
       if (k === 'delivery_covers_rider' && !['0', '1'].includes(String(v))) return res.status(400).json({ error: 'delivery_covers_rider must be 0 or 1.' });
+      if (k === 'offers_wait_sec' && !(/^\d{1,2}$/.test(String(v)) && +v <= 25)) return res.status(400).json({ error: 'Offer wait must be 0 to 25 seconds.' });
       if (k === 'rider_reject_alert' && !(/^\d{1,2}$/.test(String(v)) && +v >= 1 && +v <= 50)) return res.status(400).json({ error: 'Turn-down review must start at 1 to 50 offers a day.' });
       if (k === 'rider_min_cover_km' && !(/^\d+(\.\d+)?$/.test(String(v)) && +v >= 0 && +v <= 10)) return res.status(400).json({ error: 'Distance covered by the minimum must be 0 to 10 km.' });
       if (k === 'rider_short_km_paise' && !(/^\d{1,4}$/.test(String(v)) && +v <= 2000)) return res.status(400).json({ error: 'Short-trip extra must be ₹0 to ₹20 per km.' });
@@ -561,7 +566,7 @@ export function adminRoutes(db) {
       if (['gps_per_km_paise', 'gps_min_fee_paise'].includes(k) && v !== '' && !(/^\d{1,6}$/.test(String(v)) && +v >= 0 && +v <= 100000)) return res.status(400).json({ error: 'Charges must be ₹0 to ₹1,000, or empty.' });
       if (k === 'gps_max_km' && v !== '' && !(/^\d{1,3}(\.\d{1,2})?$/.test(String(v)) && +v > 0 && +v <= 100)) return res.status(400).json({ error: 'Maximum distance must be more than 0 and at most 100 km, or empty.' });
       if (k === 'gps_fix_max_age_min' && !(/^\d{1,3}$/.test(String(v)) && +v >= 1 && +v <= 120)) return res.status(400).json({ error: 'GPS reading age must be 1 to 120 minutes.' });
-      if (!['delivery_otp_mode', 'fixed_delivery_otp', 'payout_methods', 'restaurant_accept_timeout_min', 'gps_accuracy_warn_m', 'gps_per_km_paise', 'gps_min_fee_paise', 'gps_max_km', 'rider_per_km_paise', 'rider_min_payout_paise', 'rider_base_km_paise', 'rider_route_km_paise', 'rider_route_switch_km', 'rider_min_cover_km', 'rider_short_km_paise', 'rider_reject_alert', 'delivery_covers_rider', 'batch_radius_km', 'maintenance_message', 'service_radius_km', 'service_center_lat', 'service_center_lng', 'service_center_name'].includes(k) && !/^\d{1,9}$/.test(String(v))) return res.status(400).json({ error: `${k} must be a whole number.` }); }
+      if (!['delivery_otp_mode', 'fixed_delivery_otp', 'payout_methods', 'restaurant_accept_timeout_min', 'gps_accuracy_warn_m', 'gps_per_km_paise', 'gps_min_fee_paise', 'gps_max_km', 'rider_per_km_paise', 'rider_min_payout_paise', 'rider_base_km_paise', 'rider_route_km_paise', 'rider_route_switch_km', 'rider_min_cover_km', 'rider_short_km_paise', 'rider_reject_alert', 'delivery_covers_rider', 'offers_wait_sec', 'batch_radius_km', 'maintenance_message', 'service_radius_km', 'service_center_lat', 'service_center_lng', 'service_center_name'].includes(k) && !/^\d{1,9}$/.test(String(v))) return res.status(400).json({ error: `${k} must be a whole number.` }); }
     const changed = Object.fromEntries(Object.entries(s).filter(([k, v]) => String(getSetting(db, k)) !== String(v)).map(([k, v]) => [k, { from: getSetting(db, k), to: String(v) }]));
     for (const [k, v] of Object.entries(s)) setSetting(db, k, v);
     if (Object.keys(changed).length) audit(db, req, changed.gps_delivery_fee_paise || changed.gps_per_km_paise || changed.gps_min_fee_paise || changed.gps_max_km ? 'settings.gps_fee_change' : 'settings.update', 'settings', null, { changed });      // exact old -> new values

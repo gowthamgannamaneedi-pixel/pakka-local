@@ -48,6 +48,8 @@ const DEFAULTS = { tax_bps: '0', gps_delivery_fee_paise: '4000', rider_payout_pa
   rider_min_cover_km: '1', rider_short_km_paise: '400',
   // from this many turn-downs in a day (India time), each further turn-down alerts admin and the partner is listed for review
   rider_reject_alert: '2',
+  // how long the rider app's offer check may wait for a change on the server (seconds; 0 = answer at once)
+  offers_wait_sec: '20',
   // the customer's delivery charge is never below the delivery partner's pay for that trip (Pakka Local pays no delivery cost)
   // (on by default; the automated price tests of the per-km / place / distance charges switch it on only where they check it)
   delivery_covers_rider: process.env.NODE_ENV === 'test' ? '0' : '1',
