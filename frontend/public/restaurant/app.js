@@ -18,8 +18,8 @@
       const msg = !p.rider && x.rider ? `Delivery partner ${x.rider} is coming for #${x.code}` : p.st !== 'PICKED_UP' && x.st === 'PICKED_UP' ? `#${x.code} picked up by the delivery partner` : p.st !== 'DELIVERED' && x.st === 'DELIVERED' ? `#${x.code} delivered` : p.st !== 'CANCELLED' && x.st === 'CANCELLED' ? `#${x.code} was cancelled by Pakka Local` : null;
       if (msg) { PL.chime(); PL.toast(msg, x.st === 'CANCELLED' ? true : 'ok'); } }
     const sig = Object.entries(snap).map(([id, x]) => `${id}:${x.st}:${x.rider || ''}`).join('|');
-    if (S.sig != null && sig !== S.sig && /^#\/(orders)?$|^$/.test(location.hash) && !document.querySelector('.ov [role=dialog]') && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || '')) PL.rerender();
-    S.sig = sig; S.snap = snap;
+    if (S.ordSig != null && sig !== S.ordSig && /^#\/(orders)?$|^$/.test(location.hash) && !document.querySelector('.ov [role=dialog]') && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || '')) PL.rerender();
+    S.ordSig = sig; S.snap = snap;
     if (S.prevN != null && pending.length > S.prevN) { try { navigator.vibrate?.([220, 120, 220]); } catch {} }
     S.prevN = pending.length; document.title = pending.length ? `(${pending.length}) New order · Pakka Local` : 'Restaurant · Pakka Local';
     const box = PL.$('#alerts'); if (!box) return;
