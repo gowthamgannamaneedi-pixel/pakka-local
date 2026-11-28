@@ -64,3 +64,11 @@ test('fast offers: a waiting request comes back about half a second after the re
   assert.ok(got.offers.some((x) => x.id === id), 'offer arrives on Accept'); assert.ok(ms < 1500, `came back ${ms} ms after Accept`); assert.ok(Date.now() - t0 < 9000);
   const t1 = Date.now(); const same = (await W.call('GET', `/api/rider/offers?wait=1&key=${encodeURIComponent(got.key)}`, null, W.rider)).body; assert.ok(Date.now() - t1 >= 900, 'no change: waits'); assert.equal(same.key, got.key);
 });
+
+test('rider navigates to the same restaurant point customers see (saved pin), never a typed link or name search', async () => {
+  W.db.prepare("UPDATE restaurants SET maps_link='https://maps.google.com/?q=Some+Other+Branch' WHERE id=?").run(W.rest);
+  const pin = W.db.prepare('SELECT pickup_lat AS lat, pickup_lng AS lng FROM restaurants WHERE id=?').get(W.rest);
+  const pub = (await W.call('GET', '/api/public/restaurants')).body.restaurants.find((x) => x.id === W.rest); assert.deepEqual([pub.lat, pub.lng], [pin.lat, pin.lng], 'customer sees the pin');
+  const d = (await W.call('GET', '/api/rider/offers', null, W.rider)).body, c = [...d.offers, ...d.active][0]; assert.ok(c, 'has an offer or delivery');
+  assert.deepEqual([c.restaurant.lat, c.restaurant.lng], [pin.lat, pin.lng]); assert.match(c.restaurant.maps_link, new RegExp(`destination=${pin.lat}%2C${pin.lng}`)); assert.doesNotMatch(c.restaurant.maps_link, /Other/);
+});

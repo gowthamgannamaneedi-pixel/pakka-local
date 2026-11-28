@@ -118,7 +118,8 @@ test('rider: only the assigned rider gets the coordinates, written details and a
   assert.equal(offer, undefined);                                                                                              // still PLACED: not offered yet
   assert.equal((await call('POST', `/api/restaurant/orders/${S.oid}/accept`, {}, S.rest)).status, 200);
   const o1 = (await call('GET', '/api/rider/offers', null, S.rd1)).body.offers.find((x) => x.id === S.oid);
-  for (const k of ['17.4401', '78.3489', '204', 'Back gate', '9700000031', 'google.com/maps/dir']) assert.ok(!JSON.stringify(o1).includes(k), k);
+  for (const k of ['17.4401', '78.3489', '204', 'Back gate', '9700000031']) assert.ok(!JSON.stringify(o1).includes(k), k);
+  assert.ok(!JSON.stringify({ d: o1.destination, c: o1.customer }).includes('google.com/maps/dir'), 'no customer navigation link before accepting (the restaurant link is public)');
   assert.equal(o1.destination.nav_url, undefined); assert.equal(o1.destination.lat, null);
   assert.equal((await call('POST', `/api/rider/orders/${S.oid}/accept`, {}, S.rd1)).status, 200);
   const d = (await call('GET', '/api/rider/active', null, S.rd1)).body.active.find((x) => x.id === S.oid).destination;

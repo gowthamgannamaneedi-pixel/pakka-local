@@ -28,7 +28,10 @@ export function riderRoutes(db) {
     const dm = Number.isFinite(o.delivery_distance_m) ? o.delivery_distance_m : pk0?.lat != null && o.dest_lat != null ? straightM(pk0, { lat: o.dest_lat, lng: o.dest_lng }) : null;
     const pay_parts = dm != null && !Number(getSetting(db, 'rider_per_km_paise')) ? { ...riderPayParts(db, dm), total_paise: o.rider_payout_paise } : null;
     return { id: o.id, order_code: o.order_code, status: o.status, fee_paise: o.rider_payout_paise, pay_parts, eta_at: o.eta_at,
-      restaurant: db.prepare('SELECT name,address,phone,maps_link FROM restaurants WHERE id=?').get(o.restaurant_id),
+      // the restaurant's saved map pin (the same point customers see and charges are measured from); navigation goes to that
+      // exact point. A typed Maps link or a name search is used only when no pin has been saved.
+      restaurant: (({ name, address, phone, maps_link }) => ({ name, address, phone, lat: pk0?.lat ?? null, lng: pk0?.lng ?? null, pin: navUrl(pk0?.lat, pk0?.lng) != null,
+        maps_link: navUrl(pk0?.lat, pk0?.lng) || maps_link || null }))(db.prepare('SELECT name,address,phone,maps_link FROM restaurants WHERE id=?').get(o.restaurant_id) || {}),
       customer: mine ? { name: o.customer_name, phone: o.customer_phone } : { name: null, phone: null },
       destination: mine ? { text: o.dest_text, lat: o.dest_lat, lng: o.dest_lng, maps_link: o.dest_maps_link, nav_url: navUrl(o.dest_lat, o.dest_lng),
           kind: o.dest_kind, location_name: o.dest_location_name, coord_source: o.dest_coord_source, label: o.dest_label, place_name: o.dest_place_name, building: o.dest_building, block: o.dest_block, floor: o.dest_floor, room: o.dest_room,
